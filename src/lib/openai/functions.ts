@@ -33,16 +33,20 @@ export async function executeFunctionCall(
 
     console.log(`[Function Call] Sending webhook request to Zapier...`);
 
+    const formData = new URLSearchParams();
+    formData.append('function', functionName);
+    formData.append('timestamp', new Date().toISOString());
+
+    for (const [key, value] of Object.entries(parsedArgs)) {
+      formData.append(key, String(value));
+    }
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({
-        function: functionName,
-        timestamp: new Date().toISOString(),
-        ...parsedArgs
-      })
+      body: formData.toString(),
     });
 
     console.log(`[Function Call] Webhook response status: ${response.status}`);
@@ -56,7 +60,7 @@ export async function executeFunctionCall(
       };
     }
 
-    const responseData = await response.json().catch(() => ({}));
+    const responseData = await response.json().catch(() => ({ received: true }));
 
     console.log(`[Function Call] ✅ Function ${functionName} executed successfully`);
     console.log(`[Function Call] Response data:`, responseData);

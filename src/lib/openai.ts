@@ -256,19 +256,24 @@ export async function sendMessage(
               console.log(`[Function Call] Webhook URL found: ${webhookUrl}`);
               console.log(`[Function Call] Sending data to webhook:`, functionArgs);
 
+              const formData = new URLSearchParams();
+              for (const [key, value] of Object.entries(functionArgs)) {
+                formData.append(key, String(value));
+              }
+
               const response = await fetch(webhookUrl, {
                 method: 'POST',
                 headers: {
-                  'Content-Type': 'application/json',
+                  'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: JSON.stringify(functionArgs),
+                body: formData.toString(),
               });
 
               if (!response.ok) {
                 throw new Error(`Webhook request failed: ${response.statusText}`);
               }
 
-              const responseData = await response.json();
+              const responseData = await response.json().catch(() => ({ received: true }));
               console.log(`[Function Call] ✅ Webhook response:`, responseData);
 
               toolOutputs.push({
