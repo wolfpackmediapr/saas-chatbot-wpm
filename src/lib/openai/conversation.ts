@@ -189,7 +189,8 @@ export async function sendMessage(
 
     const run = await client.beta.threads.runs.create(threadId, {
       assistant_id: assistantId,
-      tools: tools
+      tools: tools,
+      tool_choice: 'auto'
     });
 
     let response;
