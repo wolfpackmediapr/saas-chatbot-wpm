@@ -75,113 +75,86 @@ export async function sendMessage(
             properties: {
               full_name: {
                 type: 'string',
-                description: 'Full name of the lead'
+                description: 'Full name of the client'
               },
               email: {
-                type: 'string',
-                description: 'Email address of the lead'
-              },
-              phone: {
-                type: 'string',
-                description: 'Phone number of the lead'
-              },
-              message: {
-                type: 'string',
-                description: 'Message or details about the lead inquiry'
-              }
-            },
-            required: ['full_name', 'email', 'phone', 'message']
-          }
-        }
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'qualifyLead',
-          description: 'Qualify a lead based on their responses and project requirements',
-          parameters: {
-            type: 'object',
-            properties: {
-              leadScore: {
-                type: 'number',
-                description: 'Score from 1-10 indicating lead quality'
-              },
-              qualificationNotes: {
-                type: 'string',
-                description: 'Notes about why the lead was qualified or not'
-              },
-              readyToConvert: {
-                type: 'boolean',
-                description: 'Whether the lead is ready to become a client'
-              }
-            },
-            required: ['leadScore', 'readyToConvert']
-          }
-        }
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'scheduleConsultation',
-          description: 'Schedule a consultation call or meeting with the lead',
-          parameters: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Name of the person scheduling'
-              },
-              email: {
-                type: 'string',
-                description: 'Email address for calendar invite'
-              },
-              preferredDate: {
-                type: 'string',
-                description: 'Preferred date for consultation'
-              },
-              preferredTime: {
-                type: 'string',
-                description: 'Preferred time for consultation'
-              },
-              consultationType: {
-                type: 'string',
-                description: 'Type of consultation (phone, video, in-person)'
-              }
-            },
-            required: ['name', 'email']
-          }
-        }
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'createInvoice',
-          description: 'Create an invoice for services or products',
-          parameters: {
-            type: 'object',
-            properties: {
-              clientName: {
-                type: 'string',
-                description: 'Name of the client'
-              },
-              clientEmail: {
                 type: 'string',
                 description: 'Email address of the client'
               },
-              amount: {
-                type: 'number',
-                description: 'Invoice amount in dollars'
-              },
-              description: {
+              phone: {
                 type: 'string',
-                description: 'Description of services or products'
+                description: 'Phone number'
               },
-              dueDate: {
+              event_type: {
                 type: 'string',
-                description: 'Due date for the invoice'
+                description: 'Type of event (Wedding, Birthday, Corporate, Vacation, etc.)'
+              },
+              event_date: {
+                type: 'string',
+                description: 'Project start date MM/DD/YY'
+              },
+              event_end_date: {
+                type: 'string',
+                description: 'Project end date MM/DD/YY'
+              },
+              guest_count: {
+                type: 'string',
+                description: 'Total number of guests'
+              },
+              kids_count: {
+                type: 'string',
+                description: 'Number of kids'
+              },
+              venue_location: {
+                type: 'string',
+                description: 'Venue details, address, villa name'
+              },
+              budget_range: {
+                type: 'string',
+                description: 'Budget range'
+              },
+              services_interested: {
+                type: 'string',
+                description: 'Services interested in (Breakfast, Lunch, Dinner)'
+              },
+              kitchen_facilities: {
+                type: 'string',
+                description: 'Available kitchen facilities'
+              },
+              dietary_restrictions: {
+                type: 'string',
+                description: 'Dietary restrictions or proteins not consumed'
+              },
+              food_allergies: {
+                type: 'string',
+                description: 'Food allergies'
+              },
+              schedule: {
+                type: 'string',
+                description: 'Day by day schedule with meal times'
+              },
+              waiter_service: {
+                type: 'string',
+                description: 'Whether waiter service is needed'
+              },
+              bartender_service: {
+                type: 'string',
+                description: 'Whether bartender service is needed and start time'
+              },
+              how_found_us: {
+                type: 'string',
+                description: 'How they found In House Chef'
+              },
+              additional_info: {
+                type: 'string',
+                description: 'Additional information or special requests'
+              },
+              contact_method: {
+                type: 'string',
+                description: 'Preferred contact method'
               }
             },
-            required: ['clientName', 'clientEmail', 'amount', 'description']
+            required: ['full_name', 'email']
           }
         }
       }
