@@ -29,10 +29,7 @@ export function validateEnv() {
 
 export function getZapierWebhookUrl(functionName: string): string | null {
   const webhookMap: Record<string, keyof ImportMetaEnv> = {
-    'sendToHoneybook': 'VITE_ZAPIER_SEND_TO_HONEYBOOK_WEBHOOK',
-    'qualifyLead': 'VITE_ZAPIER_QUALIFY_LEAD_WEBHOOK',
-    'scheduleConsultation': 'VITE_ZAPIER_SCHEDULE_CONSULTATION_WEBHOOK',
-    'createInvoice': 'VITE_ZAPIER_CREATE_INVOICE_WEBHOOK',
+    'send_to_honeybook': 'VITE_ZAPIER_SEND_TO_HONEYBOOK_WEBHOOK',
   };
 
   const envKey = webhookMap[functionName];
