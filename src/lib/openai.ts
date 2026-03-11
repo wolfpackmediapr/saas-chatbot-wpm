@@ -74,7 +74,103 @@ export async function sendMessage(
     await openai.beta.threads.messages.create(threadId, messages[0]);
 
     const run = await openai.beta.threads.runs.create(threadId, {
-      assistant_id: assistantId
+      assistant_id: assistantId,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'send_to_honeybook',
+            description: 'Send client event information to HoneyBook CRM',
+            parameters: {
+              type: 'object',
+              properties: {
+                full_name: {
+                  type: 'string',
+                  description: 'Client full name'
+                },
+                email: {
+                  type: 'string',
+                  description: 'Client email address'
+                },
+                phone: {
+                  type: 'string',
+                  description: 'Client phone number'
+                },
+                event_type: {
+                  type: 'string',
+                  description: 'Type of event (e.g., wedding, corporate event, birthday party)'
+                },
+                event_date: {
+                  type: 'string',
+                  description: 'Event date'
+                },
+                event_end_date: {
+                  type: 'string',
+                  description: 'Event end date (for multi-day events)'
+                },
+                guest_count: {
+                  type: 'string',
+                  description: 'Number of guests'
+                },
+                kids_count: {
+                  type: 'string',
+                  description: 'Number of children attending'
+                },
+                venue_location: {
+                  type: 'string',
+                  description: 'Event venue location'
+                },
+                budget_range: {
+                  type: 'string',
+                  description: 'Client budget range'
+                },
+                services_interested: {
+                  type: 'string',
+                  description: 'Services the client is interested in'
+                },
+                kitchen_facilities: {
+                  type: 'string',
+                  description: 'Available kitchen facilities at venue'
+                },
+                dietary_restrictions: {
+                  type: 'string',
+                  description: 'Any dietary restrictions'
+                },
+                food_allergies: {
+                  type: 'string',
+                  description: 'Any food allergies'
+                },
+                schedule: {
+                  type: 'string',
+                  description: 'Event schedule details'
+                },
+                waiter_service: {
+                  type: 'string',
+                  description: 'Waiter service requirements'
+                },
+                bartender_service: {
+                  type: 'string',
+                  description: 'Bartender service requirements'
+                },
+                how_found_us: {
+                  type: 'string',
+                  description: 'How the client found the business'
+                },
+                additional_info: {
+                  type: 'string',
+                  description: 'Any additional information'
+                },
+                contact_method: {
+                  type: 'string',
+                  description: 'Preferred contact method'
+                }
+              },
+              required: ['full_name', 'email']
+            }
+          }
+        }
+      ],
+      tool_choice: 'auto'
     });
 
     let response;
