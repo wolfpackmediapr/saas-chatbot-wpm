@@ -16,6 +16,7 @@ export default function ChatInput({ onSend, isLoading, apiKey }: ChatInputProps)
   const [error, setError] = useState<string | null>(null);
   const { isRecording, startRecording, stopRecording } = useVoiceInput(apiKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +30,9 @@ export default function ChatInput({ onSend, isLoading, apiKey }: ChatInputProps)
       setFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
       }
 
       try {
@@ -82,6 +86,24 @@ export default function ChatInput({ onSend, isLoading, apiKey }: ChatInputProps)
 
   const removeFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
+    }
+  };
+
+  const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
+
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 200); // Max height of 200px
+      textareaRef.current.style.height = `${newHeight}px`;
+    }
   };
 
   return (
@@ -161,12 +183,14 @@ export default function ChatInput({ onSend, isLoading, apiKey }: ChatInputProps)
           onChange={handleFileUpload}
         />
 
-        <input
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={handleMessageChange}
+          onKeyDown={handleKeyDown}
           placeholder="Ask something with AI..."
-          className="flex-1 bg-secondary/50 rounded-lg px-3 md:px-4 py-2.5 md:py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-0 min-h-[44px] md:min-h-0"
+          rows={1}
+          className="flex-1 bg-secondary/50 rounded-lg px-3 md:px-4 py-2.5 md:py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-0 min-h-[44px] md:min-h-0 resize-none overflow-hidden"
         />
 
         <motion.button
