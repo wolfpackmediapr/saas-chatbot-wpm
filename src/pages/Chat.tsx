@@ -99,18 +99,27 @@ export default function Chat() {
 
     const imageUrls = images ? images.map((img) => URL.createObjectURL(img)) : undefined;
 
-    try {
-      await createChatMessage(threadId, content, true, imageUrls);
+    // Create a temporary ID for optimistic UI update
+    const tempUserId = `temp-user-${Date.now()}`;
 
+    try {
+      // Optimistically add user message to UI
       const userMessage: Message = {
-        id: `temp-${Date.now()}`,
+        id: tempUserId,
         content,
         isUser: true,
         images: imageUrls,
       };
 
-      const updatedMessages = [...messages, userMessage];
-      setMessages(updatedMessages);
+      setMessages(prev => [...prev, userMessage]);
+
+      // Save user message to database and get the real ID
+      const savedUserMessage = await createChatMessage(threadId, content, true, imageUrls);
+
+      // Update the message with the real database ID
+      setMessages(prev =>
+        prev.map(msg => msg.id === tempUserId ? { ...msg, id: savedUserMessage.id } : msg)
+      );
 
       if (messages.length === 0) {
         const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
@@ -133,23 +142,32 @@ export default function Chat() {
       );
 
       if (response) {
-        await createChatMessage(threadId, response, false);
+        // Save assistant message to database and get the real ID
+        const savedAssistantMessage = await createChatMessage(threadId, response, false);
 
         const assistantMessage: Message = {
-          id: `temp-${Date.now()}-assistant`,
+          id: savedAssistantMessage.id,
           content: response,
           isUser: false,
         };
-        setMessages([...updatedMessages, assistantMessage]);
+
+        // Use functional state update to avoid overwriting state
+        setMessages(prev => [...prev, assistantMessage]);
       }
     } catch (error) {
       console.error('Failed to get AI response:', error);
+
+      // Remove the temporary message if it failed to save
+      setMessages(prev => prev.filter(msg => msg.id !== tempUserId));
+
       const errorMessage: Message = {
-        id: `temp-${Date.now()}-error`,
+        id: `error-${Date.now()}`,
         content: 'Sorry, I encountered an error. Please check your bot configuration in Settings and try again.',
         isUser: false,
       };
-      setMessages([...messages, errorMessage]);
+
+      // Use functional state update for error message too
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setStatus('online');
     }
