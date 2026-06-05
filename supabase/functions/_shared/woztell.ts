@@ -5,6 +5,7 @@ export interface NormalizedWoztellPayload {
   channelType: WpmChannelType;
   providerChannelId: string | null;
   providerBotId: string | null;
+  providerRecipientId: string | null;
   externalPageId: string | null;
   externalPhoneNumber: string | null;
   externalConversationId: string;
@@ -83,6 +84,7 @@ function inferChannelType(payload: unknown): WpmChannelType {
     ['channelType'],
     ['channel_type'],
     ['channel', 'type'],
+    ['member', 'platform'],
     ['source', 'type'],
     ['platform'],
     ['provider', 'channelType'],
@@ -109,6 +111,8 @@ function extractMessageText(payload: unknown): string | null {
     ['message', 'content'],
     ['data', 'text'],
     ['data', 'message'],
+    ['messageEvent', 'data', 'text'],
+    ['messageEvent', 'data', 'message'],
     ['event', 'text'],
     ['event', 'message', 'text'],
     ['payload', 'text'],
@@ -135,7 +139,9 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['provider_channel_id'],
     ['channelId'],
     ['channel_id'],
+    ['channel', '_id'],
     ['channel', 'id'],
+    ['member', 'channel'],
     ['bot', 'channelId'],
     ['woztell', 'channelId'],
     ['data', 'channelId'],
@@ -146,6 +152,7 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['provider_bot_id'],
     ['botId'],
     ['bot_id'],
+    ['member', 'botId'],
     ['bot', 'id'],
     ['woztell', 'botId'],
   ]));
@@ -157,6 +164,8 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['page_id'],
     ['recipient', 'id'],
     ['page', 'id'],
+    ['messageEvent', 'to'],
+    ['channel', 'info', 'pageId'],
     ['entry', '0', 'id'],
   ]));
 
@@ -168,6 +177,7 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['from'],
     ['sender', 'phone'],
     ['contact', 'phone'],
+    ['member', 'externalId'],
   ]));
 
   const externalUserId = toStringOrNull(getPath(payload, [
@@ -175,12 +185,23 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['external_user_id'],
     ['userId'],
     ['user_id'],
+    ['member', '_id'],
     ['sender', 'id'],
     ['from', 'id'],
     ['contact', 'id'],
     ['customer', 'id'],
     ['entry', '0', 'messaging', '0', 'sender', 'id'],
   ])) ?? externalPhoneNumber;
+
+  const providerRecipientId = toStringOrNull(getPath(payload, [
+    ['providerRecipientId'],
+    ['provider_recipient_id'],
+    ['recipientId'],
+    ['recipient_id'],
+    ['member', 'externalId'],
+    ['messageEvent', 'from'],
+    ['entry', '0', 'messaging', '0', 'sender', 'id'],
+  ]));
 
   const externalConversationId = toStringOrNull(getPath(payload, [
     ['externalConversationId'],
@@ -202,13 +223,19 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['contact', 'name'],
     ['customer', 'name'],
     ['profile', 'name'],
+    ['member', 'name'],
   ]));
+
+  const firstName = toStringOrNull(getPath(payload, [['member', 'firstName']]));
+  const lastName = toStringOrNull(getPath(payload, [['member', 'lastName']]));
+  const resolvedExternalUserName = externalUserName ?? ([firstName, lastName].filter(Boolean).join(' ') || null);
 
   const externalMessageId = toStringOrNull(getPath(payload, [
     ['externalMessageId'],
     ['external_message_id'],
     ['messageId'],
     ['message_id'],
+    ['messageEvent', 'messageId'],
     ['message', 'id'],
     ['mid'],
     ['entry', '0', 'messaging', '0', 'message', 'mid'],
@@ -221,6 +248,7 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     ['createdAt'],
     ['created_at'],
     ['message', 'timestamp'],
+    ['messageEvent', 'timestamp'],
     ['entry', '0', 'messaging', '0', 'timestamp'],
   ])) ?? now;
 
@@ -234,6 +262,7 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
   const rawEventType = toStringOrNull(getPath(payload, [
     ['eventType'],
     ['event_type'],
+    ['messageEvent', 'type'],
     ['type'],
     ['event', 'type'],
   ]));
@@ -243,11 +272,12 @@ export function normalizeWoztellPayload(payload: unknown): WoztellNormalizeResul
     channelType,
     providerChannelId,
     providerBotId,
+    providerRecipientId,
     externalPageId,
     externalPhoneNumber,
     externalConversationId: externalConversationId ?? undefined,
     externalUserId: externalUserId ?? undefined,
-    externalUserName,
+    externalUserName: resolvedExternalUserName,
     externalMessageId,
     messageText: messageText ?? undefined,
     timestamp,

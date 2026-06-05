@@ -2,7 +2,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { persistInboundWoztellMessage } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
-import { createWoztellTextResponse, normalizeWoztellPayload } from '../_shared/woztell.ts';
+import { createWoztellTextResponse, normalizeWoztellPayload, type NormalizedWoztellPayload } from '../_shared/woztell.ts';
+import { sendWoztellTextResponse } from '../_shared/woztell_botapi.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,6 +34,16 @@ function getSupabaseAdmin() {
       persistSession: false,
       autoRefreshToken: false,
     },
+  });
+}
+
+function sendWoztellReply(text: string, normalized: NormalizedWoztellPayload) {
+  return sendWoztellTextResponse({
+    accessToken: Deno.env.get('WOZTELL_BOT_API_ACCESS_TOKEN'),
+    channelId: normalized.providerChannelId,
+    memberId: normalized.externalUserId,
+    recipientId: normalized.providerRecipientId ?? normalized.externalUserId,
+    text,
   });
 }
 
@@ -208,13 +219,20 @@ Deno.serve(async (request) => {
     lead,
   });
 
-  const response = createWoztellTextResponse(ai.content);
+  const outboundSend = await sendWoztellReply(ai.content, normalized.data);
+  const response = {
+    ok: true,
+    delivery: outboundSend.ok ? 'sent_via_woztell_botapi' : 'woztell_botapi_send_failed',
+  };
 
   await supabase
     .from('wpm_webhook_events')
     .update({
-      response_payload: response,
-      error_message: leadPersistence.ok ? null : leadPersistence.error,
+      response_payload: {
+        ack: response,
+        woztell_send: outboundSend,
+      },
+      error_message: leadPersistence.ok ? outboundSend.error : leadPersistence.error,
     })
     .eq('id', eventId);
 
@@ -225,6 +243,7 @@ Deno.serve(async (request) => {
     persistence,
     ai,
     lead: leadPersistence,
+    outboundSend,
     normalized: normalized.data,
     response,
   });

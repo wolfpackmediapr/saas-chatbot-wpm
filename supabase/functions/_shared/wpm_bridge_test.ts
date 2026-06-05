@@ -12,6 +12,7 @@ const normalized: NormalizedWoztellPayload = {
   channelType: 'instagram',
   providerChannelId: 'woztell-instagram-channel-demo',
   providerBotId: 'woztell-bot-demo',
+  providerRecipientId: 'ig-user-demo-001',
   externalPageId: 'instagram-page-demo',
   externalPhoneNumber: null,
   externalConversationId: 'ig-conversation-demo-001',
