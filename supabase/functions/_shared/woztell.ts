@@ -40,6 +40,16 @@ function getPath(source: unknown, paths: string[][]): unknown {
     let found = true;
 
     for (const segment of path) {
+      if (Array.isArray(current)) {
+        const index = Number(segment);
+        if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+          found = false;
+          break;
+        }
+        current = current[index];
+        continue;
+      }
+
       if (!isRecord(current) || !(segment in current)) {
         found = false;
         break;

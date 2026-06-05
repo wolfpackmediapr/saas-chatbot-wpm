@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { persistInboundWoztellMessage } from '../_shared/wpm_bridge.ts';
 import { createWoztellTextResponse, normalizeWoztellPayload } from '../_shared/woztell.ts';
 
 const corsHeaders = {
@@ -87,11 +88,36 @@ Deno.serve(async (request) => {
     }, 200);
   }
 
+  if (!supabase) {
+    return jsonResponse({
+      ok: true,
+      mode: 'local_no_supabase_env',
+      eventId,
+      insertError,
+      normalized: normalized.data,
+      response: createWoztellTextResponse('Webhook received. WPM Bridge logging is active.'),
+    });
+  }
+
+  const persistence = await persistInboundWoztellMessage(supabase, normalized.data, rawPayload, eventId);
+
+  if (!persistence.ok) {
+    return jsonResponse({
+      ok: false,
+      eventId,
+      insertError,
+      persistence,
+      normalized: normalized.data,
+      response: createWoztellTextResponse('Thanks for reaching out. A team member will follow up shortly.'),
+    }, 200);
+  }
+
   return jsonResponse({
     ok: true,
     eventId,
     insertError,
+    persistence,
     normalized: normalized.data,
-    response: createWoztellTextResponse('Webhook received. WPM Bridge logging is active.'),
+    response: createWoztellTextResponse('Webhook received and logged. WPM Bridge persistence is active.'),
   });
 });
