@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { persistInboundWoztellMessage } from '../_shared/wpm_bridge.ts';
 import { createWoztellTextResponse, normalizeWoztellPayload } from '../_shared/woztell.ts';
 
@@ -112,12 +113,103 @@ Deno.serve(async (request) => {
     }, 200);
   }
 
+  if (!persistence.conversationId) {
+    const response = createWoztellTextResponse('Thanks for reaching out. A team member will follow up shortly.');
+
+    await supabase
+      .from('wpm_webhook_events')
+      .update({
+        response_payload: response,
+        error_message: 'Inbound persistence succeeded without a conversation id',
+      })
+      .eq('id', eventId);
+
+    return jsonResponse({
+      ok: false,
+      eventId,
+      insertError,
+      persistence,
+      ai: {
+        ok: false,
+        error: 'Inbound persistence succeeded without a conversation id',
+      },
+      normalized: normalized.data,
+      response,
+    }, 200);
+  }
+
+  const openAIKey = Deno.env.get('OPENAI_API_KEY');
+
+  if (!openAIKey) {
+    const response = createWoztellTextResponse('Thanks for reaching out. A team member will follow up shortly.');
+
+    await supabase
+      .from('wpm_webhook_events')
+      .update({
+        response_payload: response,
+        error_message: 'OPENAI_API_KEY is not configured; returned fallback response',
+      })
+      .eq('id', eventId);
+
+    return jsonResponse({
+      ok: true,
+      eventId,
+      insertError,
+      persistence,
+      ai: {
+        ok: false,
+        error: 'OPENAI_API_KEY is not configured; returned fallback response',
+      },
+      normalized: normalized.data,
+      response,
+    });
+  }
+
+  const ai = await generateAndStoreAssistantReply({
+    supabase,
+    openAI: createOpenAIChatClient(openAIKey),
+    conversationId: persistence.conversationId,
+    inboundMessage: normalized.data.messageText,
+  });
+
+  if (!ai.ok) {
+    const response = createWoztellTextResponse('Thanks for reaching out. A team member will follow up shortly.');
+
+    await supabase
+      .from('wpm_webhook_events')
+      .update({
+        response_payload: response,
+        error_message: ai.error,
+      })
+      .eq('id', eventId);
+
+    return jsonResponse({
+      ok: false,
+      eventId,
+      insertError,
+      persistence,
+      ai,
+      normalized: normalized.data,
+      response,
+    }, 200);
+  }
+
+  const response = createWoztellTextResponse(ai.content);
+
+  await supabase
+    .from('wpm_webhook_events')
+    .update({
+      response_payload: response,
+    })
+    .eq('id', eventId);
+
   return jsonResponse({
     ok: true,
     eventId,
     insertError,
     persistence,
+    ai,
     normalized: normalized.data,
-    response: createWoztellTextResponse('Webhook received and logged. WPM Bridge persistence is active.'),
+    response,
   });
 });
