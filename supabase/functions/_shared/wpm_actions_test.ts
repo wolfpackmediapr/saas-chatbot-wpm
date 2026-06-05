@@ -1,6 +1,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   executeWebhookToolExecution,
+  processPendingWebhookToolExecutions,
   resolveWebhookUrl,
   type ToolExecutionRow,
 } from './wpm_actions.ts';
@@ -9,6 +10,7 @@ class QueryStub {
   private table: string;
   private db: Record<string, unknown>;
   private updatePayload: unknown = null;
+  private filters: Record<string, unknown> = {};
 
   constructor(table: string, db: Record<string, unknown>) {
     this.table = table;
@@ -19,8 +21,18 @@ class QueryStub {
     return this;
   }
 
-  eq(_column: string, _value: unknown) {
+  eq(column: string, value: unknown) {
+    this.filters[column] = value;
     return this;
+  }
+
+  order(_column: string, _options?: unknown) {
+    return this;
+  }
+
+  limit(count: number) {
+    const rows = (this.db[`${this.table}:list`] ?? []) as Array<Record<string, unknown>>;
+    return Promise.resolve({ data: rows.slice(0, count), error: null });
   }
 
   update(payload: unknown) {
@@ -30,6 +42,10 @@ class QueryStub {
   }
 
   maybeSingle() {
+    if (this.filters.id && this.db[`${this.table}:byId`]) {
+      const byId = this.db[`${this.table}:byId`] as Record<string, unknown>;
+      return Promise.resolve({ data: byId[String(this.filters.id)] ?? null, error: null });
+    }
     return Promise.resolve({ data: this.db[`${this.table}:single`] ?? null, error: null });
   }
 
@@ -64,6 +80,7 @@ const toolExecution: ToolExecutionRow = {
       serviceInterest: 'private dining',
     },
   },
+  status: 'pending',
   wpm_integrations: {
     id: 'integration-uuid',
     provider: 'zapier',
@@ -128,6 +145,33 @@ Deno.test('executeWebhookToolExecution posts input payload and marks execution s
   });
 });
 
+Deno.test('executeWebhookToolExecution skips non-pending execution without making webhook call', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': { ...toolExecution, status: 'success' },
+  });
+  let fetchCalled = false;
+
+  const result = await executeWebhookToolExecution({
+    supabase,
+    toolExecutionId: 'tool-execution-uuid',
+    getEnv: () => 'https://hooks.zapier.com/hooks/catch/demo',
+    fetcher: async () => {
+      fetchCalled = true;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  });
+
+  assertEquals(result, {
+    ok: false,
+    status: 'skipped',
+    httpStatus: null,
+    error: 'Tool execution is not pending (status: success)',
+  });
+  assertEquals(fetchCalled, false);
+  assertEquals(supabase.db.updates, []);
+});
+
 Deno.test('executeWebhookToolExecution marks execution failed when webhook returns non-2xx', async () => {
   const supabase = new SupabaseStub({
     updates: [],
@@ -149,4 +193,37 @@ Deno.test('executeWebhookToolExecution marks execution failed when webhook retur
     error: 'Webhook request failed with HTTP 400',
   });
   assertEquals((supabase.db.updates as Array<{ payload: Record<string, unknown> }>).at(-1)?.payload.status, 'failed');
+});
+
+Deno.test('processPendingWebhookToolExecutions runs a bounded batch of pending executions', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:list': [{ id: 'tool-1' }, { id: 'tool-2' }],
+    'wpm_tool_executions:byId': {
+      'tool-1': { ...toolExecution, id: 'tool-1' },
+      'tool-2': { ...toolExecution, id: 'tool-2' },
+    },
+  });
+  const fetchCalls: string[] = [];
+
+  const result = await processPendingWebhookToolExecutions({
+    supabase,
+    batchSize: 2,
+    getEnv: () => 'https://hooks.zapier.com/hooks/catch/demo',
+    fetcher: async (url: string | URL | Request) => {
+      fetchCalls.push(String(url));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+    now: () => 1000,
+  });
+
+  assertEquals(result.processed, 2);
+  assertEquals(result.succeeded, 2);
+  assertEquals(result.failed, 0);
+  assertEquals(result.ok, true);
+  assertEquals(fetchCalls.length, 2);
+  assertEquals((supabase.db.updates as Array<{ payload: Record<string, unknown> }>).map((update) => update.payload.status), [
+    'success',
+    'success',
+  ]);
 });

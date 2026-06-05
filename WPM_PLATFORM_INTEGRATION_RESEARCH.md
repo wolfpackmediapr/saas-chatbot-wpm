@@ -307,3 +307,35 @@ Customer DM
 ```
 
 Do **not** assume synchronous webhook response body is delivered to the customer.
+
+---
+
+## xAI / Grok Build note
+
+### Sources checked
+
+- xAI public docs via `https://docs.x.ai/llms.txt` and linked docs pages.
+- Local tool availability: `grok` CLI was not installed in this environment.
+- Local environment: `XAI_API_KEY` was not set.
+
+### Current decision
+
+Do **not** make xAI/Grok the primary build or runtime path for this MVP.
+
+Rationale:
+
+- The current bridge is already wired around Supabase Edge Functions and OpenAI server-side calls.
+- Grok Build requires installing/authenticating the xAI CLI or supplying `XAI_API_KEY`; neither is currently configured.
+- Adding a second runtime provider before live Woztell validation would increase QA surface and delivery risk.
+
+### Recommended backlog item
+
+After the MVP loop is proven, add xAI as an optional provider behind feature flags:
+
+- `provider: 'openai' | 'xai' | 'gemini'`
+- server-side-only `XAI_API_KEY`
+- `store: false` for xAI Responses API calls where supported
+- tenant-level provider/model config
+- evals against WPM DM qualification scenarios before client use
+
+Most promising WPM differentiator: Grok/xAI social intelligence and X Search context for public brand/social monitoring, not basic DM response generation.

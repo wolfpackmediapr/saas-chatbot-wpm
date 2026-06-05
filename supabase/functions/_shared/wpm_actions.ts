@@ -18,6 +18,7 @@ export interface ToolExecutionRow {
   integration_id: string | null;
   tool_name: string;
   input_payload: Record<string, unknown>;
+  status: 'pending' | 'success' | 'failed' | 'skipped';
   wpm_integrations: ToolIntegrationRow | ToolIntegrationRow[] | null;
 }
 
@@ -109,6 +110,7 @@ export async function executeWebhookToolExecution(args: {
       integration_id,
       tool_name,
       input_payload,
+      status,
       wpm_integrations(id, provider, integration_type, name, secret_reference, metadata)
     `)
     .eq('id', args.toolExecutionId)
@@ -122,6 +124,16 @@ export async function executeWebhookToolExecution(args: {
   }
 
   const execution = executionData as ToolExecutionRow;
+
+  if (execution.status !== 'pending') {
+    return {
+      ok: false,
+      status: 'skipped',
+      httpStatus: null,
+      error: `Tool execution is not pending (status: ${execution.status})`,
+    };
+  }
+
   const webhookUrl = resolveWebhookUrl(execution.wpm_integrations, args.getEnv);
 
   if (!webhookUrl.ok) {
@@ -185,4 +197,88 @@ export async function executeWebhookToolExecution(args: {
     });
     return { ok: false, status: 'failed', httpStatus: null, error: message };
   }
+}
+
+export async function processPendingWebhookToolExecutions(args: {
+  supabase: SupabaseLike;
+  getEnv: EnvResolver;
+  fetcher?: Fetcher;
+  now?: () => number;
+  batchSize?: number;
+}): Promise<{
+  ok: boolean;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  results: Array<{
+    id: string;
+    ok: boolean;
+    status: 'success' | 'failed' | 'skipped';
+    httpStatus: number | null;
+    error: string | null;
+  }>;
+  error: string | null;
+}> {
+  const batchSize = Math.min(Math.max(args.batchSize ?? 10, 1), 50);
+
+  const { data, error } = await args.supabase
+    .from('wpm_tool_executions')
+    .select('id')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(batchSize);
+
+  if (error) {
+    return {
+      ok: false,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: 0,
+      results: [],
+      error: error.message,
+    };
+  }
+
+  const rows = (data ?? []) as Array<{ id: string }>;
+  const results: Array<{
+    id: string;
+    ok: boolean;
+    status: 'success' | 'failed' | 'skipped';
+    httpStatus: number | null;
+    error: string | null;
+  }> = [];
+
+  for (const row of rows) {
+    const result = await executeWebhookToolExecution({
+      supabase: args.supabase,
+      toolExecutionId: row.id,
+      getEnv: args.getEnv,
+      fetcher: args.fetcher,
+      now: args.now,
+    });
+
+    results.push({
+      id: row.id,
+      ok: result.ok,
+      status: result.status,
+      httpStatus: result.httpStatus,
+      error: result.error,
+    });
+  }
+
+  const succeeded = results.filter((result) => result.status === 'success').length;
+  const failed = results.filter((result) => result.status === 'failed').length;
+  const skipped = results.filter((result) => result.status === 'skipped').length;
+
+  return {
+    ok: failed === 0,
+    processed: results.length,
+    succeeded,
+    failed,
+    skipped,
+    results,
+    error: failed > 0 ? `${failed} pending tool execution(s) failed` : null,
+  };
 }
