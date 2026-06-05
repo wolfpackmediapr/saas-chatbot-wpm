@@ -1,0 +1,20 @@
+{
+  "eventType": "message_received",
+  "channelType": "facebook",
+  "providerChannelId": "woztell-facebook-channel-demo",
+  "providerBotId": "woztell-bot-demo",
+  "externalPageId": "facebook-page-demo",
+  "externalConversationId": "fb-conversation-demo-001",
+  "externalUserId": "fb-user-demo-001",
+  "externalUserName": "Demo Facebook User",
+  "externalMessageId": "fb-message-demo-001",
+  "message": {
+    "text": "What are your prices and hours?",
+    "timestamp": "2026-06-05T12:10:00.000Z"
+  },
+  "attachments": [],
+  "metadata": {
+    "fixture": true,
+    "source": "wpm-first-slice"
+  }
+}

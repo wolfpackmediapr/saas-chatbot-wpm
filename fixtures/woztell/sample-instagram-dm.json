@@ -1,0 +1,20 @@
+{
+  "eventType": "message_received",
+  "channelType": "instagram",
+  "providerChannelId": "woztell-instagram-channel-demo",
+  "providerBotId": "woztell-bot-demo",
+  "externalPageId": "instagram-page-demo",
+  "externalConversationId": "ig-conversation-demo-001",
+  "externalUserId": "ig-user-demo-001",
+  "externalUserName": "Demo Instagram User",
+  "externalMessageId": "ig-message-demo-001",
+  "message": {
+    "text": "Hi, do you have availability this Friday?",
+    "timestamp": "2026-06-05T12:00:00.000Z"
+  },
+  "attachments": [],
+  "metadata": {
+    "fixture": true,
+    "source": "wpm-first-slice"
+  }
+}

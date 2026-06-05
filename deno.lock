@@ -1,0 +1,40 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.39.7": "5361671c958daa350e504d9975da64b2d6dc9e81390b985ccdafb2e3572e24e7"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@eslint/js@^9.9.1",
+        "npm:@radix-ui/react-scroll-area@^1.0.5",
+        "npm:@radix-ui/react-separator@^1.0.3",
+        "npm:@radix-ui/react-slot@^1.0.2",
+        "npm:@supabase/supabase-js@^2.39.7",
+        "npm:@types/react-dom@^18.3.0",
+        "npm:@types/react@^18.3.5",
+        "npm:@vitejs/plugin-react@^4.3.1",
+        "npm:autoprefixer@^10.4.18",
+        "npm:axios@^1.6.7",
+        "npm:class-variance-authority@0.7",
+        "npm:clsx@^2.1.0",
+        "npm:eslint-plugin-react-hooks@^5.1.0-rc.0",
+        "npm:eslint-plugin-react-refresh@~0.4.11",
+        "npm:eslint@^9.9.1",
+        "npm:framer-motion@^11.0.8",
+        "npm:globals@^15.9.0",
+        "npm:lucide-react@0.344",
+        "npm:openai@^4.28.0",
+        "npm:postcss@^8.4.35",
+        "npm:react-dom@^18.3.1",
+        "npm:react-router-dom@^6.22.3",
+        "npm:react@^18.3.1",
+        "npm:tailwind-merge@^2.2.1",
+        "npm:tailwindcss@^3.4.1",
+        "npm:typescript-eslint@^8.3.0",
+        "npm:typescript@^5.5.3",
+        "npm:vite@^5.4.2"
+      ]
+    }
+  }
+}
