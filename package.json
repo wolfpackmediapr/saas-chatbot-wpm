@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:wpm:test": "deno run --allow-env --allow-net scripts/seed-wpm-test-client.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
