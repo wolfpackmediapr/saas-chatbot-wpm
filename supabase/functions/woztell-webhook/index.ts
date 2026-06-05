@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { persistInboundWoztellMessage } from '../_shared/wpm_bridge.ts';
+import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { createWoztellTextResponse, normalizeWoztellPayload } from '../_shared/woztell.ts';
 
 const corsHeaders = {
@@ -113,14 +114,14 @@ Deno.serve(async (request) => {
     }, 200);
   }
 
-  if (!persistence.conversationId) {
+  if (!persistence.conversationId || !persistence.clientId) {
     const response = createWoztellTextResponse('Thanks for reaching out. A team member will follow up shortly.');
 
     await supabase
       .from('wpm_webhook_events')
       .update({
         response_payload: response,
-        error_message: 'Inbound persistence succeeded without a conversation id',
+        error_message: 'Inbound persistence succeeded without required routing ids',
       })
       .eq('id', eventId);
 
@@ -131,7 +132,7 @@ Deno.serve(async (request) => {
       persistence,
       ai: {
         ok: false,
-        error: 'Inbound persistence succeeded without a conversation id',
+        error: 'Inbound persistence succeeded without required routing ids',
       },
       normalized: normalized.data,
       response,
@@ -194,12 +195,26 @@ Deno.serve(async (request) => {
     }, 200);
   }
 
+  const lead = extractLeadFromConversationText({
+    inboundText: normalized.data.messageText,
+    assistantText: ai.content,
+    sourceChannel: normalized.data.channelType,
+  });
+
+  const leadPersistence = await persistQualifiedLeadAndQueueActions({
+    supabase,
+    clientId: persistence.clientId,
+    conversationId: persistence.conversationId,
+    lead,
+  });
+
   const response = createWoztellTextResponse(ai.content);
 
   await supabase
     .from('wpm_webhook_events')
     .update({
       response_payload: response,
+      error_message: leadPersistence.ok ? null : leadPersistence.error,
     })
     .eq('id', eventId);
 
@@ -209,6 +224,7 @@ Deno.serve(async (request) => {
     insertError,
     persistence,
     ai,
+    lead: leadPersistence,
     normalized: normalized.data,
     response,
   });
