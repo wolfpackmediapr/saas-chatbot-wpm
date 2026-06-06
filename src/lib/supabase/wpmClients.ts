@@ -40,6 +40,18 @@ export interface WpmBotInstructionsRecord {
   is_active: boolean;
 }
 
+export interface KnowledgeSource {
+  id: string;
+  client_id: string;
+  bot_profile_id?: string | null;
+  source_type: 'manual' | 'file' | 'url' | 'faq' | 'notion' | 'google_doc';
+  title: string;
+  source_url?: string | null;
+  content_text?: string | null;
+  status: 'draft' | 'processing' | 'ready' | 'failed' | 'archived';
+  metadata?: Record<string, any>;
+}
+
 /**
  * Returns the current authenticated user's owned WPM client profile.
  * 
@@ -251,4 +263,79 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
 
     if (error) throw error;
   }
+}
+
+/**
+ * List knowledge sources for a client (ready ones preferred).
+ */
+export async function listKnowledgeSources(clientId: string): Promise<KnowledgeSource[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .select('id, client_id, bot_profile_id, source_type, title, source_url, content_text, status, metadata')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('listKnowledgeSources error', error);
+    return [];
+  }
+  return (data || []) as KnowledgeSource[];
+}
+
+/**
+ * Create a new knowledge source row.
+ */
+export async function createKnowledgeSource(clientId: string, source: {
+  title: string;
+  content_text: string;
+  source_type?: string;
+  source_url?: string | null;
+  tags?: string;
+  bot_profile_id?: string | null;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase not configured');
+  }
+
+  const sourceType = source.source_type || 'manual';
+  const validTypes = ['manual', 'file', 'url', 'faq', 'notion', 'google_doc'];
+  const finalType = validTypes.includes(sourceType) ? sourceType : 'manual';
+
+  const metadata: Record<string, any> = {};
+  if (source.tags) {
+    metadata.tags = source.tags.split(',').map(t => t.trim()).filter(Boolean);
+  }
+
+  const { error } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .insert({
+      client_id: clientId,
+      bot_profile_id: source.bot_profile_id || null,
+      source_type: finalType,
+      title: source.title,
+      source_url: source.source_url || null,
+      content_text: source.content_text,
+      status: 'ready',           // immediately usable
+      metadata,
+    });
+
+  if (error) throw error;
+}
+
+/**
+ * Delete a knowledge source.
+ */
+export async function deleteKnowledgeSource(id: string) {
+  if (!supabase) {
+    throw new Error('Supabase not configured');
+  }
+
+  const { error } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
 }

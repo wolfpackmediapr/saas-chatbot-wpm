@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpenText, Plus, Trash2, Save, ExternalLink } from 'lucide-react';
+import { BookOpenText, Plus, Trash2, Save, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { 
+  getOwnedWpmClient, 
+  listKnowledgeSources, 
+  createKnowledgeSource, 
+  deleteKnowledgeSource 
+} from '../lib/supabase/wpmClients';
 
 interface KnowledgeSource {
   id: string;
@@ -18,6 +24,14 @@ const typeLabels = {
   other: 'Other',
 };
 
+const uiTypeToSchema: Record<string, string> = {
+  faq: 'faq',
+  service: 'manual',
+  policy: 'manual',
+  url: 'url',
+  other: 'manual',
+};
+
 export default function KnowledgeBase() {
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [newSource, setNewSource] = useState<Partial<KnowledgeSource>>({
@@ -27,48 +41,135 @@ export default function KnowledgeBase() {
     tags: '',
   });
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [clientId, setClientId] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('wpm-knowledge-base');
-    if (saved) {
-      setSources(JSON.parse(saved));
+    async function loadKnowledge() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const client = await getOwnedWpmClient();
+        setClientId(client?.id || null);
+
+        const isDemo = !client || client.id.startsWith('demo') || !client.id.includes('-');
+        setIsDemoMode(isDemo);
+
+        if (client && !isDemo) {
+          const dbSources = await listKnowledgeSources(client.id);
+
+          const loaded: KnowledgeSource[] = dbSources.map((db: any) => ({
+            id: db.id,
+            type: (db.metadata?.ui_type as any) || reverseMapType(db.source_type),
+            title: db.title,
+            content_text: db.content_text || '',
+            tags: (db.metadata?.tags || []).join(', '),
+          }));
+
+          setSources(loaded);
+        } else {
+          // Demo / local fallback
+          const saved = localStorage.getItem('wpm-knowledge-base');
+          if (saved) {
+            setSources(JSON.parse(saved));
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to load knowledge base', err);
+        setError('Could not load from database. Using local data.');
+        const saved = localStorage.getItem('wpm-knowledge-base');
+        if (saved) setSources(JSON.parse(saved));
+        setIsDemoMode(true);
+      } finally {
+        setLoading(false);
+      }
     }
+
+    loadKnowledge();
   }, []);
 
-  const saveToStorage = (updated: KnowledgeSource[]) => {
+  function reverseMapType(schemaType: string): 'faq' | 'service' | 'policy' | 'url' | 'other' {
+    if (schemaType === 'faq') return 'faq';
+    if (schemaType === 'url') return 'url';
+    return 'other';
+  }
+
+  const saveToLocal = (updated: KnowledgeSource[]) => {
     localStorage.setItem('wpm-knowledge-base', JSON.stringify(updated));
-    // TODO: Sync to Supabase wpm_knowledge_sources
   };
 
-  const addSource = () => {
+  const addSource = async () => {
     if (!newSource.title || !newSource.content_text) return;
 
-    const source: KnowledgeSource = {
+    const uiType = newSource.type as any;
+    const schemaType = uiTypeToSchema[uiType] || 'manual';
+
+    const sourceForUI: KnowledgeSource = {
       id: Date.now().toString(36),
-      type: newSource.type as any,
+      type: uiType,
       title: newSource.title,
       content_text: newSource.content_text,
       tags: newSource.tags || '',
     };
 
-    const updated = [...sources, source];
+    // Optimistic update
+    const updated = [...sources, sourceForUI];
     setSources(updated);
-    saveToStorage(updated);
+    saveToLocal(updated);
+
+    // Try real DB
+    if (clientId && !isDemoMode) {
+      try {
+        await createKnowledgeSource(clientId, {
+          title: newSource.title,
+          content_text: newSource.content_text,
+          source_type: schemaType,
+          source_url: uiType === 'url' ? newSource.title : null,
+          tags: newSource.tags,
+          bot_profile_id: null, // can link later if needed
+        });
+      } catch (err: any) {
+        console.error('Failed to save knowledge source to DB', err);
+        setError('Saved locally. Failed to persist to Supabase: ' + err.message);
+      }
+    }
 
     setNewSource({ type: 'faq', title: '', content_text: '', tags: '' });
   };
 
-  const deleteSource = (id: string) => {
+  const deleteSource = async (id: string) => {
     const updated = sources.filter(s => s.id !== id);
     setSources(updated);
-    saveToStorage(updated);
+    saveToLocal(updated);
+
+    if (clientId && !isDemoMode) {
+      try {
+        await deleteKnowledgeSource(id);
+      } catch (err: any) {
+        console.error('Failed to delete from DB', err);
+        setError('Deleted locally. DB delete may have failed.');
+      }
+    }
   };
 
   const handleSaveAll = async () => {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 500));
+    // In real flow this could trigger re-processing or just ensure status=ready
+    // For now we set 'ready' on insert, so this is mostly a no-op + local refresh
+    await new Promise(r => setTimeout(r, 400));
     setSaving(false);
   };
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-5xl flex items-center justify-center min-h-[300px]">
+        <div className="text-secondary-foreground">Loading knowledge base...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl">
@@ -80,7 +181,19 @@ export default function KnowledgeBase() {
         <p className="text-secondary-foreground">
           Add the information your AI needs to answer accurately. The more specific, the better the replies.
         </p>
+        {isDemoMode && (
+          <div className="mt-3 flex items-center gap-2 text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+            <AlertCircle className="h-4 w-4" />
+            Demo mode — changes saved locally. Complete Business Profile to enable real Supabase storage.
+          </div>
+        )}
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm">
+          {error}
+        </div>
+      )}
 
       {/* Add New Source */}
       <div className="bg-secondary/30 border border-secondary rounded-2xl p-6 mb-8">
@@ -189,7 +302,8 @@ export default function KnowledgeBase() {
       </div>
 
       <div className="mt-8 text-xs text-secondary-foreground">
-        The AI will use these sources to answer questions accurately. Add your most common questions and policies first.
+        The AI will use these sources (status = ready) to answer questions accurately. 
+        Sources are stored in wpm_knowledge_sources and become available to your AI DM Agent immediately.
       </div>
     </div>
   );
