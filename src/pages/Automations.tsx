@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Zap, ToggleLeft, ToggleRight, Save, AlertCircle } from 'lucide-react';
 import { getOwnedWpmClient, listIntegrations, upsertIntegration } from '../lib/supabase/wpmClients';
+import { cn } from '../lib/utils';
 
 interface AutomationDef {
   id: string;
@@ -61,13 +62,22 @@ export default function Automations() {
         const c = await getOwnedWpmClient();
         if (!c) {
           setError('No client profile found. Please complete Business Profile first.');
+          // Treat as demo so toggles don't crash on null client
+          const fallback: Record<string, AutomationState> = {};
+          AUTOMATION_DEFS.forEach(def => {
+            fallback[def.id] = { enabled: def.id === 'email-notification', configValue: '' };
+          });
+          setStates(fallback);
+          setDemoMode(true);
           setLoading(false);
           return;
         }
         setClient(c);
 
-        // Demo mode detection
-        const isDemo = !c.id || c.id === 'demo-client-001' || !window.location.hostname.includes('vercel') && !import.meta.env.VITE_SUPABASE_URL;
+        // Demo mode detection (improved logic)
+        const hasSupabaseEnv = !!import.meta.env.VITE_SUPABASE_URL;
+        const isOnVercel = window.location.hostname.includes('vercel');
+        const isDemo = !c.id || c.id === 'demo-client-001' || (!isOnVercel && !hasSupabaseEnv);
         setDemoMode(isDemo);
 
         // Initialize default states
@@ -136,6 +146,10 @@ export default function Automations() {
       [def.id]: { ...current, enabled: newEnabled },
     }));
 
+    if (!client) {
+      setError('No client profile found. Please complete Business Profile first.');
+      return;
+    }
     if (demoMode) {
       // Just local state in demo
       return;
@@ -168,6 +182,10 @@ export default function Automations() {
     const current = states[def.id];
     if (!current) return;
 
+    if (!client) {
+      setError('No client profile found. Please complete Business Profile first.');
+      return;
+    }
     if (demoMode) {
       alert('Saved in demo mode (local only). In production this will be stored securely and used by the WPM Actions Processor.');
       return;
