@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Menu, Bot } from 'lucide-react';
 import Sidebar from './Sidebar';
@@ -6,8 +6,8 @@ import Sidebar from './Sidebar';
 export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-  const closeSidebar = () => setIsSidebarOpen(false);
+  const toggleSidebar = useCallback(() => setIsSidebarOpen((isOpen) => !isOpen), []);
+  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
 
   return (
     <div className="flex h-screen bg-background text-foreground">
