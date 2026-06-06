@@ -247,6 +247,8 @@ Deno.serve(async (request: Request) => {
 
       const botProfileId = pickActiveBotProfileId(channel);
 
+      const channelType = event.platform === 'messenger' ? 'facebook' : event.platform;
+
       // ── Conversation upsert ──────────────────────────────────────────
       const { data: convData } = await supabase
         .from('wpm_conversations')
@@ -255,12 +257,12 @@ Deno.serve(async (request: Request) => {
             client_id: channel.client_id,
             channel_id: channel.id,
             bot_profile_id: botProfileId,
-            external_customer_id: event.senderId,
-            channel_type: event.platform,
+            external_user_id: event.senderId,
+            channel_type: channelType,
             status: 'active',
             last_message_at: new Date(event.timestamp).toISOString(),
           },
-          { onConflict: 'client_id,external_customer_id,channel_type' },
+          { onConflict: 'client_id,channel_type,external_conversation_id,external_user_id' },
         )
         .select('id')
         .single();
