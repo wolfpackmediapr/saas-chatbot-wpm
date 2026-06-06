@@ -70,7 +70,7 @@ export async function sendFeedbackToSlack(feedback: FeedbackData): Promise<{ suc
       },
       {
         headers: {
-          'Authorization': `Bearer xoxb-2980853661024-8143121765058-G99qat6WneCVMkWfKwmqifxq`,
+          'Authorization': `Bearer ${import.meta.env.VITE_SLACK_BOT_TOKEN || ''}`,
           'Content-Type': 'application/json'
         }
       }
