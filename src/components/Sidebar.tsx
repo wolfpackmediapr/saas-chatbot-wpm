@@ -8,7 +8,12 @@ import {
   Crown,
   Send,
   ClipboardCheck,
+  Building2,
   Bot,
+  BookOpenText,
+  PlugZap,
+  Zap,
+  Play,
   LogOut,
   User,
   X
@@ -19,6 +24,12 @@ import { getCompanyLogo } from '../lib/supabase/settings';
 
 const mainNavItems = [
   { icon: MessageSquarePlus, label: 'New Chat', path: '/chat/new' },
+  { icon: Building2, label: 'Business Profile', path: '/business-profile' },
+  { icon: Bot, label: 'Agent Setup', path: '/agent-setup' },
+  { icon: BookOpenText, label: 'Knowledge Base', path: '/knowledge-base' },
+  { icon: PlugZap, label: 'Channel Connections', path: '/channel-connections' },
+  { icon: Zap, label: 'Automations', path: '/automations' },
+  { icon: Play, label: 'Test Agent', path: '/agent-test' },
   { icon: ClipboardCheck, label: 'Launch Checklist', path: '/launch-checklist' },
   { icon: History, label: 'Recent History', path: '/history' },
   { icon: HelpCircle, label: 'Help Center', path: '/help' },

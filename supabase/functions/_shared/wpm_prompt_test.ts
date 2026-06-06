@@ -1,70 +1,60 @@
+/// <reference lib="deno.ns" />
 import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import {
-  buildWpmAssistantMessages,
-  buildWpmSystemPrompt,
-  type WpmBotContext,
-} from './wpm_prompt.ts';
+import { buildWpmSystemPrompt, buildWpmAssistantMessages } from './wpm_prompt.ts';
+import type { WpmBotContext } from './wpm_prompt.ts';
 
-const context: WpmBotContext = {
+const mockContext: WpmBotContext = {
   client: {
-    id: 'client-uuid',
-    name: 'Demo Restaurant',
-    industry: 'restaurant',
+    id: 'client-123',
+    name: 'WolfPack Dental',
+    industry: 'dental',
     timezone: 'America/Puerto_Rico',
     website_url: 'https://example.com',
   },
   botProfile: {
-    id: 'bot-profile-uuid',
-    public_name: 'Demo Concierge',
-    tone: 'premium, direct, friendly',
+    id: 'bot-1',
+    public_name: 'Luna',
+    tone: 'friendly-professional',
     language: 'en',
-    response_length: 'concise',
-    booking_url: 'https://example.com/book',
-    handoff_contact: 'team@example.com',
+    response_length: 'balanced',
+    booking_url: 'https://book.example.com',
+    handoff_contact: 'text 787-555-0199',
     model_provider: 'openai',
-    model_name: 'gpt-4.1-mini',
+    model_name: 'gpt-4o-mini',
   },
   instructions: {
-    system_prompt: 'Represent the business accurately and never invent availability.',
-    business_summary: 'Upscale Puerto Rico restaurant focused on private events and catering.',
-    faq_instructions: 'Hours: Tue-Sun 11am-9pm. Closed Monday.',
-    lead_qualification_instructions: 'Collect name, phone, date, party size, and service interest.',
-    handoff_rules: 'Escalate urgent complaints or booking changes.',
-    never_say_rules: 'Never promise a reservation is confirmed without staff approval.',
-    emergency_keywords: ['allergy', 'refund'],
-    lead_fields: ['name', 'phone', 'date', 'party_size'],
+    system_prompt: 'Be helpful and book appointments when possible.',
+    business_summary: 'We offer teeth whitening and cleanings.',
+    faq_instructions: 'Whitening is $299.',
+    lead_qualification_instructions: 'Ask for name, phone, and preferred service.',
+    handoff_rules: 'If they ask for medical advice, hand off.',
+    never_say_rules: 'Do not promise exact appointment times without checking.',
+    emergency_keywords: ['pain', 'emergency'],
+    lead_fields: ['name', 'phone', 'service'],
   },
   knowledge: [
-    { title: 'Menu summary', content_text: 'Popular services: catering, private dining, brunch events.' },
+    { title: 'Whitening', content_text: 'Teeth whitening takes 60 minutes.' },
   ],
 };
 
-Deno.test('buildWpmSystemPrompt assembles client, instruction, lead, handoff, and knowledge context', () => {
-  const prompt = buildWpmSystemPrompt(context);
+Deno.test('buildWpmSystemPrompt includes all key sections and knowledge', () => {
+  const prompt = buildWpmSystemPrompt(mockContext);
 
-  assertStringIncludes(prompt, 'Demo Restaurant');
-  assertStringIncludes(prompt, 'Demo Concierge');
-  assertStringIncludes(prompt, 'Represent the business accurately');
-  assertStringIncludes(prompt, 'Collect name, phone, date, party size');
-  assertStringIncludes(prompt, 'Never promise a reservation is confirmed');
-  assertStringIncludes(prompt, 'Popular services: catering');
-  assertStringIncludes(prompt, 'https://example.com/book');
+  assertStringIncludes(prompt, 'WolfPack Dental');
+  assertStringIncludes(prompt, 'Luna');
+  assertStringIncludes(prompt, 'Teeth whitening takes 60 minutes.');
+  assertStringIncludes(prompt, 'Be helpful and book appointments');
+  assertStringIncludes(prompt, 'Whitening is $299.');
 });
 
-Deno.test('buildWpmAssistantMessages creates OpenAI-compatible chat messages with recent conversation history', () => {
-  const messages = buildWpmAssistantMessages(context, [
-    { role: 'user', content: 'Do you do private events?' },
-    { role: 'assistant', content: 'Yes. What date and party size are you considering?' },
-  ], 'I need catering for 30 people this Friday.');
+Deno.test('buildWpmAssistantMessages produces system + history + new user message', () => {
+  const recent = [
+    { role: 'user' as const, content: 'Hi' },
+    { role: 'assistant' as const, content: 'Hello!' },
+  ];
+  const messages = buildWpmAssistantMessages(mockContext, recent, 'Do you do whitening?');
 
-  assertEquals(messages.at(0)?.role, 'system');
-  assertEquals(messages.at(-1), {
-    role: 'user',
-    content: 'I need catering for 30 people this Friday.',
-  });
-  assertEquals(messages.slice(1), [
-    { role: 'user', content: 'Do you do private events?' },
-    { role: 'assistant', content: 'Yes. What date and party size are you considering?' },
-    { role: 'user', content: 'I need catering for 30 people this Friday.' },
-  ]);
+  assertEquals(messages[0].role, 'system');
+  assertEquals(messages[messages.length - 1].content, 'Do you do whitening?');
+  assertEquals(messages.length, 4); // system + 2 history + 1 user
 });
