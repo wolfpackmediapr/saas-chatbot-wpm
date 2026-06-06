@@ -8,7 +8,13 @@ import {
   Crown,
   Send,
   ClipboardCheck,
+  Building2,
   Bot,
+  BookOpenText,
+  PlugZap,
+  Zap,
+  Play,
+  Users,
   LogOut,
   User,
   X
@@ -18,11 +24,18 @@ import { useAuth } from '../contexts/AuthContext';
 import { getCompanyLogo } from '../lib/supabase/settings';
 
 const mainNavItems = [
-  { icon: MessageSquarePlus, label: 'New Chat', path: '/chat/new' },
-  { icon: ClipboardCheck, label: 'Launch Checklist', path: '/launch-checklist' },
-  { icon: History, label: 'Recent History', path: '/history' },
-  { icon: HelpCircle, label: 'Help Center', path: '/help' },
-  { icon: Send, label: 'Send Feedback', path: '/feedback' },
+  { icon: MessageSquarePlus, label: 'New Chat', path: '/dashboard/chat/new' },
+  { icon: Building2, label: 'Business Profile', path: '/dashboard/business-profile' },
+  { icon: Bot, label: 'Agent Setup', path: '/dashboard/agent-setup' },
+  { icon: BookOpenText, label: 'Knowledge Base', path: '/dashboard/knowledge-base' },
+  { icon: PlugZap, label: 'Channel Connections', path: '/dashboard/channel-connections' },
+  { icon: Zap, label: 'Automations', path: '/dashboard/automations' },
+  { icon: Users, label: 'Leads', path: '/dashboard/leads' },
+  { icon: Play, label: 'Test Agent', path: '/dashboard/agent-test' },
+  { icon: ClipboardCheck, label: 'Launch Checklist', path: '/dashboard/launch-checklist' },
+  { icon: History, label: 'Recent History', path: '/dashboard/history' },
+  { icon: HelpCircle, label: 'Help Center', path: '/dashboard/help' },
+  { icon: Send, label: 'Send Feedback', path: '/dashboard/feedback' },
 ];
 
 interface SidebarProps {
@@ -91,57 +104,27 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               to={item.path}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors',
-                  'hover:bg-secondary',
-                  isActive ? 'bg-secondary text-primary' : 'text-secondary-foreground'
+                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all touch-manipulation",
+                  isActive
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "hover:bg-secondary text-secondary-foreground hover:text-foreground"
                 )
               }
             >
-              <item.icon className="w-5 h-5" />
-              {item.label}
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
       </div>
 
-      <div className="mt-auto p-4 space-y-2 border-t border-secondary">
-        {user && (
-          <div className="mb-2 p-3 bg-secondary rounded-lg">
-            <div className="flex items-center gap-2 text-sm">
-              <User className="w-4 h-4 text-primary" />
-              <span className="truncate">{user.email}</span>
-            </div>
-          </div>
-        )}
-
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors w-full',
-              'hover:bg-secondary',
-              isActive ? 'bg-secondary text-primary' : 'text-secondary-foreground'
-            )
-          }
-        >
-          <Settings className="w-5 h-5" />
-          Settings
-        </NavLink>
-
-        <button
-          onClick={() => navigate('/subscription')}
-          className="w-full bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg px-4 py-2 flex items-center justify-center gap-2 transition-colors"
-        >
-          <Crown className="w-4 h-4" />
-          Upgrade to PRO!
-        </button>
-
+      <div className="mt-auto p-4 border-t border-secondary">
         <button
           onClick={handleSignOut}
-          className="w-full bg-secondary hover:bg-secondary/70 text-secondary-foreground rounded-lg px-4 py-2 flex items-center justify-center gap-2 transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-secondary-foreground hover:bg-secondary hover:text-foreground transition-colors touch-manipulation"
         >
-          <LogOut className="w-4 h-4" />
-          Sign Out
+          <LogOut className="h-4 w-4" />
+          <span>Sign Out</span>
         </button>
       </div>
     </aside>

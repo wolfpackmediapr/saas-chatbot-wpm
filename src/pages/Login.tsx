@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const response = await signIn(data.email, data.password);
       if (response.user) {
-        navigate('/');
+        navigate('/dashboard');
       } else {
         setError('Invalid login credentials');
       }
