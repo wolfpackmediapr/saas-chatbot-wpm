@@ -61,6 +61,18 @@ export interface WpmClientChannel {
   metadata?: Record<string, any>;
 }
 
+export interface WpmIntegration {
+  id: string;
+  client_id: string;
+  provider: string;
+  integration_type: string;
+  name: string;
+  secret_reference?: string | null;
+  is_active: boolean;
+  metadata?: Record<string, any>;
+  field_map?: Record<string, any>;
+}
+
 /**
  * Returns the current authenticated user's owned WPM client profile.
  */
@@ -291,5 +303,76 @@ export async function deactivateClientChannel(clientId: string, provider: string
     .update({ is_active: false })
     .eq('client_id', clientId)
     .eq('provider', provider);
+  if (error) throw error;
+}
+
+// === Integrations / Automations helpers ===
+
+export async function listIntegrations(clientId: string): Promise<WpmIntegration[]> {
+  if (!supabase) return [];
+  const { data, error } = await (supabase as any)
+    .from('wpm_integrations')
+    .select('id, client_id, provider, integration_type, name, secret_reference, is_active, metadata, field_map')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('[wpmClients] listIntegrations error', error);
+    return [];
+  }
+  return (data || []) as WpmIntegration[];
+}
+
+export async function upsertIntegration(clientId: string, integ: {
+  provider: string;
+  integration_type: string;
+  name: string;
+  metadata?: Record<string, any>;
+  field_map?: Record<string, any>;
+  is_active?: boolean;
+}): Promise<string> {
+  if (!supabase) throw new Error('Supabase not configured');
+
+  // Find existing by client + integration_type (one per type per client)
+  const { data: existing } = await (supabase as any)
+    .from('wpm_integrations')
+    .select('id')
+    .eq('client_id', clientId)
+    .eq('integration_type', integ.integration_type)
+    .maybeSingle();
+
+  const payload: any = {
+    client_id: clientId,
+    provider: integ.provider,
+    integration_type: integ.integration_type,
+    name: integ.name,
+    is_active: integ.is_active ?? true,
+    metadata: integ.metadata || {},
+    field_map: integ.field_map || {},
+  };
+
+  if (existing?.id) {
+    const { error } = await (supabase as any)
+      .from('wpm_integrations')
+      .update({ ...payload, updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+    if (error) throw error;
+    return existing.id;
+  } else {
+    const { data, error } = await (supabase as any)
+      .from('wpm_integrations')
+      .insert(payload)
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data.id;
+  }
+}
+
+export async function setIntegrationActive(integrationId: string, isActive: boolean) {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await (supabase as any)
+    .from('wpm_integrations')
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq('id', integrationId);
   if (error) throw error;
 }
