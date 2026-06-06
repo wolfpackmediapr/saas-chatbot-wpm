@@ -250,6 +250,9 @@ Deno.serve(async (request: Request) => {
       const channelType = event.platform === 'messenger' ? 'facebook' : event.platform;
 
       // ── Conversation upsert ──────────────────────────────────────────
+      // Use a stable external_conversation_id for Meta DM threads (page + sender)
+      const externalConversationId = `${event.pageId}:${event.senderId}`;
+
       const { data: convData } = await supabase
         .from('wpm_conversations')
         .upsert(
@@ -257,6 +260,7 @@ Deno.serve(async (request: Request) => {
             client_id: channel.client_id,
             channel_id: channel.id,
             bot_profile_id: botProfileId,
+            external_conversation_id: externalConversationId,
             external_user_id: event.senderId,
             channel_type: channelType,
             status: 'active',
