@@ -20,7 +20,23 @@ export interface WpmBotProfileRecord {
   public_name?: string | null;
   template_key?: string | null;
   tone?: string | null;
+  response_length?: string | null;
   settings?: Record<string, any>;
+  is_active: boolean;
+}
+
+export interface WpmBotInstructionsRecord {
+  id: string;
+  bot_profile_id: string;
+  system_prompt: string;
+  business_summary?: string | null;
+  faq_instructions?: string | null;
+  lead_qualification_instructions?: string | null;
+  handoff_rules?: string | null;
+  never_say_rules?: string | null;
+  emergency_keywords?: string[];
+  lead_fields?: any[];
+  version: number;
   is_active: boolean;
 }
 
@@ -100,7 +116,7 @@ export async function getActiveBotProfile(clientId: string): Promise<WpmBotProfi
 
   const { data, error } = await (supabase as any)
     .from('wpm_bot_profiles')
-    .select('id, client_id, name, public_name, template_key, tone, settings, is_active')
+    .select('id, client_id, name, public_name, template_key, tone, response_length, settings, is_active')
     .eq('client_id', clientId)
     .eq('is_active', true)
     .maybeSingle();
@@ -120,6 +136,7 @@ export async function upsertBotProfile(clientId: string, updates: {
   name?: string; 
   public_name?: string; 
   tone?: string; 
+  response_length?: string;
   settings?: Record<string, any>;
 }) {
   if (!supabase) {
@@ -140,11 +157,11 @@ export async function upsertBotProfile(clientId: string, updates: {
       .eq('id', botProfile.id);
 
     if (error) throw error;
-    return;
+    return botProfile.id;
   }
 
   // No active profile - create a minimal one (self-serve flow will create richer ones later)
-  const { error } = await (supabase as any)
+  const { data, error } = await (supabase as any)
     .from('wpm_bot_profiles')
     .insert({
       client_id: clientId,
@@ -155,10 +172,83 @@ export async function upsertBotProfile(clientId: string, updates: {
       model_name: 'gpt-4.1-mini',
       tone: updates.tone || 'professional and friendly',
       language: 'en/es',
-      response_length: 'balanced',
+      response_length: updates.response_length || 'balanced',
       is_active: true,
       settings: updates.settings || {},
-    });
+    })
+    .select('id')
+    .single();
 
   if (error) throw error;
+  return data.id;
+}
+
+/**
+ * Get the active instructions for a bot profile.
+ */
+export async function getBotInstructions(botProfileId: string): Promise<WpmBotInstructionsRecord | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await (supabase as any)
+    .from('wpm_bot_instructions')
+    .select('*')
+    .eq('bot_profile_id', botProfileId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('getBotInstructions error', error);
+    return null;
+  }
+  return data as WpmBotInstructionsRecord | null;
+}
+
+/**
+ * Create or update the instructions for a bot profile.
+ * Maps Agent Setup form fields to the instruction columns.
+ */
+export async function upsertBotInstructions(botProfileId: string, updates: {
+  system_prompt?: string;
+  business_summary?: string;
+  faq_instructions?: string;
+  lead_qualification_instructions?: string;
+  handoff_rules?: string;
+  never_say_rules?: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase not configured');
+  }
+
+  // Check if instructions already exist for this profile
+  const existing = await getBotInstructions(botProfileId);
+
+  const payload = {
+    bot_profile_id: botProfileId,
+    system_prompt: updates.system_prompt || '',
+    business_summary: updates.business_summary || null,
+    faq_instructions: updates.faq_instructions || null,
+    lead_qualification_instructions: updates.lead_qualification_instructions || null,
+    handoff_rules: updates.handoff_rules || null,
+    never_say_rules: updates.never_say_rules || null,
+    is_active: true,
+    version: existing ? (existing.version || 1) + 1 : 1,
+  };
+
+  if (existing) {
+    const { error } = await (supabase as any)
+      .from('wpm_bot_instructions')
+      .update({
+        ...payload,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id);
+
+    if (error) throw error;
+  } else {
+    const { error } = await (supabase as any)
+      .from('wpm_bot_instructions')
+      .insert(payload);
+
+    if (error) throw error;
+  }
 }
