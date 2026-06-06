@@ -20,7 +20,43 @@ export interface WpmLeadRecord {
 
 export async function listOwnedLeads(clientId: string, limit: number = 50): Promise<WpmLeadRecord[]> {
   if (!supabase) {
-    throw new Error('Supabase is not configured.');
+    // Demo / preview mode — return sample leads so the UI is usable without full Supabase setup
+    return [
+      {
+        id: 'demo-lead-1',
+        client_id: clientId,
+        conversation_id: null,
+        full_name: 'Maria Gonzalez',
+        email: 'maria@example.com',
+        phone: '+1 (787) 555-0192',
+        service_interest: 'AI DM Agent - Professional',
+        intent: 'pricing',
+        qualification_data: { budget: 'monthly', timeline: 'this month' },
+        source_channel: 'whatsapp',
+        status: 'qualified',
+        assigned_to: null,
+        last_contact_at: new Date().toISOString(),
+        created_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 'demo-lead-2',
+        client_id: clientId,
+        conversation_id: null,
+        full_name: 'Carlos Rivera',
+        email: 'carlos@rivera.co',
+        phone: null,
+        service_interest: 'Website + DM Automation',
+        intent: 'book_call',
+        qualification_data: { company_size: 'small' },
+        source_channel: 'instagram',
+        status: 'new',
+        assigned_to: null,
+        last_contact_at: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
+        created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ] as WpmLeadRecord[];
   }
 
   const { data, error } = await (supabase as any)
