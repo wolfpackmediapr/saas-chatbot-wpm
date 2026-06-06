@@ -67,7 +67,7 @@ async function sendEmailViaResend(params: {
     return { ok: false, simulated: true, error: 'No RESEND_API_KEY configured' };
   }
 
-  const from = Deno.env.get('RESEND_FROM') || 'WolfPack AI <ai@wolfpackmediapr.com>';
+  const from = Deno.env.get('RESEND_FROM') || 'WolfPack AI <wilfre@wolfpackmediapr.com>';
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
