@@ -7,6 +7,7 @@ import {
   HelpCircle,
   Crown,
   Send,
+  ClipboardCheck,
   Bot,
   LogOut,
   User,
@@ -18,6 +19,7 @@ import { getCompanyLogo } from '../lib/supabase/settings';
 
 const mainNavItems = [
   { icon: MessageSquarePlus, label: 'New Chat', path: '/chat/new' },
+  { icon: ClipboardCheck, label: 'Launch Checklist', path: '/launch-checklist' },
   { icon: History, label: 'Recent History', path: '/history' },
   { icon: HelpCircle, label: 'Help Center', path: '/help' },
   { icon: Send, label: 'Send Feedback', path: '/feedback' },
@@ -48,7 +50,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   useEffect(() => {
     onClose();
-  }, [location.pathname]);
+  }, [location.pathname, onClose]);
 
   const handleSignOut = async () => {
     await signOut();

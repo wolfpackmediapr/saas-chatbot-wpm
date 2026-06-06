@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import Subscription from './pages/Subscription';
 import Help from './pages/Help';
 import Feedback from './pages/Feedback';
+import LaunchChecklist from './pages/LaunchChecklist';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -36,6 +37,7 @@ function App() {
             <Route path="history" element={<History />} />
             <Route path="settings" element={<Settings />} />
             <Route path="subscription" element={<Subscription />} />
+            <Route path="launch-checklist" element={<LaunchChecklist />} />
             <Route path="help" element={<Help />} />
             <Route path="feedback" element={<Feedback />} />
           </Route>
