@@ -11,12 +11,6 @@ import Subscription from './pages/Subscription';
 import Help from './pages/Help';
 import Feedback from './pages/Feedback';
 import LaunchChecklist from './pages/LaunchChecklist';
-import BusinessProfile from './pages/BusinessProfile';
-import AgentSetup from './pages/AgentSetup';
-import KnowledgeBase from './pages/KnowledgeBase';
-import ChannelConnections from './pages/ChannelConnections';
-import Automations from './pages/Automations';
-import AgentTest from './pages/AgentTest';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -43,12 +37,6 @@ function App() {
             <Route path="history" element={<History />} />
             <Route path="settings" element={<Settings />} />
             <Route path="subscription" element={<Subscription />} />
-            <Route path="business-profile" element={<BusinessProfile />} />
-            <Route path="agent-setup" element={<AgentSetup />} />
-            <Route path="knowledge-base" element={<KnowledgeBase />} />
-            <Route path="channel-connections" element={<ChannelConnections />} />
-            <Route path="automations" element={<Automations />} />
-            <Route path="agent-test" element={<AgentTest />} />
             <Route path="launch-checklist" element={<LaunchChecklist />} />
             <Route path="help" element={<Help />} />
             <Route path="feedback" element={<Feedback />} />
