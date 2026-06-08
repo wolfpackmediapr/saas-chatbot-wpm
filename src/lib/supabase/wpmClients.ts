@@ -55,6 +55,7 @@ export interface KnowledgeSource {
 export interface WpmClientChannel {
   id: string;
   client_id: string;
+  channel_type: string;
   provider: string;
   provider_channel_id: string;
   is_active: boolean;
@@ -279,7 +280,7 @@ export async function listClientChannels(clientId: string): Promise<WpmClientCha
   if (!supabase) return [];
   const { data, error } = await (supabase as any)
     .from('wpm_client_channels')
-    .select('id, client_id, provider, provider_channel_id, is_active, metadata')
+    .select('id, client_id, channel_type, provider, provider_channel_id, is_active, metadata')
     .eq('client_id', clientId)
     .eq('is_active', true);
   if (error) return [];
@@ -293,12 +294,13 @@ export async function upsertClientChannel(clientId: string, channel: {
   metadata?: Record<string, any>;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
-  // Try to find existing for this provider
+  // Try to find existing for this provider + channel_type combination
   const { data: existing } = await (supabase as any)
     .from('wpm_client_channels')
     .select('id')
     .eq('client_id', clientId)
     .eq('provider', channel.provider)
+    .eq('channel_type', channel.channel_type)
     .maybeSingle();
 
   if (existing) {
@@ -327,13 +329,13 @@ export async function upsertClientChannel(clientId: string, channel: {
   }
 }
 
-export async function deactivateClientChannel(clientId: string, provider: string) {
+export async function deactivateClientChannel(clientId: string, channelType: string) {
   if (!supabase) throw new Error('Supabase not configured');
   const { error } = await (supabase as any)
     .from('wpm_client_channels')
     .update({ is_active: false })
     .eq('client_id', clientId)
-    .eq('provider', provider);
+    .eq('channel_type', channelType);
   if (error) throw error;
 }
 

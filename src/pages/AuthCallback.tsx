@@ -7,6 +7,7 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Completing sign in...');
+  const [connectedChannels, setConnectedChannels] = useState<{ name: string; type: string }[]>([]);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,27 +21,64 @@ export default function AuthCallback() {
       try {
         const { data, error } = await supabase.auth.getSession();
 
-        if (error) {
-          throw error;
+        if (error) throw error;
+
+        let session = data?.session;
+
+        if (!session) {
+          await new Promise(r => setTimeout(r, 1000));
+          const { data: retryData, error: retryError } = await supabase.auth.getSession();
+          if (retryError) throw retryError;
+          session = retryData?.session ?? null;
         }
 
-        if (data?.session) {
+        if (!session) {
+          setStatus('error');
+          setMessage('No session found after OAuth redirect');
+          return;
+        }
+
+        // If this was a Facebook OAuth flow, exchange the provider token for page channels
+        const isFacebookOAuth =
+          session.provider_token &&
+          (session.user.app_metadata?.provider === 'facebook' ||
+            (session.user.identities as any[])?.some((i) => i.provider === 'facebook'));
+
+        if (isFacebookOAuth) {
+          setMessage('Connecting your Facebook Pages...');
+
+          const { data: fnData, error: fnError } = await supabase.functions.invoke(
+            'meta-oauth-callback',
+            {
+              body: {
+                user_token: session.provider_token,
+                supabase_user_id: session.user.id,
+              },
+            }
+          );
+
+          if (fnError || !fnData?.success) {
+            const msg = fnData?.error || fnError?.message || 'Unknown error';
+            console.error('[AuthCallback] meta-oauth-callback failed:', msg);
+            setStatus('error');
+            setMessage(`Channel connection failed: ${msg}`);
+            setErrorDetails(
+              'Your Facebook login succeeded but the channel could not be saved. ' +
+                'Please try connecting again from Channel Connections.'
+            );
+            return;
+          }
+
+          setConnectedChannels(fnData.channels || []);
+          setStatus('success');
+          setMessage(
+            `${fnData.pagesConnected} channel${fnData.pagesConnected !== 1 ? 's' : ''} connected!`
+          );
+          setTimeout(() => navigate('/dashboard/channel-connections'), 2000);
+        } else {
           setStatus('success');
           setMessage('Signed in successfully! Redirecting...');
           setTimeout(() => navigate('/dashboard/channel-connections'), 1500);
-        } else {
-          setTimeout(async () => {
-            const { data: retryData, error: retryError } = await supabase.auth.getSession();
-            if (retryError) throw retryError;
-            if (retryData?.session) {
-              setStatus('success');
-              setMessage('Signed in successfully! Redirecting...');
-              setTimeout(() => navigate('/dashboard/channel-connections'), 1500);
-            } else {
-              setStatus('error');
-              setMessage('No session found after OAuth redirect');
-            }
-          }, 1000);
         }
       } catch (err: any) {
         console.error('Auth callback error:', err);
@@ -72,7 +110,16 @@ export default function AuthCallback() {
             <CheckCircle className="w-8 h-8 text-green-500" />
           </div>
           <h2 className="text-2xl font-semibold mb-2">{message}</h2>
-          <p className="text-secondary-foreground">Taking you to Channel Connections...</p>
+          {connectedChannels.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {connectedChannels.map((ch, i) => (
+                <p key={i} className="text-sm text-secondary-foreground">
+                  {ch.type === 'instagram' ? 'Instagram' : 'Facebook Messenger'}: {ch.name}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="text-secondary-foreground mt-3">Taking you to Channel Connections...</p>
         </div>
       </div>
     );
@@ -85,13 +132,8 @@ export default function AuthCallback() {
           <AlertCircle className="w-8 h-8 text-red-500" />
         </div>
         <h2 className="text-2xl font-semibold mb-2">{message}</h2>
-        <p className="text-secondary-foreground mb-4">
-          Something went wrong during sign in. Please try again.
-        </p>
         {errorDetails && (
-          <pre className="text-xs text-red-400 bg-background p-4 rounded-lg text-left overflow-auto">
-            {errorDetails}
-          </pre>
+          <p className="text-secondary-foreground mb-4 text-sm">{errorDetails}</p>
         )}
         <button
           onClick={() => navigate('/dashboard/channel-connections')}
