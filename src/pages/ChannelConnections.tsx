@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { PlugZap, CheckCircle2, AlertCircle, MessageCircle, Instagram } from 'lucide-react';
+import { PlugZap, CheckCircle2, AlertCircle, MessageCircle, Instagram, Facebook } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getOwnedWpmClient, listClientChannels, upsertClientChannel, deactivateClientChannel } from '../lib/supabase/wpmClients';
+import { supabase } from '../lib/supabase/client';
+import { useNavigate } from 'react-router-dom';
 
 interface Channel {
   id: string;
@@ -39,13 +41,14 @@ const CHANNEL_CONFIG: Record<Channel['id'], Channel> = {
 
 export default function ChannelConnections() {
   const [channels, setChannels] = useState<Channel[]>(Object.values(CHANNEL_CONFIG));
-
   const [connecting, setConnecting] = useState<string | null>(null);
   const [pendingChannelId, setPendingChannelId] = useState<{ [key: string]: string }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [metaAuthInProgress, setMetaAuthInProgress] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     async function loadChannels() {
@@ -157,6 +160,36 @@ export default function ChannelConnections() {
     setPendingChannelId(prev => ({ ...prev, [channelId]: value }));
   };
 
+  const handleMetaConnect = async (channelId: string) => {
+    if (!supabase) {
+      setError('Supabase not configured');
+      return;
+    }
+
+    setMetaAuthInProgress(channelId);
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'facebook',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'pages_show_list,instagram_basic,instagram_manage_messages,pages_messaging',
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) throw error;
+      // The redirect will happen automatically
+    } catch (err: any) {
+      console.error('Meta OAuth failed:', err);
+      setError(`Failed to start Meta connection: ${err.message}`);
+      setMetaAuthInProgress(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 max-w-4xl flex items-center justify-center min-h-[300px]">
@@ -198,7 +231,7 @@ export default function ChannelConnections() {
           const placeholder = isMeta ? 'Meta Page ID' : 'Woztell Channel ID';
           const buttonText = isMeta ? 'Connect via Meta' : 'Connect via Woztell';
           const helpText = isMeta
-            ? `Enter the Meta Page ID for your ${channel.name}. This connects directly via Meta Graph API (bypassing Woztell).`
+            ? `Click "Connect via Meta" to authorize via Facebook Login. You'll select which Pages to connect for ${channel.name}.`
             : 'Enter the Woztell Channel ID for your WhatsApp Business account.';
 
           return (
@@ -236,6 +269,19 @@ export default function ChannelConnections() {
                         Disconnect
                       </button>
                     </>
+                  ) : isMeta ? (
+                    <button
+                      onClick={() => handleMetaConnect(channel.id)}
+                      disabled={metaAuthInProgress === channel.id || connecting === channel.id}
+                      className={cn(
+                        "px-5 py-2.5 rounded-xl text-sm font-medium transition-all",
+                        "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+                      )}
+                    >
+                      {metaAuthInProgress === channel.id
+                        ? 'Redirecting to Meta...'
+                        : `Connect ${channel.platform === 'instagram' ? 'Instagram' : 'Facebook'} via Meta`}
+                    </button>
                   ) : (
                     <div className="flex items-center gap-2">
                       <input
@@ -260,7 +306,13 @@ export default function ChannelConnections() {
                 </div>
               </div>
 
-              {channel.status === 'disconnected' && (
+              {channel.status === 'disconnected' && !isMeta && (
+                <div className="mt-4 text-xs bg-background/50 border border-secondary rounded-lg p-3 text-secondary-foreground">
+                  {helpText}
+                  This will be stored in <code>wpm_client_channels</code> (provider: {channel.provider}, channel_type: {channel.platform}) and used by the webhook bridge.
+                </div>
+              )}
+              {channel.status === 'disconnected' && isMeta && (
                 <div className="mt-4 text-xs bg-background/50 border border-secondary rounded-lg p-3 text-secondary-foreground">
                   {helpText}
                   This will be stored in <code>wpm_client_channels</code> (provider: {channel.provider}, channel_type: {channel.platform}) and used by the webhook bridge.

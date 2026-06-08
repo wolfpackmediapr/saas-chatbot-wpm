@@ -23,6 +23,7 @@ import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import Landing from './pages/Landing';
 import Pricing from './pages/Pricing';
+import AuthCallback from './pages/AuthCallback';
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Protected App (now under /dashboard to free up root for marketing) */}
           <Route
