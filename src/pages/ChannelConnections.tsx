@@ -77,9 +77,11 @@ export default function ChannelConnections() {
     try {
       if (clientId && !isDemoMode) {
         const provider = channelId === 'wa' ? 'whatsapp' : 'instagram';
+        const channelType = channelId === 'wa' ? 'whatsapp' : 'instagram';
         await upsertClientChannel(clientId, {
           provider,
           provider_channel_id: inputId.trim(),
+          channel_type: channelType,
           metadata: {
             phone_or_handle: inputId.trim(),
             connected_via: 'self-serve',

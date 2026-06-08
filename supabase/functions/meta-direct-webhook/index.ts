@@ -280,6 +280,8 @@ Deno.serve(async (request: Request) => {
       // ── Store inbound message ────────────────────────────────────────
       await supabase.from('wpm_messages').insert({
         conversation_id: conversationId,
+        client_id: channel.client_id,
+        direction: 'inbound',
         role: 'user',
         content: event.text,
         provider_message_id: event.messageId,

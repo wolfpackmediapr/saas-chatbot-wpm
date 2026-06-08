@@ -261,6 +261,7 @@ export async function listClientChannels(clientId: string): Promise<WpmClientCha
 export async function upsertClientChannel(clientId: string, channel: {
   provider: string;
   provider_channel_id: string;
+  channel_type: string;
   metadata?: Record<string, any>;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
@@ -277,6 +278,7 @@ export async function upsertClientChannel(clientId: string, channel: {
       .from('wpm_client_channels')
       .update({
         provider_channel_id: channel.provider_channel_id,
+        channel_type: channel.channel_type,
         metadata: channel.metadata || {},
         is_active: true,
       })
@@ -289,6 +291,7 @@ export async function upsertClientChannel(clientId: string, channel: {
         client_id: clientId,
         provider: channel.provider,
         provider_channel_id: channel.provider_channel_id,
+        channel_type: channel.channel_type,
         is_active: true,
         metadata: channel.metadata || {},
       });
