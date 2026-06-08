@@ -75,6 +75,7 @@ export interface WpmIntegration {
 
 /**
  * Returns the current authenticated user's owned WPM client profile.
+ * Creates the client record if it doesn't exist (lazy creation).
  */
 export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
   if (!supabase) {
@@ -89,15 +90,42 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data, error } = await (supabase as any)
+    // Try to get existing client
+    let { data, error } = await (supabase as any)
       .from('wpm_clients')
       .select('id, name, description, timezone, status, website_url, contact_email, contact_phone, industry, notes')
       .eq('owner_user_id', user.id)
       .maybeSingle();
 
-    if (error || !data) {
-      return { id: user.id, name: 'Your Business' };
+    if (error && error.code !== 'PGRST116') {
+      console.warn('[wpmClients] getOwnedWpmClient query error', error);
     }
+
+    if (!data) {
+      // Lazy create: no client exists for this user, create one
+      const userEmail = user.email ?? '';
+      const userName = user.user_metadata?.full_name ?? userEmail?.split('@')[0] ?? 'Your Business';
+      
+      const { data: newClient, error: insertError } = await (supabase as any)
+        .from('wpm_clients')
+        .insert({
+          owner_user_id: user.id,
+          name: userName,
+          status: 'draft',
+          timezone: 'America/Puerto_Rico',
+          contact_email: userEmail,
+        })
+        .select('id, name, description, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+        .single();
+
+      if (insertError) {
+        console.error('[wpmClients] Failed to create client', insertError);
+        return { id: user.id, name: 'Your Business' };
+      }
+      
+      data = newClient;
+    }
+
     return data as WpmClientRecord;
   } catch (err) {
     console.warn('[wpmClients] getOwnedWpmClient error', err);
