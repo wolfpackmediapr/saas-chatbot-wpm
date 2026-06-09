@@ -15,13 +15,9 @@
       justify-content: center;
       min-height: 100vh;
     }
-    .card {
-      text-align: center;
-      padding: 2rem;
-    }
+    .card { text-align: center; padding: 2rem; }
     .spinner {
-      width: 40px;
-      height: 40px;
+      width: 40px; height: 40px;
       border: 3px solid rgba(99,179,237,0.2);
       border-top-color: #63b3ed;
       border-radius: 50%;
@@ -47,31 +43,42 @@
     if (window.opener && window.opener !== window) {
       try { window.opener.postMessage(msg, origin); } catch (_) {}
     }
-    window.close();
+    // Small delay before closing so postMessage can be dispatched
+    setTimeout(function () { window.close(); }, 150);
   }
 
   function showError(msg) {
     var el = document.getElementById('root');
     el.innerHTML = '<p class="error">' + msg + '</p><p style="font-size:0.8rem">You can close this window.</p>';
-    // Still try to notify parent even if we end up staying open
     if (window.opener && window.opener !== window) {
       try { window.opener.postMessage({ type: 'META_OAUTH_ERROR', error: msg }, origin); } catch (_) {}
     }
   }
 
-  // Check for error from Supabase / Meta
   var search = new URLSearchParams(window.location.search);
-  var errorDesc = search.get('error_description') || search.get('error');
-  var errorCode = search.get('error_code');
+  var hash   = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+  // ── 1. Check for explicit error params (from either Meta or Supabase) ────
+  var errorDesc = search.get('error_description') || search.get('error') || hash.get('error_description') || hash.get('error');
+  var errorCode = search.get('error_code') || hash.get('error_code');
 
   if (errorDesc || errorCode) {
-    var msg = errorDesc || errorCode;
-    showError(msg);
+    showError(errorDesc || errorCode);
     return;
   }
 
-  // Parse the hash fragment: Supabase puts access_token and provider_token here
-  var hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  // ── 2. Direct Facebook OAuth — code in query string (?code=...) ──────────
+  //    This is the preferred path. We bypass Supabase auth entirely and send
+  //    the raw authorization code to the parent, which forwards it to our
+  //    edge function for a server-side exchange.
+  var fbCode = search.get('code');
+  if (fbCode) {
+    send({ type: 'META_OAUTH_CODE', code: fbCode });
+    return;
+  }
+
+  // ── 3. Supabase OAuth fallback — tokens in hash fragment ─────────────────
+  //    Kept for any other OAuth flows that still use Supabase auth.
   var accessToken   = hash.get('access_token');
   var providerToken = hash.get('provider_token');
   var hashError     = hash.get('error_description') || hash.get('error');
@@ -81,32 +88,24 @@
     return;
   }
 
-  if (!accessToken) {
-    send({ type: 'META_OAUTH_ERROR', error: 'No access token received from Facebook' });
+  if (accessToken && providerToken) {
+    try {
+      var parts = accessToken.split('.');
+      if (parts.length !== 3) throw new Error('Invalid JWT');
+      var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      var payload = JSON.parse(atob(b64));
+      send({ type: 'META_OAUTH_SUCCESS', provider_token: providerToken, user_id: payload.sub });
+    } catch (e) {
+      send({ type: 'META_OAUTH_ERROR', error: 'Failed to parse auth response: ' + e.message });
+    }
     return;
   }
 
-  if (!providerToken) {
-    send({ type: 'META_OAUTH_ERROR', error: 'No provider token received — ensure pages_show_list permission is granted' });
-    return;
-  }
-
-  // Decode the Supabase JWT (access_token) to get the user's UUID (sub claim)
-  try {
-    var parts = accessToken.split('.');
-    if (parts.length !== 3) throw new Error('Invalid JWT');
-    // base64url → base64
-    var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    // pad
-    while (b64.length % 4) b64 += '=';
-    var payload = JSON.parse(atob(b64));
-    send({
-      type:           'META_OAUTH_SUCCESS',
-      provider_token: providerToken,
-      user_id:        payload.sub
-    });
-  } catch (e) {
-    send({ type: 'META_OAUTH_ERROR', error: 'Failed to parse authentication response: ' + e.message });
+  // ── 4. Nothing useful — page was likely opened directly ──────────────────
+  if (!window.opener) {
+    document.getElementById('root').innerHTML =
+      '<p style="font-size:0.9rem;opacity:0.6">This page is part of the OAuth flow.<br>Open it only through the app.</p>';
   }
 })();
 </script>
