@@ -121,7 +121,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
 
       if (insertError) {
         console.error('[wpmClients] Failed to create client', insertError);
-        return { id: user.id, name: 'Your Business' };
+        return null;
       }
       
       data = newClient;
@@ -155,10 +155,14 @@ export async function getActiveBotProfile(clientId: string): Promise<WpmBotProfi
   return data as WpmBotProfileRecord | null;
 }
 
-export async function upsertBotProfile(clientId: string, updates: { 
+export async function upsertBotProfile(clientId: string, updates: {
   name?: string; public_name?: string; tone?: string; response_length?: string; settings?: Record<string, any>;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
   const botProfile = await getActiveBotProfile(clientId);
   if (botProfile) {
     const { error } = await (supabase as any)
@@ -172,6 +176,7 @@ export async function upsertBotProfile(clientId: string, updates: {
     .from('wpm_bot_profiles')
     .insert({
       client_id: clientId,
+      owner_user_id: user.id,
       name: updates.name || 'AI Assistant',
       public_name: updates.public_name || updates.name || 'AI Assistant',
       template_key: 'wpm-ai-receptionist',
@@ -206,9 +211,14 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
   lead_qualification_instructions?: string; handoff_rules?: string; never_say_rules?: string;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
   const existing = await getBotInstructions(botProfileId);
   const payload = {
     bot_profile_id: botProfileId,
+    owner_user_id: user.id,
     system_prompt: updates.system_prompt || '',
     business_summary: updates.business_summary || null,
     faq_instructions: updates.faq_instructions || null,
