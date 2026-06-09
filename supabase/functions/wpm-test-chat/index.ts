@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { buildWpmSystemPrompt, buildWpmAssistantMessages, type WpmBotContext, type WpmChatMessage } from "../_shared/wpm_prompt.ts";
+import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from "../_shared/wpm_leads.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,98 +23,45 @@ function err(message: string, status = 400) {
   });
 }
 
-// ─── System prompt builder ────────────────────────────────────────────────────
-function section(title: string, body: string | null | undefined): string | null {
-  if (!body?.trim()) return null;
-  return `## ${title}\n${body.trim()}`;
-}
-
-function buildSystemPrompt(opts: {
-  client: Record<string, any>;
-  botProfile: Record<string, any>;
-  instructions: Record<string, any> | null;
-  knowledge: Array<{ title: string; content_text: string | null }>;
-  primaryGoal: string;
-  responseLanguage: string;
-}): string {
-  const { client, botProfile, instructions, knowledge, primaryGoal, responseLanguage } = opts;
-
-  const knowledgeText = knowledge
-    .filter((k) => k.content_text?.trim())
-    .map((k) => `### ${k.title}\n${k.content_text!.trim()}`)
-    .join("\n\n");
-
-  const baseRules = [
-    "You are the AI DM agent for the business described below.",
-    "Answer using the provided business context and knowledge base.",
-    "If the answer is unknown, ask a concise follow-up or offer human handoff.",
-    "Never claim to make bookings, process payments, or give legal/medical advice.",
-    "Collect lead details naturally — do not interrogate the user.",
-  ].join("\n");
-
-  const services = client.services
-    ? `Services: ${client.services}`
-    : null;
-
-  const parts = [
-    section("Role", baseRules),
-    section("Business", [
-      `Business name: ${client.name}`,
-      client.description ? `Description: ${client.description}` : null,
-      services,
-      client.location ? `Location: ${client.location}` : null,
-      client.website_url ? `Website: ${client.website_url}` : null,
-      client.contact_email ? `Contact email: ${client.contact_email}` : null,
-      client.contact_phone ? `Contact phone: ${client.contact_phone}` : null,
-    ].filter(Boolean).join("\n")),
-    section("Agent Behavior", [
-      botProfile.tone ? `Tone: ${botProfile.tone}` : null,
-      botProfile.response_length ? `Response length: ${botProfile.response_length}` : null,
-      `Primary goal: ${primaryGoal}`,
-      `Response language: ${responseLanguage}`,
-    ].filter(Boolean).join("\n")),
-    instructions?.system_prompt ? section("Core Instructions", instructions.system_prompt) : null,
-    instructions?.business_summary ? section("Business Summary", instructions.business_summary) : null,
-    instructions?.lead_qualification_instructions
-      ? section("Lead Qualification", instructions.lead_qualification_instructions)
-      : null,
-    instructions?.handoff_rules ? section("Escalation / Handoff Rules", instructions.handoff_rules) : null,
-    instructions?.never_say_rules
-      ? section("HARD RULES — Never Say or Do", instructions.never_say_rules)
-      : null,
-    knowledgeText ? section("Knowledge Base", knowledgeText) : null,
-  ];
-
-  return parts.filter(Boolean).join("\n\n");
-}
+const RESPONSE_LENGTH_TOKENS: Record<string, number> = {
+  concise: 280,
+  balanced: 550,
+  detailed: 950,
+};
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
+  // ── Guard: OpenAI key must exist server-side ───────────────────────────────
   const openAIKey = Deno.env.get("OPENAI_API_KEY");
   if (!openAIKey) {
-    return err("OpenAI not configured — add OPENAI_API_KEY to edge function secrets.", 503);
+    return err("OpenAI not configured — OPENAI_API_KEY is missing from edge function secrets.", 503);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  // Parse JWT from Authorization header to identify the calling user
+  // ── Auth: verify user JWT ──────────────────────────────────────────────────
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return err("Missing Authorization header", 401);
 
-  // Use anon key + user JWT to enforce RLS (user can only read their own client)
-  const supabaseAnon = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseAnon, {
+  // User-scoped client for RLS-guarded reads
+  const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
   });
 
-  // Verify the user
-  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  const { data: { user }, error: userErr } = await supabaseUser.auth.getUser();
   if (userErr || !user) return err("Not authenticated", 401);
 
-  let body: { messages?: Array<{ role: string; content: string }> };
+  // Service-role client for writes (conversations, messages, leads)
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  // ── Parse body ─────────────────────────────────────────────────────────────
+  let body: { messages?: Array<{ role: string; content: string }>; conversationId?: string };
   try {
     body = await req.json();
   } catch {
@@ -120,39 +69,52 @@ Deno.serve(async (req: Request) => {
   }
 
   const conversationHistory: Array<{ role: string; content: string }> = body.messages ?? [];
-  const lastUserMessage = [...conversationHistory].reverse().find((m) => m.role === "user");
-  if (!lastUserMessage) return err("No user message provided");
+  const lastUserMsg = [...conversationHistory].reverse().find((m) => m.role === "user");
+  if (!lastUserMsg) return err("No user message found in messages array");
 
-  // ── Load client ────────────────────────────────────────────────────────────
-  const { data: clientData, error: clientErr } = await supabase
+  // ── Load business client (RLS ensures only owner can read) ────────────────
+  const { data: clientData, error: clientErr } = await supabaseUser
     .from("wpm_clients")
-    .select("id, name, description, services, location, timezone, website_url, contact_email, contact_phone, industry")
+    .select("id, name, description, services, location, industry, timezone, website_url, contact_email, contact_phone")
     .eq("owner_user_id", user.id)
     .maybeSingle();
 
-  if (clientErr) return err(`Failed to load client: ${clientErr.message}`, 500);
-  if (!clientData) return err("No business profile found. Complete Business Profile setup first.", 404);
+  if (clientErr) return err(`Failed to load business profile: ${clientErr.message}`, 500);
+  if (!clientData) {
+    return err("No business profile found. Complete Business Profile setup first.", 404);
+  }
 
   const client = clientData as Record<string, any>;
 
   // ── Load active bot profile ────────────────────────────────────────────────
-  const { data: botProfileData } = await supabase
+  const { data: botProfileData } = await supabaseUser
     .from("wpm_bot_profiles")
-    .select("id, tone, response_length, settings")
+    .select("id, public_name, tone, language, response_length, booking_url, handoff_contact, model_provider, model_name")
     .eq("client_id", client.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  const botProfile = (botProfileData as Record<string, any> | null) ?? {};
+  const rawBotProfile = (botProfileData as Record<string, any> | null) ?? {};
+  const botProfile = {
+    id: rawBotProfile.id ?? "",
+    public_name: rawBotProfile.public_name ?? null,
+    tone: rawBotProfile.tone ?? "Professional & Friendly",
+    language: rawBotProfile.language ?? "en",
+    response_length: rawBotProfile.response_length ?? "balanced",
+    booking_url: rawBotProfile.booking_url ?? null,
+    handoff_contact: rawBotProfile.handoff_contact ?? null,
+    model_provider: rawBotProfile.model_provider ?? "openai",
+    model_name: rawBotProfile.model_name ?? "gpt-4o-mini",
+  };
 
   // ── Load bot instructions ──────────────────────────────────────────────────
   let instructions: Record<string, any> | null = null;
   if (botProfile.id) {
-    const { data: instrData } = await supabase
+    const { data: instrData } = await supabaseUser
       .from("wpm_bot_instructions")
-      .select("system_prompt, business_summary, faq_instructions, lead_qualification_instructions, handoff_rules, never_say_rules, primary_goal, response_language")
+      .select("system_prompt, business_summary, faq_instructions, lead_qualification_instructions, handoff_rules, never_say_rules, primary_goal, response_language, emergency_keywords, lead_fields")
       .eq("bot_profile_id", botProfile.id)
       .eq("is_active", true)
       .order("version", { ascending: false })
@@ -162,7 +124,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Load knowledge base ────────────────────────────────────────────────────
-  const { data: knowledgeData } = await supabase
+  const { data: knowledgeData } = await supabaseUser
     .from("wpm_knowledge_sources")
     .select("title, content_text")
     .eq("client_id", client.id)
@@ -173,31 +135,92 @@ Deno.serve(async (req: Request) => {
   const knowledge: Array<{ title: string; content_text: string | null }> =
     (knowledgeData as any[] | null) ?? [];
 
-  const primaryGoal = instructions?.primary_goal ?? "Book a Calendly meeting";
-  const responseLanguage = instructions?.response_language ?? "English + Latin American Spanish";
-
-  // ── Build messages for OpenAI ──────────────────────────────────────────────
-  const systemPrompt = buildSystemPrompt({ client, botProfile, instructions, knowledge, primaryGoal, responseLanguage });
-
-  const responseLengthMap: Record<string, number> = {
-    concise: 250,
-    balanced: 500,
-    detailed: 900,
+  // ── Build WpmBotContext for the shared prompt builder ─────────────────────
+  const context: WpmBotContext = {
+    client: {
+      id: client.id,
+      name: client.name ?? "",
+      description: client.description ?? null,
+      services: client.services ?? null,
+      location: client.location ?? null,
+      industry: client.industry ?? null,
+      timezone: client.timezone ?? null,
+      website_url: client.website_url ?? null,
+      contact_email: client.contact_email ?? null,
+      contact_phone: client.contact_phone ?? null,
+    },
+    botProfile,
+    instructions: instructions
+      ? {
+          system_prompt: instructions.system_prompt ?? "",
+          business_summary: instructions.business_summary ?? null,
+          faq_instructions: instructions.faq_instructions ?? null,
+          lead_qualification_instructions: instructions.lead_qualification_instructions ?? null,
+          handoff_rules: instructions.handoff_rules ?? null,
+          never_say_rules: instructions.never_say_rules ?? null,
+          primary_goal: instructions.primary_goal ?? null,
+          response_language: instructions.response_language ?? null,
+          emergency_keywords: instructions.emergency_keywords ?? [],
+          lead_fields: instructions.lead_fields ?? null,
+        }
+      : null,
+    knowledge,
   };
-  const rawLength = botProfile.response_length ?? "balanced";
-  const maxTokens = responseLengthMap[rawLength] ?? 500;
 
-  // Build message array: system + up to 12 turns of history (minus last user which we append)
-  const historyMessages = conversationHistory
+  // ── Upsert test conversation for persistence ───────────────────────────────
+  let conversationId: string | null = body.conversationId ?? null;
+
+  if (!conversationId) {
+    const externalConversationId = "test-preview";
+    const { data: convData } = await supabaseAdmin
+      .from("wpm_conversations")
+      .upsert(
+        {
+          client_id: client.id,
+          channel_id: null,
+          bot_profile_id: botProfile.id || null,
+          external_conversation_id: externalConversationId,
+          external_user_id: user.id,
+          channel_type: "test",
+          status: "active",
+          last_message_at: new Date().toISOString(),
+        },
+        { onConflict: "client_id,channel_type,external_conversation_id,external_user_id" },
+      )
+      .select("id")
+      .single();
+    conversationId = (convData as { id: string } | null)?.id ?? null;
+  } else {
+    // Update last_message_at on existing conversation
+    await supabaseAdmin
+      .from("wpm_conversations")
+      .update({ last_message_at: new Date().toISOString() })
+      .eq("id", conversationId);
+  }
+
+  // ── Persist inbound user message ───────────────────────────────────────────
+  if (conversationId) {
+    await supabaseAdmin.from("wpm_messages").insert({
+      conversation_id: conversationId,
+      client_id: client.id,
+      direction: "inbound",
+      role: "user",
+      content: lastUserMsg.content,
+      metadata: { source: "test_agent", user_id: user.id },
+    });
+  }
+
+  // ── Build OpenAI message array using shared builder ────────────────────────
+  // Convert history (excluding the last user message which we append via buildWpmAssistantMessages)
+  const historyWithoutLastUser: WpmChatMessage[] = conversationHistory
+    .slice(0, -1) // drop the last user message — buildWpmAssistantMessages appends it
     .filter((m) => m.role === "user" || m.role === "assistant")
     .filter((m) => m.content.trim())
-    .slice(-13) // keep last 13 so when we trim below we have room
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-  const openAIMessages = [
-    { role: "system", content: systemPrompt },
-    ...historyMessages,
-  ];
+  const openAIMessages = buildWpmAssistantMessages(context, historyWithoutLastUser, lastUserMsg.content);
+
+  const maxTokens = RESPONSE_LENGTH_TOKENS[botProfile.response_length] ?? 550;
 
   // ── Call OpenAI ────────────────────────────────────────────────────────────
   let openAIResponse: Response;
@@ -209,14 +232,14 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: botProfile.model_name,
         messages: openAIMessages,
         temperature: 0.45,
         max_tokens: maxTokens,
       }),
     });
   } catch (fetchErr: any) {
-    return err(`OpenAI request failed: ${fetchErr.message}`, 502);
+    return err(`OpenAI request failed: ${fetchErr?.message ?? fetchErr}`, 502);
   }
 
   const openAIData = await openAIResponse.json();
@@ -229,16 +252,60 @@ Deno.serve(async (req: Request) => {
   const assistantContent: string = openAIData.choices?.[0]?.message?.content ?? "";
   if (!assistantContent.trim()) return err("OpenAI returned an empty response", 502);
 
+  const reply = assistantContent.trim();
+
+  // ── Persist assistant reply ────────────────────────────────────────────────
+  if (conversationId) {
+    await supabaseAdmin.from("wpm_messages").insert({
+      conversation_id: conversationId,
+      client_id: client.id,
+      direction: "outbound",
+      role: "assistant",
+      content: reply,
+      model_provider: "openai",
+      model_name: openAIData.model ?? botProfile.model_name,
+      token_usage: openAIData.usage ?? null,
+      metadata: { source: "test_agent", generated_by: "wpm-test-chat" },
+    });
+
+    // Update last_message_at
+    await supabaseAdmin
+      .from("wpm_conversations")
+      .update({ last_message_at: new Date().toISOString() })
+      .eq("id", conversationId);
+  }
+
+  // ── Lead extraction & persistence ─────────────────────────────────────────
+  try {
+    const lead = extractLeadFromConversationText({
+      inboundText: lastUserMsg.content,
+      assistantText: reply,
+      sourceChannel: "test",
+    });
+
+    if (lead.isQualified && conversationId) {
+      await persistQualifiedLeadAndQueueActions({
+        supabase: supabaseAdmin,
+        clientId: client.id,
+        conversationId,
+        lead,
+      });
+    }
+  } catch (_leadErr) {
+    // Lead extraction is best-effort — never fail the response
+  }
+
   return ok({
-    reply: assistantContent.trim(),
-    model: openAIData.model ?? "gpt-4o-mini",
+    reply,
+    conversationId,
+    model: openAIData.model ?? botProfile.model_name,
     usage: openAIData.usage ?? null,
     context: {
       businessName: client.name,
-      tone: botProfile.tone ?? null,
+      tone: botProfile.tone,
       knowledgeItems: knowledge.length,
-      primaryGoal,
-      responseLanguage,
+      primaryGoal: instructions?.primary_goal ?? "Book a Calendly meeting",
+      responseLanguage: instructions?.response_language ?? "English + Latin American Spanish",
     },
   });
 });

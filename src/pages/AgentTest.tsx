@@ -28,7 +28,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 async function callTestChat(
   messages: Message[],
   accessToken: string,
-): Promise<{ reply: string; context: ContextSummary }> {
+  conversationId: string | null,
+): Promise<{ reply: string; context: ContextSummary; conversationId: string | null }> {
   const fnUrl = `${SUPABASE_URL}/functions/v1/wpm-test-chat`;
   const res = await fetch(fnUrl, {
     method: 'POST',
@@ -36,14 +37,14 @@ async function callTestChat(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, conversationId }),
   });
 
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data?.error ?? `Edge function error ${res.status}`);
   }
-  return data as { reply: string; context: ContextSummary };
+  return data as { reply: string; context: ContextSummary; conversationId: string | null };
 }
 
 export default function AgentTest() {
@@ -54,6 +55,7 @@ export default function AgentTest() {
   const [loadingContext, setLoadingContext] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // ── Load context summary + access token on mount ──────────────────────────
@@ -127,12 +129,11 @@ export default function AgentTest() {
     setIsTyping(true);
 
     try {
-      const { reply, context } = await callTestChat(updated, accessToken);
+      const { reply, context, conversationId: newConvId } = await callTestChat(updated, accessToken, conversationId);
 
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-
-      // Update the context summary with what the edge function actually used
       setContextSummary(context);
+      if (newConvId && !conversationId) setConversationId(newConvId);
     } catch (e: any) {
       const errorMsg = e.message ?? 'Something went wrong calling the AI.';
       setMessages(prev => [
@@ -156,6 +157,7 @@ export default function AgentTest() {
       ? `Hi! I'm the AI agent for ${contextSummary.businessName}. How can I help you today?`
       : "Hi! How can I help you today?";
     setMessages([{ role: 'assistant', content: greeting }]);
+    setConversationId(null);
   };
 
   const samplePrompts = [

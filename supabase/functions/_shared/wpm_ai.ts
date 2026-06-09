@@ -37,6 +37,8 @@ interface InstructionRow {
   lead_qualification_instructions: string | null;
   handoff_rules: string | null;
   never_say_rules: string | null;
+  primary_goal: string | null;
+  response_language: string | null;
   emergency_keywords: string[];
   lead_fields: unknown;
 }
@@ -76,7 +78,7 @@ export async function loadWpmBotContext(
       id,
       client_id,
       bot_profile_id,
-      wpm_clients(id, name, industry, timezone, website_url),
+      wpm_clients(id, name, description, services, location, industry, timezone, website_url, contact_email, contact_phone),
       wpm_bot_profiles(id, public_name, tone, language, response_length, booking_url, handoff_contact, model_provider, model_name)
     `)
     .eq('id', conversationId)
@@ -94,7 +96,7 @@ export async function loadWpmBotContext(
 
   const { data: instructionsData, error: instructionsError } = await supabase
     .from('wpm_bot_instructions')
-    .select('system_prompt, business_summary, faq_instructions, lead_qualification_instructions, handoff_rules, never_say_rules, emergency_keywords, lead_fields')
+    .select('system_prompt, business_summary, faq_instructions, lead_qualification_instructions, handoff_rules, never_say_rules, primary_goal, response_language, emergency_keywords, lead_fields')
     .eq('bot_profile_id', conversation.bot_profile_id)
     .eq('is_active', true)
     .order('version', { ascending: false })
@@ -196,11 +198,18 @@ export async function generateAndStoreAssistantReply(args: {
     return { ok: false, error: `Unsupported model provider: ${modelProvider}` };
   }
 
+  const maxTokens =
+    loaded.context.botProfile.response_length === 'concise'
+      ? 280
+      : loaded.context.botProfile.response_length === 'detailed'
+      ? 900
+      : 600;
+
   const completion = await args.openAI.createChatCompletion({
     model: modelName,
     messages: buildWpmAssistantMessages(loaded.context, loaded.recentMessages, args.inboundMessage),
     temperature: 0.4,
-    max_tokens: loaded.context.botProfile.response_length === 'concise' ? 280 : 600,
+    max_tokens: maxTokens,
   });
 
   const content = completion.content.trim();
