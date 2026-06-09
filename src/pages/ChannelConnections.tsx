@@ -178,10 +178,12 @@ export default function ChannelConnections() {
 
   // ── Meta popup OAuth (direct Facebook dialog) ────────────────────────────
   //
-  // IMPORTANT: window.open() MUST be called synchronously in the click handler
-  // (before any await) or browsers treat it as a non-user-gesture and either
-  // block the popup or open it in the same tab — which makes window.opener null.
-  // We pre-open "about:blank", do async work, then navigate the window.
+  // The FB OAuth URL requires no async data — all params are static or derived
+  // from window.location (synchronous). We pass the real URL directly to
+  // window.open() so the main tab is NEVER navigated or blanked.
+  //
+  // User ID is fetched inside the message listener (after the code arrives),
+  // which is fine because that await is not on the hot path of the click handler.
 
   const META_APP_ID = import.meta.env.VITE_META_APP_ID || '928985544799600';
   const META_SCOPES = 'pages_show_list,instagram_basic,instagram_manage_messages,pages_messaging,pages_read_engagement';
@@ -192,14 +194,23 @@ export default function ChannelConnections() {
     setMetaPopupPending(true);
 
     const redirectUri = `${window.location.origin}/auth/callback`;
+
+    // Build the complete OAuth URL synchronously — no async needed
+    const fbUrl = new URL('https://www.facebook.com/v20.0/dialog/oauth');
+    fbUrl.searchParams.set('client_id', META_APP_ID);
+    fbUrl.searchParams.set('redirect_uri', redirectUri);
+    fbUrl.searchParams.set('scope', META_SCOPES);
+    fbUrl.searchParams.set('response_type', 'code');
+    fbUrl.searchParams.set('auth_type', 'rerequest');
+
     const left = Math.round(window.screenX + (window.outerWidth  - 600) / 2);
     const top  = Math.round(window.screenY + (window.outerHeight - 700) / 2);
 
-    // ← synchronous — must happen before any await
+    // Open popup directly to the FB URL — NEVER use about:blank here
     const popup = window.open(
-      'about:blank',
+      fbUrl.toString(),
       'fb-oauth',
-      `width=600,height=700,left=${left},top=${top},popup=yes,toolbar=no,menubar=no,scrollbars=yes`,
+      `width=600,height=700,left=${left},top=${top},popup=yes`,
     );
 
     if (!popup) {
@@ -208,8 +219,8 @@ export default function ChannelConnections() {
       return;
     }
 
-    let pollId: ReturnType<typeof setInterval> | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pollId:    ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout>  | null = null;
 
     const cleanup = () => {
       if (pollId)    clearInterval(pollId);
@@ -221,67 +232,43 @@ export default function ChannelConnections() {
       setMetaPopupPending(false);
     };
 
-    // ← async work starts here, AFTER popup is already open
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          popup.close();
-          cleanup();
-          setError('You must be logged in to connect Meta channels.');
-          return;
-        }
-        setMetaUserId(user.id);
+    const listener = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (!event.data?.type?.startsWith('META_OAUTH_')) return;
 
-        const fbUrl = new URL('https://www.facebook.com/v20.0/dialog/oauth');
-        fbUrl.searchParams.set('client_id', META_APP_ID);
-        fbUrl.searchParams.set('redirect_uri', redirectUri);
-        fbUrl.searchParams.set('scope', META_SCOPES);
-        fbUrl.searchParams.set('response_type', 'code');
-        fbUrl.searchParams.set('auth_type', 'rerequest');
+      cleanup();
 
-        // Navigate the pre-opened popup to the Facebook OAuth dialog
-        popup.location.href = fbUrl.toString();
-
-        const listener = async (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-          if (!event.data?.type?.startsWith('META_OAUTH_')) return;
-
-          cleanup();
-
-          if (event.data.type === 'META_OAUTH_ERROR') {
-            setError(`Meta connection failed: ${event.data.error}`);
-            return;
-          }
-
-          if (event.data.type === 'META_OAUTH_CODE') {
-            await fetchMetaPages({
-              code: event.data.code,
-              redirectUri: event.data.redirect_uri || redirectUri,
-              supabaseUserId: user.id,
-            });
-          }
-        };
-
-        messageListenerRef.current = listener;
-        window.addEventListener('message', listener);
-
-        // Poll for popup closed (user dismissed without completing)
-        pollId = setInterval(() => {
-          if (popup.closed) cleanup();
-        }, 500);
-
-        // Safety timeout: 3 minutes
-        timeoutId = setTimeout(() => {
-          cleanup();
-          if (!popup.closed) popup.close();
-        }, 180_000);
-      } catch (err: any) {
-        if (!popup.closed) popup.close();
-        cleanup();
-        setError(`Failed to start Meta connection: ${err.message}`);
+      if (event.data.type === 'META_OAUTH_ERROR') {
+        setError(`Meta connection failed: ${event.data.error}`);
+        return;
       }
-    })();
+
+      if (event.data.type === 'META_OAUTH_CODE') {
+        // Get user ID at the point we actually need it
+        const { data: { user } } = await supabase!.auth.getUser();
+        if (!user) { setError('Session expired. Please refresh and try again.'); return; }
+        setMetaUserId(user.id);
+        await fetchMetaPages({
+          code: event.data.code,
+          redirectUri: event.data.redirect_uri || redirectUri,
+          supabaseUserId: user.id,
+        });
+      }
+    };
+
+    messageListenerRef.current = listener;
+    window.addEventListener('message', listener);
+
+    // Detect popup closed by user before completing
+    pollId = setInterval(() => {
+      if (popup.closed) cleanup();
+    }, 500);
+
+    // Safety timeout: 3 minutes
+    timeoutId = setTimeout(() => {
+      cleanup();
+      if (!popup.closed) popup.close();
+    }, 180_000);
   };
 
   const fetchMetaPages = async (
