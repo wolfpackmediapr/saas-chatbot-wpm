@@ -36,6 +36,8 @@ export interface WpmBotInstructionsRecord {
   lead_qualification_instructions?: string | null;
   handoff_rules?: string | null;
   never_say_rules?: string | null;
+  primary_goal?: string | null;
+  response_language?: string | null;
   emergency_keywords?: string[];
   lead_fields?: any[];
   version: number;
@@ -216,6 +218,7 @@ export async function getBotInstructions(botProfileId: string): Promise<WpmBotIn
 export async function upsertBotInstructions(botProfileId: string, updates: {
   system_prompt?: string; business_summary?: string; faq_instructions?: string;
   lead_qualification_instructions?: string; handoff_rules?: string; never_say_rules?: string;
+  primary_goal?: string; response_language?: string;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
 
@@ -232,6 +235,8 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
     lead_qualification_instructions: updates.lead_qualification_instructions || null,
     handoff_rules: updates.handoff_rules || null,
     never_say_rules: updates.never_say_rules || null,
+    primary_goal: updates.primary_goal || 'Book a Calendly meeting',
+    response_language: updates.response_language || 'English + Latin American Spanish',
     is_active: true,
     version: existing ? (existing.version || 1) + 1 : 1,
   };
