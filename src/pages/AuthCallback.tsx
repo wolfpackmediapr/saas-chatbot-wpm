@@ -7,12 +7,20 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Completing sign in...');
-  const [connectedChannels, setConnectedChannels] = useState<{ name: string; type: string }[]>([]);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
 
   useEffect(() => {
     async function handleCallback() {
       if (!supabase) {
+        // If running in a popup, send error back to parent
+        if (window.opener && window.opener !== window) {
+          window.opener.postMessage(
+            { type: 'META_OAUTH_ERROR', error: 'Supabase not configured' },
+            window.location.origin
+          );
+          window.close();
+          return;
+        }
         setStatus('error');
         setMessage('Supabase not configured');
         return;
@@ -20,7 +28,6 @@ export default function AuthCallback() {
 
       try {
         const { data, error } = await supabase.auth.getSession();
-
         if (error) throw error;
 
         let session = data?.session;
@@ -33,17 +40,40 @@ export default function AuthCallback() {
         }
 
         if (!session) {
+          const msg = 'No session found after OAuth redirect';
+          if (window.opener && window.opener !== window) {
+            window.opener.postMessage(
+              { type: 'META_OAUTH_ERROR', error: msg },
+              window.location.origin
+            );
+            window.close();
+            return;
+          }
           setStatus('error');
-          setMessage('No session found after OAuth redirect');
+          setMessage(msg);
           return;
         }
 
-        // If this was a Facebook OAuth flow, exchange the provider token for page channels
         const isFacebookOAuth =
           session.provider_token &&
           (session.user.app_metadata?.provider === 'facebook' ||
             (session.user.identities as any[])?.some((i) => i.provider === 'facebook'));
 
+        // Popup mode: send token back to parent, let parent handle page selection + save
+        if (isFacebookOAuth && window.opener && window.opener !== window) {
+          window.opener.postMessage(
+            {
+              type: 'META_OAUTH_SUCCESS',
+              provider_token: session.provider_token,
+              user_id: session.user.id,
+            },
+            window.location.origin
+          );
+          window.close();
+          return;
+        }
+
+        // Full-page fallback: call meta-oauth-callback directly (connects all pages)
         if (isFacebookOAuth) {
           setMessage('Connecting your Facebook Pages...');
 
@@ -59,7 +89,6 @@ export default function AuthCallback() {
 
           if (fnError || !fnData?.success) {
             const msg = fnData?.error || fnError?.message || 'Unknown error';
-            console.error('[AuthCallback] meta-oauth-callback failed:', msg);
             setStatus('error');
             setMessage(`Channel connection failed: ${msg}`);
             setErrorDetails(
@@ -69,7 +98,6 @@ export default function AuthCallback() {
             return;
           }
 
-          setConnectedChannels(fnData.channels || []);
           setStatus('success');
           setMessage(
             `${fnData.pagesConnected} channel${fnData.pagesConnected !== 1 ? 's' : ''} connected!`
@@ -82,6 +110,14 @@ export default function AuthCallback() {
         }
       } catch (err: any) {
         console.error('Auth callback error:', err);
+        if (window.opener && window.opener !== window) {
+          window.opener.postMessage(
+            { type: 'META_OAUTH_ERROR', error: err.message },
+            window.location.origin
+          );
+          window.close();
+          return;
+        }
         setStatus('error');
         setMessage('Authentication failed');
         setErrorDetails(err.message);
@@ -110,15 +146,6 @@ export default function AuthCallback() {
             <CheckCircle className="w-8 h-8 text-green-500" />
           </div>
           <h2 className="text-2xl font-semibold mb-2">{message}</h2>
-          {connectedChannels.length > 0 && (
-            <div className="mt-2 space-y-1">
-              {connectedChannels.map((ch, i) => (
-                <p key={i} className="text-sm text-secondary-foreground">
-                  {ch.type === 'instagram' ? 'Instagram' : 'Facebook Messenger'}: {ch.name}
-                </p>
-              ))}
-            </div>
-          )}
           <p className="text-secondary-foreground mt-3">Taking you to Channel Connections...</p>
         </div>
       </div>

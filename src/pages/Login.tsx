@@ -21,11 +21,11 @@ export default function Login() {
       if (response.user) {
         navigate('/dashboard');
       } else {
-        setError('Invalid login credentials');
+        setError('Login failed. Please try again.');
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError('Invalid login credentials');
+      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
