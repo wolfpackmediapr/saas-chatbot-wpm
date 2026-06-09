@@ -51,7 +51,7 @@ export default function ChannelConnections() {
   useEffect(() => {
     const metaCode = searchParams.get('meta_code');
     const metaError = searchParams.get('meta_error');
-    const redirectUri = searchParams.get('redirect_uri') || `${window.location.origin}/auth/callback`;
+    const redirectUri = searchParams.get('redirect_uri') || `${window.location.origin}/meta-callback`;
 
     if (metaError) {
       setError(`Meta connection failed: ${metaError}`);
@@ -193,7 +193,7 @@ export default function ChannelConnections() {
     setError(null);
     setMetaPopupPending(true);
 
-    const redirectUri = `${window.location.origin}/auth/callback`;
+    const redirectUri = `${window.location.origin}/meta-callback`;
 
     // Build the complete OAuth URL synchronously — no async needed
     const fbUrl = new URL('https://www.facebook.com/v20.0/dialog/oauth');
