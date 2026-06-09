@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 
+/**
+ * Full-page fallback for non-popup OAuth (e.g., email magic link, password recovery).
+ * The Meta popup flow uses public/auth/callback.html instead, which never loads
+ * React and therefore never touches localStorage or the current session.
+ */
 export default function AuthCallback() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -12,15 +17,6 @@ export default function AuthCallback() {
   useEffect(() => {
     async function handleCallback() {
       if (!supabase) {
-        // If running in a popup, send error back to parent
-        if (window.opener && window.opener !== window) {
-          window.opener.postMessage(
-            { type: 'META_OAUTH_ERROR', error: 'Supabase not configured' },
-            window.location.origin
-          );
-          window.close();
-          return;
-        }
         setStatus('error');
         setMessage('Supabase not configured');
         return;
@@ -40,84 +36,16 @@ export default function AuthCallback() {
         }
 
         if (!session) {
-          const msg = 'No session found after OAuth redirect';
-          if (window.opener && window.opener !== window) {
-            window.opener.postMessage(
-              { type: 'META_OAUTH_ERROR', error: msg },
-              window.location.origin
-            );
-            window.close();
-            return;
-          }
           setStatus('error');
-          setMessage(msg);
+          setMessage('No session found after OAuth redirect');
           return;
         }
 
-        const isFacebookOAuth =
-          session.provider_token &&
-          (session.user.app_metadata?.provider === 'facebook' ||
-            (session.user.identities as any[])?.some((i) => i.provider === 'facebook'));
-
-        // Popup mode: send token back to parent, let parent handle page selection + save
-        if (isFacebookOAuth && window.opener && window.opener !== window) {
-          window.opener.postMessage(
-            {
-              type: 'META_OAUTH_SUCCESS',
-              provider_token: session.provider_token,
-              user_id: session.user.id,
-            },
-            window.location.origin
-          );
-          window.close();
-          return;
-        }
-
-        // Full-page fallback: call meta-oauth-callback directly (connects all pages)
-        if (isFacebookOAuth) {
-          setMessage('Connecting your Facebook Pages...');
-
-          const { data: fnData, error: fnError } = await supabase.functions.invoke(
-            'meta-oauth-callback',
-            {
-              body: {
-                user_token: session.provider_token,
-                supabase_user_id: session.user.id,
-              },
-            }
-          );
-
-          if (fnError || !fnData?.success) {
-            const msg = fnData?.error || fnError?.message || 'Unknown error';
-            setStatus('error');
-            setMessage(`Channel connection failed: ${msg}`);
-            setErrorDetails(
-              'Your Facebook login succeeded but the channel could not be saved. ' +
-                'Please try connecting again from Channel Connections.'
-            );
-            return;
-          }
-
-          setStatus('success');
-          setMessage(
-            `${fnData.pagesConnected} channel${fnData.pagesConnected !== 1 ? 's' : ''} connected!`
-          );
-          setTimeout(() => navigate('/dashboard/channel-connections'), 2000);
-        } else {
-          setStatus('success');
-          setMessage('Signed in successfully! Redirecting...');
-          setTimeout(() => navigate('/dashboard/channel-connections'), 1500);
-        }
+        setStatus('success');
+        setMessage('Signed in successfully! Redirecting...');
+        setTimeout(() => navigate('/dashboard'), 1500);
       } catch (err: any) {
         console.error('Auth callback error:', err);
-        if (window.opener && window.opener !== window) {
-          window.opener.postMessage(
-            { type: 'META_OAUTH_ERROR', error: err.message },
-            window.location.origin
-          );
-          window.close();
-          return;
-        }
         setStatus('error');
         setMessage('Authentication failed');
         setErrorDetails(err.message);
@@ -146,7 +74,6 @@ export default function AuthCallback() {
             <CheckCircle className="w-8 h-8 text-green-500" />
           </div>
           <h2 className="text-2xl font-semibold mb-2">{message}</h2>
-          <p className="text-secondary-foreground mt-3">Taking you to Channel Connections...</p>
         </div>
       </div>
     );

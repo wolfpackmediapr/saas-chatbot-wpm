@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connecting...</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0f1117;
+      color: #94a3b8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      text-align: center;
+      padding: 2rem;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(99,179,237,0.2);
+      border-top-color: #63b3ed;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    p { margin: 0.5rem 0; font-size: 0.95rem; }
+    .error { color: #fc8181; }
+  </style>
+</head>
+<body>
+<div class="card" id="root">
+  <div class="spinner"></div>
+  <p>Connecting your accounts&hellip;</p>
+  <p style="font-size:0.8rem;opacity:0.6">This window will close automatically.</p>
+</div>
+<script>
+(function () {
+  var origin = window.location.origin;
+
+  function send(msg) {
+    if (window.opener && window.opener !== window) {
+      try { window.opener.postMessage(msg, origin); } catch (_) {}
+    }
+    window.close();
+  }
+
+  function showError(msg) {
+    var el = document.getElementById('root');
+    el.innerHTML = '<p class="error">' + msg + '</p><p style="font-size:0.8rem">You can close this window.</p>';
+    // Still try to notify parent even if we end up staying open
+    if (window.opener && window.opener !== window) {
+      try { window.opener.postMessage({ type: 'META_OAUTH_ERROR', error: msg }, origin); } catch (_) {}
+    }
+  }
+
+  // Check for error from Supabase / Meta
+  var search = new URLSearchParams(window.location.search);
+  var errorDesc = search.get('error_description') || search.get('error');
+  var errorCode = search.get('error_code');
+
+  if (errorDesc || errorCode) {
+    var msg = errorDesc || errorCode;
+    showError(msg);
+    return;
+  }
+
+  // Parse the hash fragment: Supabase puts access_token and provider_token here
+  var hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  var accessToken   = hash.get('access_token');
+  var providerToken = hash.get('provider_token');
+  var hashError     = hash.get('error_description') || hash.get('error');
+
+  if (hashError) {
+    send({ type: 'META_OAUTH_ERROR', error: hashError });
+    return;
+  }
+
+  if (!accessToken) {
+    send({ type: 'META_OAUTH_ERROR', error: 'No access token received from Facebook' });
+    return;
+  }
+
+  if (!providerToken) {
+    send({ type: 'META_OAUTH_ERROR', error: 'No provider token received — ensure pages_show_list permission is granted' });
+    return;
+  }
+
+  // Decode the Supabase JWT (access_token) to get the user's UUID (sub claim)
+  try {
+    var parts = accessToken.split('.');
+    if (parts.length !== 3) throw new Error('Invalid JWT');
+    // base64url → base64
+    var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    // pad
+    while (b64.length % 4) b64 += '=';
+    var payload = JSON.parse(atob(b64));
+    send({
+      type:           'META_OAUTH_SUCCESS',
+      provider_token: providerToken,
+      user_id:        payload.sub
+    });
+  } catch (e) {
+    send({ type: 'META_OAUTH_ERROR', error: 'Failed to parse authentication response: ' + e.message });
+  }
+})();
+</script>
+</body>
+</html>
