@@ -47,28 +47,30 @@ export default function BusinessProfile() {
         const ownedClient = await getOwnedWpmClient();
         setClient(ownedClient);
 
-        if (ownedClient) {
-          const loaded: BusinessProfileData = {
-            ...defaultProfile,
-            name: ownedClient.name || '',
-            website: ownedClient.website_url || '',
-            contactEmail: ownedClient.contact_email || '',
-            contactPhone: ownedClient.contact_phone || '',
-          };
-
-          const botProfile = await getActiveBotProfile(ownedClient.id);
-          if (botProfile) {
-            if (botProfile.tone) loaded.tone = botProfile.tone;
-            if (botProfile.settings) {
-              const s = botProfile.settings;
-              if (s.description) loaded.description = s.description;
-              if (s.services) loaded.services = s.services;
-              if (s.location) loaded.location = s.location;
-            }
-          }
-
-          setProfile(loaded);
+        if (!ownedClient) {
+          setLoading(false);
+          return;
         }
+
+        // Primary source: wpm_clients columns (always reliable)
+        const loaded: BusinessProfileData = {
+          ...defaultProfile,
+          name: ownedClient.name || '',
+          description: ownedClient.description || '',
+          services: ownedClient.services || '',
+          location: ownedClient.location || '',
+          website: ownedClient.website_url || '',
+          contactEmail: ownedClient.contact_email || '',
+          contactPhone: ownedClient.contact_phone || '',
+        };
+
+        // Tone comes from bot profile (it's AI-behaviour config, not business metadata)
+        const botProfile = await getActiveBotProfile(ownedClient.id);
+        if (botProfile?.tone) {
+          loaded.tone = botProfile.tone;
+        }
+
+        setProfile(loaded);
       } catch (err: any) {
         console.error('Failed to load business profile', err);
         setError('Failed to load profile. Please refresh the page.');
@@ -91,14 +93,18 @@ export default function BusinessProfile() {
     setError(null);
 
     try {
+      // Step 1: persist all fields that live on wpm_clients
       await updateClientProfile(client.id, {
         name: profile.name,
+        description: profile.description || null,
+        services: profile.services || null,
+        location: profile.location || null,
         website_url: profile.website || null,
         contact_email: profile.contactEmail || null,
         contact_phone: profile.contactPhone || null,
-        notes: [profile.description, profile.services, profile.location].filter(Boolean).join(' | ') || null,
       });
 
+      // Step 2: persist tone (and a copy of settings for AI prompting) on bot profile
       await upsertBotProfile(client.id, {
         name: profile.name,
         public_name: profile.name,
@@ -112,6 +118,18 @@ export default function BusinessProfile() {
           contact_phone: profile.contactPhone,
         },
       });
+
+      // Update local client cache so a save→save cycle stays correct
+      setClient(prev => prev ? {
+        ...prev,
+        name: profile.name,
+        description: profile.description || null,
+        services: profile.services || null,
+        location: profile.location || null,
+        website_url: profile.website || null,
+        contact_email: profile.contactEmail || null,
+        contact_phone: profile.contactPhone || null,
+      } : prev);
 
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);

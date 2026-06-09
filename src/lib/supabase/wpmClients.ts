@@ -4,6 +4,8 @@ export interface WpmClientRecord {
   id: string;
   name: string;
   description?: string | null;
+  services?: string | null;
+  location?: string | null;
   timezone?: string | null;
   status?: string | null;
   website_url?: string | null;
@@ -94,7 +96,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     // Try to get existing client
     let { data, error } = await (supabase as any)
       .from('wpm_clients')
-      .select('id, name, description, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+      .select('id, name, description, services, location, timezone, status, website_url, contact_email, contact_phone, industry, notes')
       .eq('owner_user_id', user.id)
       .maybeSingle();
 
@@ -116,7 +118,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
           timezone: 'America/Puerto_Rico',
           contact_email: userEmail,
         })
-        .select('id, name, description, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+        .select('id, name, description, services, location, timezone, status, website_url, contact_email, contact_phone, industry, notes')
         .single();
 
       if (insertError) {
@@ -130,7 +132,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     return data as WpmClientRecord;
   } catch (err) {
     console.warn('[wpmClients] getOwnedWpmClient error', err);
-    return { id: 'demo-client-001', name: 'Your Business' };
+    return null;
   }
 }
 
@@ -150,8 +152,13 @@ export async function getActiveBotProfile(clientId: string): Promise<WpmBotProfi
     .select('id, client_id, name, public_name, template_key, tone, response_length, settings, is_active')
     .eq('client_id', clientId)
     .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
-  if (error) return null;
+  if (error) {
+    console.error('[wpmClients] getActiveBotProfile error', error);
+    return null;
+  }
   return data as WpmBotProfileRecord | null;
 }
 
