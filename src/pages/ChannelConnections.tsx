@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
 import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getOwnedWpmClient, listClientChannels, upsertClientChannel, deactivateClientChannel } from '../lib/supabase/wpmClients';
 import { supabase } from '../lib/supabase/client';
 import MetaAccountSelectModal, { MetaPage } from '../components/MetaAccountSelectModal';
+import { loadFacebookSDK } from '../lib/facebook';
 
 interface Channel {
   id: string;
@@ -22,6 +22,14 @@ const CHANNEL_CONFIG: Record<string, Omit<Channel, 'status'>> = {
   fb: { id: 'fb', name: 'Facebook Messenger', platform: 'facebook', provider: 'meta' },
 };
 
+const META_APP_ID = import.meta.env.VITE_META_APP_ID || '928985544799600';
+const META_SCOPES = [
+  'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata',
+  'pages_manage_posts', 'pages_manage_engagement', 'instagram_basic',
+  'instagram_manage_insights', 'instagram_manage_messages', 'pages_messaging',
+  'business_management',
+].join(',');
+
 export default function ChannelConnections() {
   const [channels, setChannels] = useState<Channel[]>(
     Object.values(CHANNEL_CONFIG).map(c => ({ ...c, status: 'disconnected' }))
@@ -33,52 +41,15 @@ export default function ChannelConnections() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
 
-  // Meta popup + account selection state
   const [metaPopupPending, setMetaPopupPending] = useState(false);
   const [metaPages, setMetaPages] = useState<MetaPage[] | null>(null);
   const [metaLongLivedToken, setMetaLongLivedToken] = useState<string | null>(null);
   const [metaUserId, setMetaUserId] = useState<string | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
-  const messageListenerRef = useRef<((e: MessageEvent) => void) | null>(null);
-
-  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     loadChannels();
-  }, []);
-
-  // ── Fallback: handle ?meta_code= when popup was blocked / same-tab redirect ─
-  useEffect(() => {
-    const metaCode = searchParams.get('meta_code');
-    const metaError = searchParams.get('meta_error');
-    const redirectUri = searchParams.get('redirect_uri') || `${window.location.origin}/meta-callback`;
-
-    if (metaError) {
-      setError(`Meta connection failed: ${metaError}`);
-      setSearchParams({}, { replace: true });
-      return;
-    }
-
-    if (metaCode) {
-      // Clean the URL immediately so a page refresh doesn't re-process
-      setSearchParams({}, { replace: true });
-      (async () => {
-        if (!supabase) return;
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setError('You must be logged in to connect Meta channels.'); return; }
-        setMetaUserId(user.id);
-        await fetchMetaPages({ code: metaCode, redirectUri, supabaseUserId: user.id });
-      })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (messageListenerRef.current) {
-        window.removeEventListener('message', messageListenerRef.current);
-      }
-    };
+    loadFacebookSDK(META_APP_ID);
   }, []);
 
   async function loadChannels() {
@@ -176,113 +147,46 @@ export default function ChannelConnections() {
     );
   };
 
-  // ── Meta popup OAuth (direct Facebook dialog) ────────────────────────────
-  //
-  // The FB OAuth URL requires no async data — all params are static or derived
-  // from window.location (synchronous). We pass the real URL directly to
-  // window.open() so the main tab is NEVER navigated or blanked.
-  //
-  // User ID is fetched inside the message listener (after the code arrives),
-  // which is fine because that await is not on the hot path of the click handler.
-
-  const META_APP_ID = import.meta.env.VITE_META_APP_ID || '928985544799600';
-  const META_SCOPES = 'pages_show_list,instagram_basic,instagram_manage_messages,pages_messaging,pages_read_engagement';
+  // ── Meta SDK connect (FB.login) ──────────────────────────────────────────
+  // FB.login() manages the popup internally — no redirect URI, no postMessage,
+  // no Supabase interception. Must be called synchronously from the click handler.
 
   const handleMetaConnect = () => {
     if (!supabase) { setError('Supabase is not configured.'); return; }
+    if (!window.FB) { setError('Facebook SDK not ready. Please wait a moment and try again.'); return; }
     setError(null);
     setMetaPopupPending(true);
 
-    const redirectUri = `${window.location.origin}/meta-callback`;
-
-    // Build the complete OAuth URL synchronously — no async needed
-    const fbUrl = new URL('https://www.facebook.com/v20.0/dialog/oauth');
-    fbUrl.searchParams.set('client_id', META_APP_ID);
-    fbUrl.searchParams.set('redirect_uri', redirectUri);
-    fbUrl.searchParams.set('scope', META_SCOPES);
-    fbUrl.searchParams.set('response_type', 'code');
-    fbUrl.searchParams.set('auth_type', 'rerequest');
-
-    const left = Math.round(window.screenX + (window.outerWidth  - 600) / 2);
-    const top  = Math.round(window.screenY + (window.outerHeight - 700) / 2);
-
-    // Open popup directly to the FB URL — NEVER use about:blank here
-    const popup = window.open(
-      fbUrl.toString(),
-      'fb-oauth',
-      `width=600,height=700,left=${left},top=${top},popup=yes`,
-    );
-
-    if (!popup) {
-      setMetaPopupPending(false);
-      setError('Popup was blocked. Please allow popups for this site and try again.');
-      return;
-    }
-
-    let pollId:    ReturnType<typeof setInterval> | null = null;
-    let timeoutId: ReturnType<typeof setTimeout>  | null = null;
-
-    const cleanup = () => {
-      if (pollId)    clearInterval(pollId);
-      if (timeoutId) clearTimeout(timeoutId);
-      if (messageListenerRef.current) {
-        window.removeEventListener('message', messageListenerRef.current);
-        messageListenerRef.current = null;
-      }
-      setMetaPopupPending(false);
-    };
-
-    const listener = async (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (!event.data?.type?.startsWith('META_OAUTH_')) return;
-
-      cleanup();
-
-      if (event.data.type === 'META_OAUTH_ERROR') {
-        setError(`Meta connection failed: ${event.data.error}`);
+    window.FB.login((response) => {
+      if (response.status !== 'connected' || !response.authResponse) {
+        setMetaPopupPending(false);
+        if (response.status !== 'connected') {
+          setError('Facebook login was cancelled or not authorized.');
+        }
         return;
       }
 
-      if (event.data.type === 'META_OAUTH_CODE') {
-        // Get user ID at the point we actually need it
-        const { data: { user } } = await supabase!.auth.getUser();
-        if (!user) { setError('Session expired. Please refresh and try again.'); return; }
+      const { accessToken } = response.authResponse;
+
+      supabase!.auth.getUser().then(({ data: { user } }) => {
+        if (!user) {
+          setMetaPopupPending(false);
+          setError('Session expired. Please refresh and try again.');
+          return;
+        }
         setMetaUserId(user.id);
-        await fetchMetaPages({
-          code: event.data.code,
-          redirectUri: event.data.redirect_uri || redirectUri,
-          supabaseUserId: user.id,
-        });
-      }
-    };
-
-    messageListenerRef.current = listener;
-    window.addEventListener('message', listener);
-
-    // Detect popup closed by user before completing
-    pollId = setInterval(() => {
-      if (popup.closed) cleanup();
-    }, 500);
-
-    // Safety timeout: 3 minutes
-    timeoutId = setTimeout(() => {
-      cleanup();
-      if (!popup.closed) popup.close();
-    }, 180_000);
+        fetchMetaPages({ userToken: accessToken, supabaseUserId: user.id });
+      });
+    }, { scope: META_SCOPES, auth_type: 'rerequest' });
   };
 
-  const fetchMetaPages = async (
-    args: { code: string; redirectUri: string; supabaseUserId: string }
-         | { userToken: string; supabaseUserId: string },
-  ) => {
+  const fetchMetaPages = async (args: { userToken: string; supabaseUserId: string }) => {
     if (!supabase) return;
     setMetaPopupPending(true);
     try {
-      const body = 'code' in args
-        ? { code: args.code, redirect_uri: args.redirectUri, supabase_user_id: args.supabaseUserId }
-        : { user_token: args.userToken, supabase_user_id: args.supabaseUserId };
-
-      const { data, error: fnError } = await supabase.functions.invoke('meta-fetch-pages', { body });
+      const { data, error: fnError } = await supabase.functions.invoke('meta-fetch-pages', {
+        body: { user_token: args.userToken, supabase_user_id: args.supabaseUserId },
+      });
 
       if (fnError || !data?.success) {
         setError(data?.error || fnError?.message || 'Failed to fetch Facebook Pages.');
@@ -518,8 +422,7 @@ export default function ChannelConnections() {
               <ExternalLink className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
               <span>
                 Clicking "Connect via Meta" opens a Facebook login popup. After authorizing, you'll
-                choose which Pages and Instagram accounts to connect. Allow popups for this site if
-                your browser prompts you.
+                choose which Pages and Instagram accounts to connect.
               </span>
             </div>
           )}
