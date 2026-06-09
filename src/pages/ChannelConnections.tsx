@@ -30,6 +30,10 @@ const META_SCOPES = [
   'business_management',
 ].join(',');
 
+// sessionStorage flag set before FB.login() to detect if the page reloaded
+// mid-flow (redirect mode) so we can recover via FB.getLoginStatus().
+const FB_LOGIN_PENDING_KEY = 'fb_meta_login_pending';
+
 export default function ChannelConnections() {
   const [channels, setChannels] = useState<Channel[]>(
     Object.values(CHANNEL_CONFIG).map(c => ({ ...c, status: 'disconnected' }))
@@ -41,6 +45,7 @@ export default function ChannelConnections() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
 
+  const [sdkReady, setSdkReady] = useState(false);
   const [metaPopupPending, setMetaPopupPending] = useState(false);
   const [metaPages, setMetaPages] = useState<MetaPage[] | null>(null);
   const [metaLongLivedToken, setMetaLongLivedToken] = useState<string | null>(null);
@@ -49,7 +54,55 @@ export default function ChannelConnections() {
 
   useEffect(() => {
     loadChannels();
-    loadFacebookSDK(META_APP_ID);
+
+    loadFacebookSDK(META_APP_ID).then(() => {
+      setSdkReady(true);
+      console.log('[Meta] FB SDK initialized, FB.init() called');
+
+      // ── Redirect-mode recovery ────────────────────────────────────────────
+      // If FB.login() navigated the main tab instead of opening a popup, the
+      // page reloads with either a token in the URL hash OR the FB cookie set.
+      // We handle both cases so the Select Accounts modal still appears.
+
+      // Case 1: Implicit token in URL hash (#access_token=...)
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const hashToken = hash.get('access_token');
+      if (hashToken) {
+        console.log('[Meta] Found access_token in URL hash — redirect mode completed');
+        window.history.replaceState(null, '', window.location.pathname);
+        sessionStorage.removeItem(FB_LOGIN_PENDING_KEY);
+        setMetaPopupPending(true);
+        // fetchMetaPages and setMetaUserId are defined later in scope, but this
+        // callback runs async after mount, so they're available via closure.
+        supabase!.auth.getUser().then(({ data: { user } }) => {
+          if (!user) { setMetaPopupPending(false); setError('Session expired. Please refresh.'); return; }
+          setMetaUserId(user.id);
+          fetchMetaPages({ userToken: hashToken, supabaseUserId: user.id });
+        });
+        return;
+      }
+
+      // Case 2: Page reloaded during redirect flow — check FB cookie via getLoginStatus
+      if (sessionStorage.getItem(FB_LOGIN_PENDING_KEY)) {
+        sessionStorage.removeItem(FB_LOGIN_PENDING_KEY);
+        setMetaPopupPending(true);
+        console.log('[Meta] Login was pending — calling FB.getLoginStatus(force=true)');
+        window.FB.getLoginStatus((response) => {
+          console.log('[Meta] Post-reload FB.getLoginStatus:', JSON.stringify(response));
+          if (response.status === 'connected' && response.authResponse) {
+            supabase!.auth.getUser().then(({ data: { user } }) => {
+              if (!user) { setMetaPopupPending(false); setError('Session expired. Please refresh.'); return; }
+              setMetaUserId(user.id);
+              fetchMetaPages({ userToken: response.authResponse!.accessToken, supabaseUserId: user.id });
+            });
+          } else {
+            setMetaPopupPending(false);
+            console.log('[Meta] No connected session found after reload');
+          }
+        }, true);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadChannels() {
@@ -148,16 +201,32 @@ export default function ChannelConnections() {
   };
 
   // ── Meta SDK connect (FB.login) ──────────────────────────────────────────
-  // FB.login() manages the popup internally — no redirect URI, no postMessage,
-  // no Supabase interception. Must be called synchronously from the click handler.
+  // FB.login() must be called synchronously from the click handler to preserve
+  // the browser's "user gesture" context — no await before it.
+  //
+  // A sessionStorage flag is set before the call so that if FB uses redirect
+  // mode (navigating the main tab), we detect and recover on the next page load.
 
   const handleMetaConnect = () => {
     if (!supabase) { setError('Supabase is not configured.'); return; }
-    if (!window.FB) { setError('Facebook SDK not ready. Please wait a moment and try again.'); return; }
+    if (!sdkReady || !window.FB) {
+      setError('Facebook SDK is still loading — please wait a moment and try again.');
+      return;
+    }
+
     setError(null);
     setMetaPopupPending(true);
 
+    // Mark that a login was initiated before the popup/redirect starts
+    sessionStorage.setItem(FB_LOGIN_PENDING_KEY, '1');
+
+    console.log('[Meta] Calling FB.login(), sdkReady:', sdkReady);
     window.FB.login((response) => {
+      // This callback fires in popup mode. In redirect mode the page reloads
+      // and this callback never fires — handled by the useEffect above.
+      console.log('[Meta] FB.login callback:', JSON.stringify(response));
+      sessionStorage.removeItem(FB_LOGIN_PENDING_KEY);
+
       if (response.status !== 'connected' || !response.authResponse) {
         setMetaPopupPending(false);
         if (response.status !== 'connected') {
@@ -167,7 +236,6 @@ export default function ChannelConnections() {
       }
 
       const { accessToken } = response.authResponse;
-
       supabase!.auth.getUser().then(({ data: { user } }) => {
         if (!user) {
           setMetaPopupPending(false);
@@ -177,7 +245,7 @@ export default function ChannelConnections() {
         setMetaUserId(user.id);
         fetchMetaPages({ userToken: accessToken, supabaseUserId: user.id });
       });
-    }, { scope: META_SCOPES, auth_type: 'rerequest' });
+    }, { scope: META_SCOPES, return_scopes: true, auth_type: 'rerequest' });
   };
 
   const fetchMetaPages = async (args: { userToken: string; supabaseUserId: string }) => {
@@ -398,7 +466,7 @@ export default function ChannelConnections() {
               )}
               <button
                 onClick={handleMetaConnect}
-                disabled={metaPopupPending || allMetaConnected}
+                disabled={metaPopupPending || allMetaConnected || !sdkReady}
                 className={cn(
                   'px-5 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
                   allMetaConnected
@@ -408,6 +476,8 @@ export default function ChannelConnections() {
               >
                 {metaPopupPending
                   ? 'Connecting...'
+                  : !sdkReady
+                  ? 'Loading...'
                   : allMetaConnected
                   ? 'Connected'
                   : anyMetaConnected

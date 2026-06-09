@@ -14,8 +14,16 @@ interface FBLoginResponse {
   authResponse: FBAuthResponse | null;
 }
 
+interface FBInitParams {
+  appId: string;
+  cookie: boolean;
+  xfbml: boolean;
+  version: string;
+  status?: boolean;
+}
+
 interface FBSDK {
-  init(params: { appId: string; cookie: boolean; xfbml: boolean; version: string }): void;
+  init(params: FBInitParams): void;
   login(
     callback: (response: FBLoginResponse) => void,
     options?: { scope?: string; return_scopes?: boolean; auth_type?: string },
@@ -46,7 +54,11 @@ export function loadFacebookSDK(appId: string): Promise<void> {
     _appId = appId;
 
     window.fbAsyncInit = () => {
-      window.FB.init({ appId, cookie: true, xfbml: false, version: 'v20.0' });
+      // cookie:true  — lets FB set the fbsr_ cookie so FB.getLoginStatus() works
+      //                across page reloads (needed for redirect-mode fallback).
+      // status:false — skip the automatic login-status XHR on init; prevents a
+      //                race-condition that causes FB.login() to use redirect mode.
+      window.FB.init({ appId, cookie: true, xfbml: false, version: 'v20.0', status: false });
       _loaded = true;
       _waiters.forEach(cb => cb());
       _waiters.length = 0;
