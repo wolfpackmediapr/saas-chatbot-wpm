@@ -15,76 +15,110 @@
       justify-content: center;
       min-height: 100vh;
     }
-    .card { text-align: center; padding: 2rem; }
+    .card { text-align: center; padding: 2rem; max-width: 340px; }
     .spinner {
       width: 40px; height: 40px;
       border: 3px solid rgba(99,179,237,0.2);
       border-top-color: #63b3ed;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
-      margin: 0 auto 1rem;
+      margin: 0 auto 1.25rem;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    p { margin: 0.5rem 0; font-size: 0.95rem; }
+    p { margin: 0.5rem 0; font-size: 0.9rem; line-height: 1.5; }
+    .small { font-size: 0.75rem; opacity: 0.55; }
     .error { color: #fc8181; }
+    .success { color: #68d391; }
   </style>
 </head>
 <body>
 <div class="card" id="root">
-  <div class="spinner"></div>
-  <p>Connecting your accounts&hellip;</p>
-  <p style="font-size:0.8rem;opacity:0.6">This window will close automatically.</p>
+  <div class="spinner" id="spinner"></div>
+  <p id="msg">Connecting your accounts&hellip;</p>
+  <p class="small" id="sub">This window will close automatically.</p>
 </div>
 <script>
 (function () {
-  var origin = window.location.origin;
+  var appOrigin = window.location.origin;
 
-  function send(msg) {
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function setMsg(text, cls) {
+    document.getElementById('spinner').style.display = 'none';
+    var el = document.getElementById('msg');
+    el.textContent = text;
+    if (cls) el.className = cls;
+  }
+
+  function setSub(text) {
+    document.getElementById('sub').textContent = text;
+  }
+
+  function sendToOpener(msg) {
     if (window.opener && window.opener !== window) {
-      try { window.opener.postMessage(msg, origin); } catch (_) {}
+      try {
+        window.opener.postMessage(msg, appOrigin);
+      } catch (_) { /* cross-origin or closed */ }
+      // Short delay so the postMessage event is dispatched before we close
+      setTimeout(function () { window.close(); }, 200);
+      return true;
     }
-    // Small delay before closing so postMessage can be dispatched
-    setTimeout(function () { window.close(); }, 150);
+    return false; // opener unavailable
   }
 
   function showError(msg) {
-    var el = document.getElementById('root');
-    el.innerHTML = '<p class="error">' + msg + '</p><p style="font-size:0.8rem">You can close this window.</p>';
+    setMsg(msg, 'error');
+    setSub('You can close this window.');
+    // Always try to notify the opener (may have closed already — safe to ignore)
     if (window.opener && window.opener !== window) {
-      try { window.opener.postMessage({ type: 'META_OAUTH_ERROR', error: msg }, origin); } catch (_) {}
+      try { window.opener.postMessage({ type: 'META_OAUTH_ERROR', error: msg }, appOrigin); } catch (_) {}
     }
   }
 
+  // ── Parse URL ──────────────────────────────────────────────────────────────
   var search = new URLSearchParams(window.location.search);
   var hash   = new URLSearchParams(window.location.hash.replace(/^#/, ''));
 
-  // ── 1. Check for explicit error params (from either Meta or Supabase) ────
-  var errorDesc = search.get('error_description') || search.get('error') || hash.get('error_description') || hash.get('error');
-  var errorCode = search.get('error_code') || hash.get('error_code');
-
-  if (errorDesc || errorCode) {
-    showError(errorDesc || errorCode);
+  // ── 1. Explicit error from Meta or Supabase ────────────────────────────────
+  var errorDesc = search.get('error_description') || search.get('error')
+               || hash.get('error_description') || hash.get('error');
+  if (errorDesc) {
+    showError(decodeURIComponent(errorDesc.replace(/\+/g, ' ')));
     return;
   }
 
-  // ── 2. Direct Facebook OAuth — code in query string (?code=...) ──────────
-  //    This is the preferred path. We bypass Supabase auth entirely and send
-  //    the raw authorization code to the parent, which forwards it to our
-  //    edge function for a server-side exchange.
+  // ── 2. Direct Facebook OAuth → ?code=XXXXXXX ──────────────────────────────
+  //    Preferred path. We pass the raw code + redirect_uri back to the parent
+  //    window so the edge function can do the server-side exchange.
   var fbCode = search.get('code');
   if (fbCode) {
-    send({ type: 'META_OAUTH_CODE', code: fbCode });
+    var redirectUri = appOrigin + '/auth/callback';
+    var payload = { type: 'META_OAUTH_CODE', code: fbCode, redirect_uri: redirectUri };
+
+    var sent = sendToOpener(payload);
+    if (!sent) {
+      // No opener → the dialog opened in the same tab (popup was blocked / redirected).
+      // Navigate back to the channel-connections page with the code as a query param
+      // so the app can pick it up on mount.
+      setMsg('Authorization received. Redirecting back to app\u2026');
+      setSub('');
+      var fallback = appOrigin + '/dashboard/channel-connections'
+        + '?meta_code=' + encodeURIComponent(fbCode)
+        + '&redirect_uri=' + encodeURIComponent(redirectUri);
+      setTimeout(function () {
+        window.location.replace(fallback);
+      }, 400);
+    }
     return;
   }
 
-  // ── 3. Supabase OAuth fallback — tokens in hash fragment ─────────────────
-  //    Kept for any other OAuth flows that still use Supabase auth.
+  // ── 3. Supabase OAuth fallback — tokens in hash fragment ──────────────────
+  //    Kept for any other OAuth flows that still go through Supabase auth.
   var accessToken   = hash.get('access_token');
   var providerToken = hash.get('provider_token');
   var hashError     = hash.get('error_description') || hash.get('error');
 
   if (hashError) {
-    send({ type: 'META_OAUTH_ERROR', error: hashError });
+    showError(hashError);
     return;
   }
 
@@ -94,18 +128,19 @@
       if (parts.length !== 3) throw new Error('Invalid JWT');
       var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       while (b64.length % 4) b64 += '=';
-      var payload = JSON.parse(atob(b64));
-      send({ type: 'META_OAUTH_SUCCESS', provider_token: providerToken, user_id: payload.sub });
+      var payload2 = JSON.parse(atob(b64));
+      sendToOpener({ type: 'META_OAUTH_SUCCESS', provider_token: providerToken, user_id: payload2.sub });
     } catch (e) {
-      send({ type: 'META_OAUTH_ERROR', error: 'Failed to parse auth response: ' + e.message });
+      showError('Failed to parse auth response: ' + e.message);
     }
     return;
   }
 
-  // ── 4. Nothing useful — page was likely opened directly ──────────────────
+  // ── 4. Nothing to handle — page opened directly ────────────────────────────
   if (!window.opener) {
-    document.getElementById('root').innerHTML =
-      '<p style="font-size:0.9rem;opacity:0.6">This page is part of the OAuth flow.<br>Open it only through the app.</p>';
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('msg').textContent = 'This page is part of the OAuth flow.';
+    document.getElementById('sub').textContent = 'Open it only through the app.';
   }
 })();
 </script>
