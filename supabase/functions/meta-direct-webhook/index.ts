@@ -69,6 +69,38 @@ function textResponse(body: string, status = 200) {
 }
 
 // ---------------------------------------------------------------------------
+// Meta X-Hub-Signature-256 verification (constant-time)
+// ---------------------------------------------------------------------------
+
+async function verifyMetaSignature(
+  rawBody: Uint8Array,
+  signatureHeader: string | null,
+  appSecret: string,
+): Promise<boolean> {
+  if (!signatureHeader?.startsWith('sha256=')) return false;
+  const expectedHex = signatureHeader.slice('sha256='.length);
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(appSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sigBytes = await crypto.subtle.sign('HMAC', key, rawBody);
+  const computedHex = Array.from(new Uint8Array(sigBytes))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  if (expectedHex.length !== computedHex.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expectedHex.length; i++) {
+    diff |= expectedHex.charCodeAt(i) ^ computedHex.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------------
 // Supabase admin client
 // ---------------------------------------------------------------------------
 
@@ -184,10 +216,31 @@ Deno.serve(async (request: Request) => {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
+  // Read raw bytes first so we can verify the HMAC before parsing.
+  let rawBodyBytes: Uint8Array;
+  try {
+    rawBodyBytes = new Uint8Array(await request.arrayBuffer());
+  } catch {
+    return jsonResponse({ error: 'Failed to read request body' }, 400);
+  }
+
+  // Verify Meta's X-Hub-Signature-256 header.
+  const appSecret = Deno.env.get('META_APP_SECRET');
+  if (appSecret) {
+    const sig = request.headers.get('X-Hub-Signature-256');
+    const valid = await verifyMetaSignature(rawBodyBytes, sig, appSecret);
+    if (!valid) {
+      console.warn('[meta-direct] Signature verification failed');
+      return jsonResponse({ error: 'Invalid signature' }, 403);
+    }
+  } else {
+    console.warn('[meta-direct] META_APP_SECRET not set — skipping signature check');
+  }
+
   // deno-lint-ignore no-explicit-any
   let rawPayload: any;
   try {
-    rawPayload = await request.json();
+    rawPayload = JSON.parse(new TextDecoder().decode(rawBodyBytes));
   } catch {
     return jsonResponse({ error: 'Invalid JSON' }, 400);
   }

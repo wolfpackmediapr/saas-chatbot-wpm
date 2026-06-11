@@ -7,9 +7,16 @@ import { sendWoztellTextResponse } from '../_shared/woztell_botapi.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-woztell-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+function isWoztellAuthorized(req: Request): boolean {
+  const expectedSecret = Deno.env.get('WOZTELL_WEBHOOK_SECRET');
+  if (!expectedSecret) return true; // skip check when secret not configured (dev)
+  const provided = req.headers.get('x-woztell-secret') ?? new URL(req.url).searchParams.get('secret') ?? '';
+  return provided === expectedSecret;
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -54,6 +61,11 @@ Deno.serve(async (request) => {
 
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  if (!isWoztellAuthorized(request)) {
+    console.warn('[woztell-webhook] Unauthorized request — secret mismatch');
+    return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
   let rawPayload: unknown;
