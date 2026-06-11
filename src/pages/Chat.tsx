@@ -8,7 +8,8 @@ import StatusIndicator from '../components/StatusIndicator';
 import BotSelector from '../components/BotSelector';
 import { startConversation, sendMessage } from '../lib/openai';
 import { CanvasRevealEffect } from '../components/ui/CanvasEffect';
-import { AIBot, getActiveBot, getBotAssistantId } from '../lib/supabase/bots';
+import { AIBot, getActiveBot } from '../lib/supabase/bots';
+import { supabase } from '../lib/supabase/client';
 import {
   createChatThread,
   getChatThread,
@@ -30,6 +31,7 @@ export default function Chat() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [openaiThreadId, setOpenaiThreadId] = useState<string | null>(null);
   const [currentBot, setCurrentBot] = useState<AIBot | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,17 @@ export default function Chat() {
   useEffect(() => {
     const initializeChat = async () => {
       try {
+        const { data: { session } } = await supabase!.auth.getSession();
+        const token = session?.access_token ?? null;
+        setAccessToken(token);
+
+        if (!token) {
+          setError('Session expired. Please refresh the page.');
+          setStatus('offline');
+          setLoading(false);
+          return;
+        }
+
         const activeBot = await getActiveBot();
 
         if (!activeBot) {
@@ -70,7 +83,7 @@ export default function Chat() {
           }
         }
 
-        const newOpenaiThreadId = await startConversation(activeBot.api_key);
+        const newOpenaiThreadId = await startConversation(token, activeBot.id);
         const newThread = await createChatThread(
           newOpenaiThreadId,
           'New Conversation',
@@ -127,18 +140,14 @@ export default function Chat() {
       }
 
       setStatus('typing');
-      const assistantId = await getBotAssistantId(currentBot.assistant_id);
 
-      if (!assistantId) {
-        throw new Error('No Assistant ID configured. Please add an Assistant ID in Settings or in your bot configuration.');
-      }
+      if (!accessToken) throw new Error('Session expired. Please refresh the page.');
 
       const response = await sendMessage(
         openaiThreadId,
         content,
-        assistantId,
-        currentBot.api_key,
-        images
+        accessToken,
+        currentBot.id,
       );
 
       if (response) {
@@ -181,7 +190,9 @@ export default function Chat() {
       setCurrentBot(newBot);
 
       // Create a new thread with the new bot
-      const newOpenaiThreadId = await startConversation(newBot.api_key);
+      const token = accessToken ?? (await supabase!.auth.getSession()).data.session?.access_token ?? null;
+      if (!token) throw new Error('Session expired. Please refresh the page.');
+      const newOpenaiThreadId = await startConversation(token, newBot.id);
       const newThread = await createChatThread(
         newOpenaiThreadId,
         'New Conversation',
