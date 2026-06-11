@@ -108,7 +108,7 @@ export async function findMatchingChannel(
 
   const { data, error } = await supabase
     .from('wpm_client_channels')
-    .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number, bot_profiles(id, is_active)')
+    .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number')
     .eq('provider', normalized.provider)
     .eq('channel_type', normalized.channelType)
     .eq('is_active', true)
@@ -116,8 +116,19 @@ export async function findMatchingChannel(
     .maybeSingle();
 
   if (error) return { channel: null, error: error.message };
+  if (!data) return { channel: null, error: null };
 
-  return { channel: data as ChannelMatch | null, error: null };
+  // No direct FK between wpm_client_channels and wpm_bot_profiles — resolve via client_id
+  const channel = data as ChannelMatch;
+  const { data: botProfileRows } = await supabase
+    .from('wpm_bot_profiles')
+    .select('id, is_active')
+    .eq('client_id', channel.client_id)
+    .eq('is_active', true)
+    .limit(1);
+  channel.bot_profiles = botProfileRows ?? [];
+
+  return { channel, error: null };
 }
 
 export async function persistInboundWoztellMessage(

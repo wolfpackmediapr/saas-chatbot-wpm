@@ -284,12 +284,17 @@ Deno.serve(async (request: Request) => {
       }
 
       // ── Channel lookup by page ID ────────────────────────────────────
-      const { data: channels } = await supabase
+      const { data: channels, error: channelError } = await supabase
         .from('wpm_client_channels')
-        .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number, bot_profiles:wpm_bot_profiles(id, is_active)')
+        .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number')
         .or(`external_page_id.eq.${event.pageId},provider_channel_id.eq.${event.pageId}`)
         .eq('is_active', true)
         .limit(1);
+
+      if (channelError) {
+        console.error(`[meta-direct] Channel query error: ${channelError.message}`);
+        continue;
+      }
 
       const channel: ChannelMatch | null = channels?.[0] ?? null;
 
@@ -297,6 +302,15 @@ Deno.serve(async (request: Request) => {
         console.warn(`[meta-direct] No channel for pageId=${event.pageId}`);
         continue;
       }
+
+      // No direct FK between wpm_client_channels and wpm_bot_profiles — resolve via client_id
+      const { data: botProfileRows } = await supabase
+        .from('wpm_bot_profiles')
+        .select('id, is_active')
+        .eq('client_id', channel.client_id)
+        .eq('is_active', true)
+        .limit(1);
+      channel.bot_profiles = botProfileRows ?? [];
 
       const botProfileId = pickActiveBotProfileId(channel);
 
