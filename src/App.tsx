@@ -42,6 +42,7 @@ import ChannelConnections from './pages/ChannelConnections';
 import Automations from './pages/Automations';
 import AgentTest from './pages/AgentTest';
 import Leads from './pages/Leads';
+import Inbox from './pages/Inbox';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -75,6 +76,7 @@ function App() {
             }
           >
             <Route index element={<Home />} />
+            <Route path="inbox" element={<Inbox />} />
             <Route path="chat/new" element={<Chat />} />
             <Route path="chat/:threadId" element={<Chat />} />
             <Route path="history" element={<History />} />

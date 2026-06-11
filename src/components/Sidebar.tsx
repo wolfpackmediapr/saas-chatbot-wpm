@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  MessageSquarePlus,
+  Inbox,
   History,
   Settings,
   HelpCircle,
@@ -24,7 +24,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getCompanyLogo } from '../lib/supabase/settings';
 
 const mainNavItems = [
-  { icon: MessageSquarePlus, label: 'New Chat', path: '/dashboard/chat/new' },
+  { icon: Inbox, label: 'Inbox', path: '/dashboard/inbox' },
   { icon: Building2, label: 'Business Profile', path: '/dashboard/business-profile' },
   { icon: Bot, label: 'Agent Setup', path: '/dashboard/agent-setup' },
   { icon: BookOpenText, label: 'Knowledge Base', path: '/dashboard/knowledge-base' },

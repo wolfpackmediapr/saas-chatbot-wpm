@@ -320,6 +320,8 @@ Deno.serve(async (request: Request) => {
       // Use a stable external_conversation_id for Meta DM threads (page + sender)
       const externalConversationId = `${event.pageId}:${event.senderId}`;
 
+      // Omit `status` from payload so on-conflict updates don't reset 'handoff' back to 'active'.
+      // New rows get the column default ('active'); existing rows keep their current status.
       const { data: convData } = await supabase
         .from('wpm_conversations')
         .upsert(
@@ -330,12 +332,11 @@ Deno.serve(async (request: Request) => {
             external_conversation_id: externalConversationId,
             external_user_id: event.senderId,
             channel_type: channelType,
-            status: 'active',
             last_message_at: new Date(event.timestamp).toISOString(),
           },
           { onConflict: 'client_id,channel_type,external_conversation_id,external_user_id' },
         )
-        .select('id')
+        .select('id, status')
         .single();
 
       const conversationId = convData?.id;
@@ -354,6 +355,18 @@ Deno.serve(async (request: Request) => {
         provider_message_id: event.messageId,
         metadata: { platform: event.platform, sender_id: event.senderId },
       });
+
+      // ── Skip AI if a human has taken over this conversation ──────────
+      if (convData?.status === 'handoff') {
+        console.log(`[meta-direct] Conversation ${conversationId} is in handoff mode — AI response skipped`);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({ status: 'processed', response_payload: { handoff: true } })
+            .eq('external_event_id', event.messageId);
+        }
+        continue;
+      }
 
       // ── Generate AI reply ────────────────────────────────────────────
       const openaiKey = Deno.env.get('OPENAI_API_KEY');
