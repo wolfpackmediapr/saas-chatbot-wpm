@@ -70,7 +70,7 @@ Deno.serve(async (request) => {
   const { data: conv, error: convError } = await supabase
     .from('wpm_conversations')
     .select(`
-      id, client_id, channel_type, external_user_id, status,
+      id, client_id, channel_id, channel_type, external_user_id, status,
       wpm_clients!inner(owner_user_id)
     `)
     .eq('id', conversationId)
@@ -86,9 +86,22 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: 'No external user ID on this conversation' }, 422);
   }
 
-  const pageAccessToken = Deno.env.get('META_PAGE_ACCESS_TOKEN');
+  // Resolve the per-channel page token (stored at OAuth connect time);
+  // META_PAGE_ACCESS_TOKEN remains as fallback for legacy channels.
+  let channelQuery = supabase
+    .from('wpm_client_channels')
+    .select('page_access_token')
+    .eq('is_active', true)
+    .limit(1);
+  channelQuery = conv.channel_id
+    ? channelQuery.eq('id', conv.channel_id)
+    : channelQuery.eq('client_id', conv.client_id).eq('channel_type', conv.channel_type);
+  const { data: channelRows } = await channelQuery;
+
+  const pageAccessToken =
+    channelRows?.[0]?.page_access_token ?? Deno.env.get('META_PAGE_ACCESS_TOKEN');
   if (!pageAccessToken) {
-    return jsonResponse({ error: 'META_PAGE_ACCESS_TOKEN not configured' }, 500);
+    return jsonResponse({ error: 'No page access token for this channel' }, 500);
   }
 
   // Send to user via Graph API

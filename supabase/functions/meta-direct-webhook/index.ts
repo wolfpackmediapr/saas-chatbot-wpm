@@ -11,7 +11,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
-import { pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
+import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 
 // ---------------------------------------------------------------------------
@@ -156,6 +156,29 @@ function normalizeMetaEvents(
 }
 
 // ---------------------------------------------------------------------------
+// Fetch sender display name from Meta Graph API (best-effort)
+// ---------------------------------------------------------------------------
+
+async function fetchMetaUserProfile(
+  senderId: string,
+  pageAccessToken: string,
+  platform: 'messenger' | 'instagram',
+): Promise<string | null> {
+  try {
+    const fields = platform === 'instagram' ? 'name,username' : 'name';
+    const resp = await fetch(
+      `https://graph.facebook.com/v20.0/${encodeURIComponent(senderId)}?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`,
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json() as { name?: string; username?: string };
+    if (platform === 'instagram' && data.username) return `@${data.username}`;
+    return data.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Send reply via Facebook Graph API (direct, no Woztell)
 // ---------------------------------------------------------------------------
 
@@ -284,11 +307,17 @@ Deno.serve(async (request: Request) => {
       }
 
       // ── Channel lookup by page ID ────────────────────────────────────
+      // Resolve channel_type early so we can filter the lookup and avoid matching
+      // a same-page-ID row from the wrong platform (e.g. an IG row with external_page_id
+      // equal to the Facebook page ID).
+      const channelType = event.platform === 'messenger' ? 'facebook' : event.platform;
+
       const { data: channels, error: channelError } = await supabase
         .from('wpm_client_channels')
-        .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number')
+        .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number, page_access_token, bot_profile_id')
         .or(`external_page_id.eq.${event.pageId},provider_channel_id.eq.${event.pageId}`)
         .eq('is_active', true)
+        .eq('channel_type', channelType)
         .limit(1);
 
       if (channelError) {
@@ -299,22 +328,24 @@ Deno.serve(async (request: Request) => {
       const channel: ChannelMatch | null = channels?.[0] ?? null;
 
       if (!channel) {
-        console.warn(`[meta-direct] No channel for pageId=${event.pageId}`);
+        console.warn(`[meta-direct] No channel for pageId=${event.pageId} channelType=${channelType}`);
         continue;
       }
 
-      // No direct FK between wpm_client_channels and wpm_bot_profiles — resolve via client_id
-      const { data: botProfileRows } = await supabase
-        .from('wpm_bot_profiles')
-        .select('id, is_active')
-        .eq('client_id', channel.client_id)
-        .eq('is_active', true)
-        .limit(1);
-      channel.bot_profiles = botProfileRows ?? [];
+      await loadBotProfilesForChannel(supabase, channel);
 
       const botProfileId = pickActiveBotProfileId(channel);
 
-      const channelType = event.platform === 'messenger' ? 'facebook' : event.platform;
+      // Get page access token early — needed for profile fetch and Graph API send.
+      // Each connected Page has its own token (stored at OAuth connect time);
+      // META_PAGE_ACCESS_TOKEN remains as fallback for legacy channels.
+      const pageAccessToken = channel.page_access_token ?? Deno.env.get('META_PAGE_ACCESS_TOKEN');
+
+      // Fetch sender display name from Meta Graph API (best-effort; never blocks processing)
+      let externalUserName: string | null = null;
+      if (pageAccessToken) {
+        externalUserName = await fetchMetaUserProfile(event.senderId, pageAccessToken, event.platform);
+      }
 
       // ── Conversation upsert ──────────────────────────────────────────
       // Use a stable external_conversation_id for Meta DM threads (page + sender)
@@ -322,18 +353,22 @@ Deno.serve(async (request: Request) => {
 
       // Omit `status` from payload so on-conflict updates don't reset 'handoff' back to 'active'.
       // New rows get the column default ('active'); existing rows keep their current status.
+      // Only include external_user_name when non-null to avoid overwriting a cached name with null.
+      const conversationPayload: Record<string, unknown> = {
+        client_id: channel.client_id,
+        channel_id: channel.id,
+        bot_profile_id: botProfileId,
+        external_conversation_id: externalConversationId,
+        external_user_id: event.senderId,
+        channel_type: channelType,
+        last_message_at: new Date(event.timestamp).toISOString(),
+      };
+      if (externalUserName) conversationPayload.external_user_name = externalUserName;
+
       const { data: convData } = await supabase
         .from('wpm_conversations')
         .upsert(
-          {
-            client_id: channel.client_id,
-            channel_id: channel.id,
-            bot_profile_id: botProfileId,
-            external_conversation_id: externalConversationId,
-            external_user_id: event.senderId,
-            channel_type: channelType,
-            last_message_at: new Date(event.timestamp).toISOString(),
-          },
+          conversationPayload,
           { onConflict: 'client_id,channel_type,external_conversation_id,external_user_id' },
         )
         .select('id, status')
@@ -391,9 +426,8 @@ Deno.serve(async (request: Request) => {
       const replyText = aiResult.content;
 
       // ── Send reply via Graph API ─────────────────────────────────────
-      const pageAccessToken = Deno.env.get('META_PAGE_ACCESS_TOKEN');
       if (!pageAccessToken) {
-        console.warn('[meta-direct] No META_PAGE_ACCESS_TOKEN');
+        console.warn(`[meta-direct] No page access token for channel ${channel.id} (and no META_PAGE_ACCESS_TOKEN fallback)`);
         continue;
       }
 

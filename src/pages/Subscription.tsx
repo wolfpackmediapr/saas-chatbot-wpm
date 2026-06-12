@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, Zap, Crown, Rocket, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Check, Zap, Crown, Rocket, Building2, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase/client';
@@ -8,14 +8,14 @@ import { supabase } from '../lib/supabase/client';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
 interface UserSubscription {
-  plan: 'free' | 'basic' | 'professional' | 'enterprise';
+  plan: 'free' | 'starter' | 'growth' | 'pro' | 'agency';
   status: 'active' | 'inactive' | 'past_due' | 'canceled' | 'trialing';
   current_period_end: string | null;
   cancel_at_period_end: boolean;
 }
 
 interface Plan {
-  id: 'basic' | 'professional' | 'enterprise';
+  id: 'starter' | 'growth' | 'pro' | 'agency';
   name: string;
   icon: React.ElementType;
   price: { monthly: number; yearly: number };
@@ -25,46 +25,60 @@ interface Plan {
 
 const plans: Plan[] = [
   {
-    id: 'basic',
-    name: 'Basic',
+    id: 'starter',
+    name: 'Starter',
     icon: Zap,
-    price: { monthly: 100, yearly: 1000 },
+    price: { monthly: 29, yearly: 290 },
     features: [
-      { text: '100 Messages per day', included: true },
-      { text: 'Basic AI responses', included: true },
-      { text: 'Chat history (7 days)', included: true },
+      { text: '1 connected channel', included: true },
+      { text: '1 AI bot', included: true },
+      { text: '500 conversations/mo', included: true },
       { text: 'Standard support', included: true },
-      { text: 'Image generation', included: false },
-      { text: 'Voice commands', included: false },
+      { text: 'Human handoff inbox', included: true },
+      { text: 'White-label', included: false },
     ],
   },
   {
-    id: 'professional',
-    name: 'Professional',
-    icon: Crown,
-    price: { monthly: 200, yearly: 2000 },
+    id: 'growth',
+    name: 'Growth',
+    icon: Rocket,
+    price: { monthly: 79, yearly: 790 },
     features: [
-      { text: 'Unlimited messages', included: true },
-      { text: 'Advanced AI responses', included: true },
-      { text: 'Unlimited chat history', included: true },
+      { text: '3 connected channels', included: true },
+      { text: '2 AI bots', included: true },
+      { text: '2,500 conversations/mo', included: true },
       { text: 'Priority support', included: true },
-      { text: '100 Image generations/mo', included: true },
-      { text: 'Voice commands', included: true },
+      { text: 'Human handoff inbox', included: true },
+      { text: 'White-label', included: false },
+    ],
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    icon: Crown,
+    price: { monthly: 199, yearly: 1990 },
+    features: [
+      { text: '10 connected channels', included: true },
+      { text: '3 AI bots', included: true },
+      { text: '10,000 conversations/mo', included: true },
+      { text: 'Priority support', included: true },
+      { text: 'Lead capture & automations', included: true },
+      { text: 'White-label', included: false },
     ],
     highlight: true,
   },
   {
-    id: 'enterprise',
-    name: 'Enterprise',
-    icon: Rocket,
-    price: { monthly: 500, yearly: 5000 },
+    id: 'agency',
+    name: 'Agency',
+    icon: Building2,
+    price: { monthly: 499, yearly: 4990 },
     features: [
-      { text: 'Everything in Professional', included: true },
-      { text: 'Custom AI training', included: true },
-      { text: 'API access', included: true },
+      { text: 'Unlimited channels', included: true },
+      { text: '10 AI bots', included: true },
+      { text: 'Unlimited conversations', included: true },
       { text: 'Dedicated support', included: true },
-      { text: 'Unlimited image generation', included: true },
-      { text: 'Custom integrations', included: true },
+      { text: 'Lead capture & automations', included: true },
+      { text: 'White-label', included: true },
     ],
   },
 ];
@@ -269,13 +283,13 @@ export default function Subscription() {
                   : 'text-secondary-foreground hover:bg-secondary'
               )}
             >
-              Yearly (Save 15%)
+              Yearly (2 months free)
             </button>
           </div>
         </div>
 
         {/* Plan cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 md:gap-8">
           {plans.map((plan) => {
             const isCurrent = isActivePlan(plan.id);
             const isLoading = checkoutLoading === plan.id;
@@ -326,7 +340,8 @@ export default function Subscription() {
                   </div>
                   {billingCycle === 'yearly' && (
                     <p className="text-xs md:text-sm text-primary mt-1">
-                      Save ${plan.price.monthly * 12 - plan.price.yearly}
+                      ${Math.round(plan.price.yearly / 12)}/mo — save $
+                      {plan.price.monthly * 12 - plan.price.yearly} vs monthly
                     </p>
                   )}
                 </div>

@@ -62,6 +62,8 @@ export interface WpmClientChannel {
   channel_type: string;
   provider: string;
   provider_channel_id: string;
+  display_name?: string | null;
+  bot_profile_id?: string | null;
   is_active: boolean;
   metadata?: Record<string, any>;
 }
@@ -162,6 +164,82 @@ export async function getActiveBotProfile(clientId: string): Promise<WpmBotProfi
     return null;
   }
   return data as WpmBotProfileRecord | null;
+}
+
+export async function listBotProfiles(clientId: string): Promise<WpmBotProfileRecord[]> {
+  if (!supabase) return [];
+  const { data, error } = await (supabase as any)
+    .from('wpm_bot_profiles')
+    .select('id, client_id, name, public_name, template_key, tone, response_length, settings, is_active')
+    .eq('client_id', clientId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('[wpmClients] listBotProfiles error', error);
+    return [];
+  }
+  return (data ?? []) as WpmBotProfileRecord[];
+}
+
+export async function createBotProfile(clientId: string, name: string): Promise<string> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data, error } = await (supabase as any)
+    .from('wpm_bot_profiles')
+    .insert({
+      client_id: clientId,
+      owner_user_id: user.id,
+      name,
+      public_name: name,
+      template_key: 'wpm-ai-receptionist',
+      model_provider: 'openai',
+      model_name: 'gpt-4.1-mini',
+      tone: 'professional and friendly',
+      language: 'en/es',
+      response_length: 'balanced',
+      is_active: true,
+      settings: {},
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function updateBotProfile(botProfileId: string, updates: {
+  name?: string; public_name?: string; tone?: string; response_length?: string; settings?: Record<string, any>;
+}) {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await (supabase as any)
+    .from('wpm_bot_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', botProfileId);
+  if (error) throw error;
+}
+
+/** Tier limits for the signed-in user (null max = unlimited). */
+export async function getPlanLimits(): Promise<{ max_channels: number | null; max_bots: number | null }> {
+  const fallback = { max_channels: 2, max_bots: 1 };
+  if (!supabase) return fallback;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fallback;
+  const { data, error } = await (supabase as any).rpc('get_plan_limits', { p_user_id: user.id });
+  if (error || !data?.length) {
+    if (error) console.error('[wpmClients] getPlanLimits error', error);
+    return fallback;
+  }
+  return data[0] as { max_channels: number | null; max_bots: number | null };
+}
+
+export async function assignChannelBot(channelId: string, botProfileId: string | null) {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await (supabase as any)
+    .from('wpm_client_channels')
+    .update({ bot_profile_id: botProfileId, updated_at: new Date().toISOString() })
+    .eq('id', channelId);
+  if (error) throw error;
 }
 
 export async function upsertBotProfile(clientId: string, updates: {
@@ -302,7 +380,7 @@ export async function listClientChannels(clientId: string): Promise<WpmClientCha
   if (!supabase) return [];
   const { data, error } = await (supabase as any)
     .from('wpm_client_channels')
-    .select('id, client_id, channel_type, provider, provider_channel_id, is_active, metadata')
+    .select('id, client_id, channel_type, provider, provider_channel_id, display_name, bot_profile_id, is_active, metadata')
     .eq('client_id', clientId)
     .eq('is_active', true);
   if (error) return [];

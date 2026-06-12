@@ -18,6 +18,7 @@ interface Conversation {
   id: string;
   client_id: string;
   channel_type: ChannelType;
+  bot_profile_id: string | null;
   external_user_id: string | null;
   external_user_name: string | null;
   status: ConvStatus;
@@ -94,8 +95,14 @@ export default function Inbox() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const realtimeRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+
+  // Keep refs in sync with state so notification callbacks never read stale closures
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
   // ── Auth token ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -104,17 +111,38 @@ export default function Inbox() {
     });
   }, []);
 
+  // ── Browser notification permission ───────────────────────────────────────
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   // ── Load conversation list ─────────────────────────────────────────────────
   const loadConversations = useCallback(async () => {
     if (!supabase) return;
     setLoadingConvs(true);
     const { data, error: err } = await supabase
       .from('wpm_conversations')
-      .select('id, client_id, channel_type, external_user_id, external_user_name, status, last_message_at, created_at, metadata')
+      .select('id, client_id, channel_type, bot_profile_id, external_user_id, external_user_name, status, last_message_at, created_at, metadata')
       .in('status', ['active', 'handoff'])
       .order('last_message_at', { ascending: false });
     if (!err && data) setConversations(data as Conversation[]);
     setLoadingConvs(false);
+  }, []);
+
+  // ── Agent names (for the per-conversation badge) ───────────────────────────
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('wpm_bot_profiles')
+      .select('id, name')
+      .then(({ data }) => {
+        if (data) {
+          setAgentNames(Object.fromEntries(data.map((b: { id: string; name: string | null }) => [b.id, b.name || 'AI Assistant'])));
+        }
+      });
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
@@ -130,6 +158,37 @@ export default function Inbox() {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [loadConversations]);
+
+  // ── Realtime: global inbound message notifications ────────────────────────
+  // Runs once; reads selectedId and conversations via refs to avoid stale closures.
+  useEffect(() => {
+    if (!supabase) return;
+    const ch = supabase
+      .channel('inbox-global-notify')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'wpm_messages' },
+        (payload) => {
+          const msg = payload.new as Message & { conversation_id: string; direction: string };
+          if (msg.direction !== 'inbound') return;
+          // Skip if the user is actively viewing this conversation and the tab is visible
+          if (!document.hidden && msg.conversation_id === selectedIdRef.current) return;
+          if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+          const conv = conversationsRef.current.find((c) => c.id === msg.conversation_id);
+          const name = conv ? displayName(conv) : 'New message';
+          const platform = conv ? platformLabel(conv.channel_type) : '';
+
+          new Notification(name, {
+            body: `${platform}: ${(msg.content ?? '').slice(0, 120)}`,
+            icon: '/favicon.ico',
+            tag: msg.conversation_id, // Collapses multiple rapid messages from same conv
+          });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load messages for selected conversation ───────────────────────────────
   useEffect(() => {
@@ -301,7 +360,9 @@ export default function Inbox() {
                             ? 'bg-orange-500/10 text-orange-500'
                             : 'bg-green-500/10 text-green-600 dark:text-green-400',
                         )}>
-                          {conv.status === 'handoff' ? 'Human' : 'Bot'}
+                          {conv.status === 'handoff'
+                            ? 'Human'
+                            : (conv.bot_profile_id && agentNames[conv.bot_profile_id]) || 'Bot'}
                         </span>
                       </div>
                     </div>

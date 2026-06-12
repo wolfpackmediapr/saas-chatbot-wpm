@@ -129,9 +129,28 @@ Deno.serve(async (request: Request) => {
     }
 
     const clientId: string = clientRow.id;
-    const connectedChannels: { name: string; type: string }[] = [];
+    const connectedChannels: { name: string; type: string; webhookSubscribed?: boolean }[] = [];
 
     for (const page of pages) {
+      // Subscribe the page to this app's webhook — without this, Meta never
+      // delivers DMs for the page. Covers the linked IG account too (IG DMs
+      // arrive via the page subscription).
+      let webhookSubscribed = false;
+      try {
+        const subResp = await fetch(
+          `https://graph.facebook.com/v20.0/${page.id}/subscribed_apps` +
+            `?subscribed_fields=messages,messaging_postbacks`,
+          { method: "POST", headers: { Authorization: `Bearer ${page.access_token}` } }
+        );
+        const subData = await subResp.json();
+        webhookSubscribed = subResp.ok && subData.success === true;
+        if (!webhookSubscribed) {
+          console.error(`[meta-oauth] subscribed_apps failed for page ${page.id}:`, subData);
+        }
+      } catch (subErr) {
+        console.error(`[meta-oauth] subscribed_apps error for page ${page.id}:`, subErr);
+      }
+
       const { error: fbError } = await supabase
         .from("wpm_client_channels")
         .upsert(
@@ -144,12 +163,12 @@ Deno.serve(async (request: Request) => {
             display_name: page.name,
             page_access_token: page.access_token,
             is_active: true,
-            metadata: { page_name: page.name, category: page.category, tasks: page.tasks },
+            metadata: { page_name: page.name, category: page.category, tasks: page.tasks, webhook_subscribed: webhookSubscribed },
           },
           { onConflict: "provider,provider_channel_id,channel_type", ignoreDuplicates: false }
         );
 
-      if (!fbError) connectedChannels.push({ name: page.name, type: "facebook" });
+      if (!fbError) connectedChannels.push({ name: page.name, type: "facebook", webhookSubscribed });
       else console.error("[meta-oauth] Facebook upsert failed:", fbError);
 
       if (page.instagram_business_account?.id) {
@@ -166,12 +185,12 @@ Deno.serve(async (request: Request) => {
               display_name: ig.username ? `@${ig.username}` : page.name,
               page_access_token: page.access_token,
               is_active: true,
-              metadata: { ig_user_id: ig.id, ig_username: ig.username, facebook_page_id: page.id },
+              metadata: { ig_user_id: ig.id, ig_username: ig.username, facebook_page_id: page.id, webhook_subscribed: webhookSubscribed },
             },
             { onConflict: "provider,provider_channel_id,channel_type", ignoreDuplicates: false }
           );
 
-        if (!igError) connectedChannels.push({ name: ig.username ? `@${ig.username}` : page.name, type: "instagram" });
+        if (!igError) connectedChannels.push({ name: ig.username ? `@${ig.username}` : page.name, type: "instagram", webhookSubscribed });
         else console.error("[meta-oauth] Instagram upsert failed:", igError);
       }
     }

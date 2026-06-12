@@ -4,7 +4,6 @@ import {
   Inbox,
   History,
   Settings,
-  HelpCircle,
   Crown,
   Send,
   ClipboardCheck,
@@ -34,8 +33,8 @@ const mainNavItems = [
   { icon: Play, label: 'Test Agent', path: '/dashboard/agent-test' },
   { icon: ClipboardCheck, label: 'Launch Checklist', path: '/dashboard/launch-checklist' },
   { icon: History, label: 'Recent History', path: '/dashboard/history' },
-  { icon: HelpCircle, label: 'Help Center', path: '/dashboard/help' },
   { icon: Send, label: 'Send Feedback', path: '/dashboard/feedback' },
+  { icon: Settings, label: 'Settings', path: '/dashboard/settings' },
 ];
 
 interface SidebarProps {

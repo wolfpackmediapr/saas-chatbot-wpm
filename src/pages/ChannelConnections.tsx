@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink } from 'lucide-react';
+import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getOwnedWpmClient, listClientChannels, upsertClientChannel, deactivateClientChannel } from '../lib/supabase/wpmClients';
+import {
+  getOwnedWpmClient,
+  listClientChannels,
+  upsertClientChannel,
+  deactivateClientChannel,
+  listBotProfiles,
+  assignChannelBot,
+  type WpmBotProfileRecord,
+  type WpmClientChannel,
+} from '../lib/supabase/wpmClients';
 import { supabase } from '../lib/supabase/client';
 import MetaAccountSelectModal, { MetaPage } from '../components/MetaAccountSelectModal';
 import { loadFacebookSDK } from '../lib/facebook';
@@ -44,6 +53,9 @@ export default function ChannelConnections() {
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [connectedRows, setConnectedRows] = useState<WpmClientChannel[]>([]);
+  const [agents, setAgents] = useState<WpmBotProfileRecord[]>([]);
+  const [assigning, setAssigning] = useState<string | null>(null);
 
   const [sdkReady, setSdkReady] = useState(false);
   const [metaPopupPending, setMetaPopupPending] = useState(false);
@@ -117,6 +129,8 @@ export default function ChannelConnections() {
 
       if (client && !isDemo) {
         const dbChannels = await listClientChannels(client.id);
+        setConnectedRows(dbChannels);
+        listBotProfiles(client.id).then(setAgents).catch(() => {});
         setChannels(prev =>
           prev.map(ch => {
             const match = dbChannels.find(
@@ -498,6 +512,69 @@ export default function ChannelConnections() {
           )}
         </div>
       </div>
+
+      {/* Agent routing — one row per connected account */}
+      {connectedRows.length > 0 && agents.length > 0 && (
+        <div className="mt-8 bg-secondary/30 border border-secondary rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Bot className="h-5 w-5 text-primary" />
+            <h2 className="font-semibold text-lg">Agent Routing</h2>
+          </div>
+          <p className="text-sm text-secondary-foreground mb-4">
+            Choose which AI agent answers each connected account. Unassigned accounts use your first
+            active agent.
+          </p>
+          <div className="space-y-2">
+            {connectedRows.map((row) => {
+              const Icon = row.channel_type === 'instagram' ? Instagram : MessageCircle;
+              const color = row.channel_type === 'instagram' ? 'text-pink-400' : 'text-blue-400';
+              return (
+                <div
+                  key={row.id}
+                  className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 bg-background/50 border border-secondary rounded-lg px-4 py-3"
+                >
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Icon className={cn('h-4 w-4 flex-shrink-0', color)} />
+                    <span className="text-sm truncate">
+                      {row.display_name || row.provider_channel_id}
+                    </span>
+                    <span className="text-xs text-secondary-foreground capitalize">
+                      ({row.channel_type})
+                    </span>
+                  </div>
+                  <select
+                    value={row.bot_profile_id ?? ''}
+                    disabled={assigning === row.id}
+                    onChange={async (e) => {
+                      const newBotId = e.target.value || null;
+                      setAssigning(row.id);
+                      const prevRows = connectedRows;
+                      setConnectedRows((rows) =>
+                        rows.map((r) => (r.id === row.id ? { ...r, bot_profile_id: newBotId } : r))
+                      );
+                      try {
+                        await assignChannelBot(row.id, newBotId);
+                      } catch (err) {
+                        console.error('Failed to assign agent', err);
+                        setConnectedRows(prevRows);
+                        setError('Failed to update agent assignment. Please try again.');
+                      } finally {
+                        setAssigning(null);
+                      }
+                    }}
+                    className="sm:w-64 rounded-lg border border-secondary bg-background px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-50"
+                  >
+                    <option value="">Default ({agents[0]?.name || 'first active agent'})</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name || 'AI Assistant'}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 p-4 rounded-xl bg-secondary/20 border border-secondary text-sm">
         <div className="flex items-start gap-2">

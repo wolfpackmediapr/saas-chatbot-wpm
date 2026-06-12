@@ -1,5 +1,14 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+
+// Old standalone pages now live as Settings tabs; preserve query params
+// (e.g. Stripe's ?checkout=success) across the redirect.
+function SettingsTabRedirect({ tab }: { tab: string }) {
+  const [searchParams] = useSearchParams();
+  const params = new URLSearchParams(searchParams);
+  params.set('tab', tab);
+  return <Navigate to={`/dashboard/settings?${params.toString()}`} replace />;
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -31,8 +40,6 @@ import Home from './pages/Home';
 import Chat from './pages/Chat';
 import History from './pages/History';
 import Settings from './pages/Settings';
-import Subscription from './pages/Subscription';
-import Help from './pages/Help';
 import Feedback from './pages/Feedback';
 import LaunchChecklist from './pages/LaunchChecklist';
 import BusinessProfile from './pages/BusinessProfile';
@@ -81,7 +88,7 @@ function App() {
             <Route path="chat/:threadId" element={<Chat />} />
             <Route path="history" element={<History />} />
             <Route path="settings" element={<Settings />} />
-            <Route path="subscription" element={<Subscription />} />
+            <Route path="subscription" element={<SettingsTabRedirect tab="billing" />} />
             <Route path="business-profile" element={<BusinessProfile />} />
             <Route path="agent-setup" element={<AgentSetup />} />
             <Route path="knowledge-base" element={<KnowledgeBase />} />
@@ -90,7 +97,7 @@ function App() {
             <Route path="leads" element={<Leads />} />
             <Route path="agent-test" element={<AgentTest />} />
             <Route path="launch-checklist" element={<LaunchChecklist />} />
-            <Route path="help" element={<Help />} />
+            <Route path="help" element={<SettingsTabRedirect tab="help" />} />
             <Route path="feedback" element={<Feedback />} />
           </Route>
 

@@ -9,6 +9,8 @@ export interface ChannelMatch {
   provider_bot_id: string | null;
   external_page_id: string | null;
   external_phone_number: string | null;
+  page_access_token?: string | null;
+  bot_profile_id?: string | null;
   bot_profiles?: Array<{ id: string; is_active?: boolean }> | null;
 }
 
@@ -50,6 +52,36 @@ export function buildChannelLookupOrFilter(normalized: NormalizedWoztellPayload)
 
 export function pickActiveBotProfileId(channel: ChannelMatch): string | null {
   return channel.bot_profiles?.find((profile) => profile.is_active !== false)?.id ?? null;
+}
+
+/**
+ * Populate channel.bot_profiles, preferring the channel's assigned bot
+ * (bot_profile_id) and falling back to the client's first active bot when
+ * unassigned or the assigned bot is inactive/deleted.
+ */
+export async function loadBotProfilesForChannel(
+  supabase: SupabaseLike,
+  channel: ChannelMatch,
+): Promise<void> {
+  if (channel.bot_profile_id) {
+    const { data } = await supabase
+      .from('wpm_bot_profiles')
+      .select('id, is_active')
+      .eq('id', channel.bot_profile_id)
+      .eq('is_active', true)
+      .limit(1);
+    if (data?.length) {
+      channel.bot_profiles = data;
+      return;
+    }
+  }
+  const { data } = await supabase
+    .from('wpm_bot_profiles')
+    .select('id, is_active')
+    .eq('client_id', channel.client_id)
+    .eq('is_active', true)
+    .limit(1);
+  channel.bot_profiles = data ?? [];
 }
 
 export function buildConversationUpsertPayload(normalized: NormalizedWoztellPayload, channel: ChannelMatch) {
@@ -108,7 +140,7 @@ export async function findMatchingChannel(
 
   const { data, error } = await supabase
     .from('wpm_client_channels')
-    .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number')
+    .select('id, client_id, channel_type, provider, provider_channel_id, provider_bot_id, external_page_id, external_phone_number, page_access_token, bot_profile_id')
     .eq('provider', normalized.provider)
     .eq('channel_type', normalized.channelType)
     .eq('is_active', true)
@@ -118,15 +150,8 @@ export async function findMatchingChannel(
   if (error) return { channel: null, error: error.message };
   if (!data) return { channel: null, error: null };
 
-  // No direct FK between wpm_client_channels and wpm_bot_profiles — resolve via client_id
   const channel = data as ChannelMatch;
-  const { data: botProfileRows } = await supabase
-    .from('wpm_bot_profiles')
-    .select('id, is_active')
-    .eq('client_id', channel.client_id)
-    .eq('is_active', true)
-    .limit(1);
-  channel.bot_profiles = botProfileRows ?? [];
+  await loadBotProfilesForChannel(supabase, channel);
 
   return { channel, error: null };
 }
