@@ -257,66 +257,64 @@ export default function Landing() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
-          {/* Basic */}
+          {/* Starter */}
           <div className="rounded-3xl border border-secondary bg-secondary/30 p-8 flex flex-col">
             <div>
-              <div className="font-semibold">Basic</div>
+              <div className="font-semibold">Starter</div>
               <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-5xl font-bold tracking-tighter">$79</span>
+                <span className="text-5xl font-bold tracking-tighter">$29</span>
                 <span className="text-secondary-foreground">/mo</span>
               </div>
             </div>
             <ul className="mt-8 space-y-3 text-sm flex-1">
-              {["400 messages/mo", "GPT-4o-mini", "30-day history", "Basic automations", "Email support"].map((f, i) => (
+              {["1 connected channel", "1 AI bot", "500 conversations/mo", "Human handoff inbox", "Basic automations"].map((f, i) => (
                 <li key={i} className="flex items-start gap-3"><CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" /> {f}</li>
               ))}
             </ul>
             <Link to="/pricing" className="mt-8 block text-center py-3 rounded-2xl border border-secondary hover:bg-secondary/50 transition-colors font-medium">View details</Link>
           </div>
 
-          {/* Professional - Most Popular */}
-          <div className="rounded-3xl border-2 border-primary bg-secondary/30 p-8 flex flex-col relative">
-            <div className="absolute -top-3 right-6 bg-primary text-primary-foreground text-xs font-semibold tracking-widest px-4 py-1 rounded-full">MOST POPULAR</div>
+          {/* Growth */}
+          <div className="rounded-3xl border border-secondary bg-secondary/30 p-8 flex flex-col">
             <div>
-              <div className="font-semibold">Professional</div>
+              <div className="font-semibold">Growth</div>
               <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-5xl font-bold tracking-tighter">$179</span>
+                <span className="text-5xl font-bold tracking-tighter">$79</span>
                 <span className="text-secondary-foreground">/mo</span>
               </div>
             </div>
             <ul className="mt-8 space-y-3 text-sm flex-1">
-              {["2,000 messages/mo", "Full GPT-4o (best quality)", "Unlimited history & leads", "Full automations (Zapier + webhooks)", "Priority support", "Test Agent + Launch Checklist"].map((f, i) => (
+              {["3 connected channels", "2 AI bots", "2,500 conversations/mo", "Human handoff inbox", "Priority support"].map((f, i) => (
                 <li key={i} className="flex items-start gap-3"><CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" /> {f}</li>
               ))}
             </ul>
-            <Link 
-              to="/signup" 
-              className="mt-8 block text-center py-3.5 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-colors"
-            >
+            <Link to="/signup" className="mt-8 block text-center py-3.5 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-colors">
               Start 7-day free trial
             </Link>
           </div>
 
-          {/* Enterprise */}
-          <div className="rounded-3xl border border-secondary bg-secondary/30 p-8 flex flex-col">
+          {/* Pro - Most Popular */}
+          <div className="rounded-3xl border-2 border-primary bg-secondary/30 p-8 flex flex-col relative">
+            <div className="absolute -top-3 right-6 bg-primary text-primary-foreground text-xs font-semibold tracking-widest px-4 py-1 rounded-full">MOST POPULAR</div>
             <div>
-              <div className="font-semibold">Enterprise</div>
+              <div className="font-semibold">Pro</div>
               <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-5xl font-bold tracking-tighter">$449</span>
+                <span className="text-5xl font-bold tracking-tighter">$199</span>
                 <span className="text-secondary-foreground">/mo</span>
               </div>
             </div>
             <ul className="mt-8 space-y-3 text-sm flex-1">
-              {["6,000 messages/mo", "GPT-4o + priority processing", "Everything in Professional", "API access", "Dedicated support + onboarding", "Custom integrations"].map((f, i) => (
+              {["10 connected channels", "3 AI bots", "10,000 conversations/mo", "Human handoff inbox", "Lead capture & automations", "Priority support"].map((f, i) => (
                 <li key={i} className="flex items-start gap-3"><CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" /> {f}</li>
               ))}
             </ul>
-            <Link to="/pricing" className="mt-8 block text-center py-3 rounded-2xl border border-secondary hover:bg-secondary/50 transition-colors font-medium">View details & contact sales</Link>
+            <Link to="/signup" className="mt-8 block text-center py-3.5 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-colors">
+              Start 7-day free trial
+            </Link>
           </div>
         </div>
-
         <div className="text-center mt-8 text-sm text-secondary-foreground">
-          Yearly plans available with 15% savings • Fair overage rates apply
+          See all plans including Agency on the <Link to="/pricing" className="underline">full pricing page</Link>. Yearly plans available with savings.
         </div>
       </section>
 

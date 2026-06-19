@@ -20,67 +20,88 @@ interface Tier {
 
 const tiers: Tier[] = [
   {
-    name: "Basic",
-    monthlyPrice: 79,
-    yearlyPrice: 67,
-    description: "For businesses testing the waters with low DM volume.",
-    messages: "400 messages / month",
+    name: "Starter",
+    monthlyPrice: 29,
+    yearlyPrice: 290,
+    description: "Perfect for small businesses getting started with AI-powered DMs.",
+    messages: "1 channel • 500 conversations/mo",
     model: "GPT-4o-mini",
     features: [
-      "400 messages included",
-      "GPT-4o-mini responses",
-      "30-day conversation history",
-      "Basic automations (email + 1 webhook)",
-      "Standard email support",
-      "Launch Checklist access",
-      "Test Agent simulator"
+      "1 connected channel (WhatsApp, Instagram or Facebook)",
+      "1 AI bot with your brand voice & knowledge",
+      "500 conversations per month",
+      "Human handoff inbox included",
+      "Basic automations & email support",
+      "Launch Checklist & Test Agent",
+      "7-day free trial"
     ],
     cta: "Start 7-day free trial",
     ctaLink: "/signup",
-    overage: "$0.08 per extra message"
+    overage: "Fair overages apply after limit"
   },
   {
-    name: "Professional",
-    monthlyPrice: 179,
-    yearlyPrice: 152,
-    popular: true,
-    description: "The sweet spot for most businesses. Best quality + full features.",
-    messages: "2,000 messages / month",
+    name: "Growth",
+    monthlyPrice: 79,
+    yearlyPrice: 790,
+    description: "For growing businesses handling real DM volume.",
+    messages: "3 channels • 2,500 conversations/mo",
     model: "Full GPT-4o",
     features: [
-      "2,000 messages included",
-      "Full GPT-4o (highest quality)",
-      "Unlimited chat history & leads",
-      "Full automations (Zapier, multiple webhooks, Resend)",
-      "Priority support (same-day)",
-      "Advanced lead qualification",
-      "Unlimited Test Agent usage",
-      "Full Launch Checklist with live checks"
+      "3 connected channels",
+      "2 AI bots",
+      "2,500 conversations per month",
+      "Human handoff inbox",
+      "Priority support",
+      "Full automations (Zapier, webhooks, Resend)",
+      "Advanced lead capture",
+      "Unlimited history & Test Agent"
     ],
     cta: "Start 7-day free trial",
     ctaLink: "/signup",
-    overage: "$0.06 per extra message"
+    overage: "Fair overages apply after limit"
   },
   {
-    name: "Enterprise",
-    monthlyPrice: 449,
-    yearlyPrice: 382,
-    description: "High-volume operators and agencies. Custom needs welcome.",
-    messages: "6,000 messages / month",
-    model: "GPT-4o + priority",
+    name: "Pro",
+    monthlyPrice: 199,
+    yearlyPrice: 1990,
+    popular: true,
+    description: "The sweet spot for serious operators. Most popular plan.",
+    messages: "10 channels • 10,000 conversations/mo",
+    model: "Full GPT-4o + priority",
     features: [
-      "6,000 messages included",
-      "GPT-4o with priority processing",
-      "Everything in Professional",
-      "API access for custom frontends",
-      "Dedicated onboarding call",
-      "Custom integrations & rules",
-      "Priority Woztell channel support",
-      "Multi-location / multi-brand ready"
+      "10 connected channels",
+      "3 AI bots",
+      "10,000 conversations per month",
+      "Human handoff inbox",
+      "Priority support (same-day)",
+      "Lead capture & full automations",
+      "White-label ready",
+      "Unlimited history & Launch Checklist"
+    ],
+    cta: "Start 7-day free trial",
+    ctaLink: "/signup",
+    overage: "Fair overages apply after limit"
+  },
+  {
+    name: "Agency",
+    monthlyPrice: 499,
+    yearlyPrice: 4990,
+    description: "For agencies and high-volume businesses with multiple brands.",
+    messages: "Unlimited channels & conversations",
+    model: "GPT-4o + dedicated priority",
+    features: [
+      "Unlimited connected channels",
+      "10 AI bots",
+      "Unlimited conversations",
+      "Dedicated support & onboarding",
+      "Lead capture & automations",
+      "Full white-label",
+      "API access & custom integrations",
+      "Multi-brand / multi-location ready"
     ],
     cta: "Contact sales",
-    ctaLink: "/signup", // Will update later to enterprise form
-    overage: "$0.05 per extra message (volume)"
+    ctaLink: "/signup",
+    overage: "Volume pricing available"
   }
 ];
 
@@ -93,7 +114,8 @@ export default function Pricing() {
 
   const getSavings = (tier: Tier) => {
     if (period === 'monthly') return null;
-    const savings = Math.round(((tier.monthlyPrice * 12) - (tier.yearlyPrice * 12)) / (tier.monthlyPrice * 12) * 100);
+    const monthlyTotal = tier.monthlyPrice * 12;
+    const savings = Math.round( ((monthlyTotal - tier.yearlyPrice) / monthlyTotal ) * 100 );
     return savings;
   };
 
@@ -163,7 +185,7 @@ export default function Pricing() {
         </div>
 
         {/* Pricing Cards */}
-        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-6">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {tiers.map((tier, index) => {
             const price = getPrice(tier);
             const savings = getSavings(tier);
@@ -191,7 +213,7 @@ export default function Pricing() {
 
                   {period === 'yearly' && savings && (
                     <div className="text-emerald-400 text-sm mt-1 font-medium">
-                      ${tier.yearlyPrice * 12} billed yearly • Save {savings}%
+                      ${tier.yearlyPrice} billed yearly • Save {savings}%
                     </div>
                   )}
                   {period === 'monthly' && (
