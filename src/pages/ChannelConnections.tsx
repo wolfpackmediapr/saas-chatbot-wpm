@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink, Bot } from 'lucide-react';
+import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink, Bot, RefreshCw, Wifi } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   getOwnedWpmClient,
@@ -63,6 +63,11 @@ export default function ChannelConnections() {
   const [metaLongLivedToken, setMetaLongLivedToken] = useState<string | null>(null);
   const [metaUserId, setMetaUserId] = useState<string | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
+
+  // webhook verification state
+  const [verifyingWebhook, setVerifyingWebhook] = useState<string | null>(null);
+  const [webhookStatuses, setWebhookStatuses] = useState<Record<string, boolean | null>>({});
+  const [justConnected, setJustConnected] = useState<{ name: string; type: string; webhookSubscribed: boolean }[] | null>(null);
 
   useEffect(() => {
     loadChannels();
@@ -131,6 +136,12 @@ export default function ChannelConnections() {
         const dbChannels = await listClientChannels(client.id);
         setConnectedRows(dbChannels);
         listBotProfiles(client.id).then(setAgents).catch(() => {});
+        // seed webhook badge state from stored metadata
+        const statuses: Record<string, boolean | null> = {};
+        dbChannels.forEach((row: any) => {
+          statuses[row.id] = row.metadata?.webhook_subscribed ?? null;
+        });
+        setWebhookStatuses(statuses);
         setChannels(prev =>
           prev.map(ch => {
             const match = dbChannels.find(
@@ -301,6 +312,7 @@ export default function ChannelConnections() {
         return;
       }
 
+      setJustConnected(data.channels || []);
       setMetaPages(null);
       setMetaLongLivedToken(null);
       setMetaUserId(null);
@@ -316,6 +328,32 @@ export default function ChannelConnections() {
     setMetaPages(null);
     setMetaLongLivedToken(null);
     setMetaUserId(null);
+  };
+
+  const handleVerifyWebhook = async (rowId: string) => {
+    if (!supabase) return;
+    setVerifyingWebhook(rowId);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('meta-verify-webhooks', {
+        body: { channel_id: rowId },
+      });
+      if (fnError || !data?.success) {
+        setWebhookStatuses(prev => ({ ...prev, [rowId]: false }));
+      } else {
+        setWebhookStatuses(prev => ({ ...prev, [rowId]: data.subscribed }));
+        // keep connectedRows metadata in sync so the badge persists across re-renders
+        setConnectedRows(rows =>
+          rows.map(r => r.id === rowId
+            ? { ...r, metadata: { ...r.metadata, webhook_subscribed: data.subscribed } }
+            : r
+          )
+        );
+      }
+    } catch {
+      setWebhookStatuses(prev => ({ ...prev, [rowId]: false }));
+    } finally {
+      setVerifyingWebhook(null);
+    }
   };
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -365,6 +403,42 @@ export default function ChannelConnections() {
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm">
           {error}
+        </div>
+      )}
+
+      {justConnected && justConnected.length > 0 && (
+        <div className="mb-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-emerald-400 font-medium text-sm mb-1">Channels connected successfully</p>
+                <div className="space-y-1">
+                  {justConnected.map((ch, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-secondary-foreground">
+                      <span className="capitalize">{ch.type === 'instagram' ? 'Instagram' : 'Facebook Messenger'}:</span>
+                      <span className="font-medium text-foreground">{ch.name}</span>
+                      {ch.webhookSubscribed ? (
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <Wifi className="h-3.5 w-3.5" /> Webhooks subscribed
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-amber-400">
+                          <AlertCircle className="h-3.5 w-3.5" /> Webhook subscription failed — use Verify below
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setJustConnected(null)}
+              className="text-secondary-foreground hover:text-foreground text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
 
@@ -450,15 +524,41 @@ export default function ChannelConnections() {
                   {metaChannels.map(ch => {
                     const Icon = ch.platform === 'instagram' ? Instagram : MessageCircle;
                     const color = ch.platform === 'instagram' ? 'text-pink-400' : 'text-blue-400';
+                    const dbRow = connectedRows.find(r => r.provider_channel_id === ch.channelId);
+                    const webhookStatus = dbRow ? webhookStatuses[dbRow.id] : null;
                     return (
-                      <div key={ch.id} className="flex items-center gap-2 text-sm">
+                      <div key={ch.id} className="flex items-center gap-2 text-sm flex-wrap">
                         <Icon className={cn('h-4 w-4', color)} />
                         <span className="text-secondary-foreground">{ch.name}:</span>
                         {ch.status === 'connected' ? (
-                          <span className="text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {ch.phoneOrHandle || ch.channelId || 'Connected'}
-                          </span>
+                          <>
+                            <span className="text-emerald-400 flex items-center gap-1">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {ch.phoneOrHandle || ch.channelId || 'Connected'}
+                            </span>
+                            {dbRow && (
+                              <>
+                                {webhookStatus === true && (
+                                  <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                                    <Wifi className="h-3 w-3" /> Webhooks Active
+                                  </span>
+                                )}
+                                {webhookStatus === false && (
+                                  <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                                    <AlertCircle className="h-3 w-3" /> Webhook inactive
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleVerifyWebhook(dbRow.id)}
+                                  disabled={verifyingWebhook === dbRow.id}
+                                  className="flex items-center gap-1 text-xs text-secondary-foreground hover:text-foreground border border-secondary rounded-full px-2 py-0.5 transition-colors disabled:opacity-50"
+                                >
+                                  <RefreshCw className={cn('h-3 w-3', verifyingWebhook === dbRow.id && 'animate-spin')} />
+                                  {verifyingWebhook === dbRow.id ? 'Verifying...' : 'Verify Webhooks'}
+                                </button>
+                              </>
+                            )}
+                          </>
                         ) : (
                           <span className="text-secondary-foreground/60">Not connected</span>
                         )}
