@@ -81,7 +81,10 @@ function TemplatePicker({ activeId, onSelect }: TemplatePickerProps) {
                 : 'border-secondary bg-secondary/20 text-secondary-foreground hover:border-primary/50 hover:text-foreground'
             )}
           >
-            <span className="text-2xl leading-none">{t.emoji}</span>
+            {t.icon
+              ? <t.icon className="h-6 w-6" />
+              : <span className="text-2xl leading-none">{t.emoji}</span>
+            }
             <span className="text-xs font-medium leading-tight">{t.label}</span>
           </button>
         ))}

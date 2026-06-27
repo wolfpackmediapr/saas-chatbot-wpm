@@ -172,7 +172,10 @@ function TemplatePicker({ activeId, onSelect }: TemplatePickerProps) {
                 : 'border-secondary bg-secondary/20 text-secondary-foreground hover:border-primary/50 hover:text-foreground'
             )}
           >
-            <span className="text-2xl leading-none">{t.emoji}</span>
+            {t.icon
+              ? <t.icon className="h-6 w-6" />
+              : <span className="text-2xl leading-none">{t.emoji}</span>
+            }
             <span className="text-xs font-medium leading-tight">{t.label}</span>
           </button>
         ))}
@@ -372,7 +375,7 @@ export default function BusinessProfile() {
               type="text"
               value={profile.name}
               onChange={e => set('name', e.target.value)}
-              placeholder="WolfPack Media"
+              placeholder="Your Business Name"
               className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
             />
           </div>
@@ -440,7 +443,7 @@ export default function BusinessProfile() {
               type="text"
               value={profile.website}
               onChange={e => set('website', e.target.value)}
-              placeholder="https://wolfpackmediapr.com"
+              placeholder="https://yourwebsite.com"
               className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
             />
           </div>

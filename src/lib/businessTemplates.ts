@@ -1,7 +1,10 @@
+import type { ComponentType } from 'react';
+
 export interface BusinessTemplate {
   id: string;
   label: string;
-  emoji: string;
+  emoji?: string;
+  icon?: ComponentType<{ className?: string }>;
   // Applied to Business Profile form
   profile: {
     description: string;
@@ -21,14 +24,18 @@ export interface BusinessTemplate {
   };
 }
 
+// Loaded lazily to avoid a hard import in this module — callers import the icon and pass it in
+// at registration time. See the bottom of this file.
+import { Briefcase } from 'lucide-react';
+
 export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
   {
-    id: 'wolfpack-media',
-    label: 'WolfPack Media',
-    emoji: '🐺',
+    id: 'agency',
+    label: 'Agency',
+    icon: Briefcase,
     profile: {
       description:
-        'AI-native digital marketing and creative agency based in San Juan, Puerto Rico. We build intelligent systems — DM automation agents, AI websites, and full-stack digital infrastructure — that make businesses impossible to ignore.',
+        'A results-driven digital marketing and creative agency. We build intelligent systems — DM automation agents, AI websites, and full-stack digital infrastructure — that help businesses grow and stand out.',
       serviceTags: [
         'AI Web Development',
         'App Development',
@@ -48,13 +55,13 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
     },
     agent: {
       instructions:
-        "You are Celestina, WolfPack Media's AI receptionist. You are sharp, confident, and premium. Your job is to qualify leads, answer questions about our services, and guide ready prospects to book a Calendly discovery call. Represent the brand with high energy — no fluff, no filler. Always be direct and memorable.",
+        "You are the AI receptionist for this agency. You are sharp, confident, and premium. Your job is to qualify leads, answer questions about our services, and guide ready prospects to book a discovery call. Represent the brand with high energy — no fluff, no filler. Always be direct and memorable.",
       neverSayRules:
         'Never reveal specific pricing, package rates, or project timelines unless explicitly documented. Never promise a human will reply within a specific time window. Never discuss competitor agencies or make comparisons.',
       escalationPolicy:
-        "If a lead is clearly ready to buy, asks for a detailed proposal, or expresses frustration, offer to connect them with a human team member. Collect their name, email, and best time to talk. If they want a call now, send the Calendly link.",
+        "If a lead is clearly ready to buy, asks for a detailed proposal, or expresses frustration, offer to connect them with a human team member. Collect their name, email, and best time to talk. If they want a call now, send the booking link.",
       toneGuidelines:
-        "Confident, direct, and premium — like a top-tier agency rep who knows their worth. Warm but never desperate. Puerto Rico-aware: switch to Spanish naturally if the lead writes in Spanish first.",
+        "Confident, direct, and premium — like a top-tier agency rep who knows their worth. Warm but never desperate. Match the prospect's language and energy.",
       responseLength: 'short',
       primaryGoal: 'Book a Calendly meeting',
       responseLanguage: 'English + Latin American Spanish',
