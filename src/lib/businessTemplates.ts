@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import { Briefcase } from 'lucide-react';
 
 export interface BusinessTemplate {
   id: string;
@@ -23,10 +24,6 @@ export interface BusinessTemplate {
     responseLanguage: string;
   };
 }
-
-// Loaded lazily to avoid a hard import in this module — callers import the icon and pass it in
-// at registration time. See the bottom of this file.
-import { Briefcase } from 'lucide-react';
 
 export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
   {
