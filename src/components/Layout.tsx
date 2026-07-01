@@ -20,7 +20,7 @@ export default function Layout() {
         />
       )}
 
-      <main className="flex-1 overflow-auto flex flex-col w-full lg:w-auto">
+      <main className="flex-1 overflow-hidden flex flex-col w-full lg:w-auto">
         <div className="lg:hidden sticky top-0 z-30 bg-background border-b border-secondary px-4 py-3 flex items-center justify-between">
           <button
             onClick={toggleSidebar}
@@ -36,12 +36,9 @@ export default function Layout() {
           <div className="w-10" />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-h-0 overflow-auto">
           <Outlet />
         </div>
-        <footer className="py-4 px-6 text-center text-sm text-muted-foreground border-t border-border">
-          <p>© 2026 All Rights Reserved. Built by WolfPack Media LLC</p>
-        </footer>
       </main>
     </div>
   );
