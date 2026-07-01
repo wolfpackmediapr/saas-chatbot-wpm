@@ -387,7 +387,7 @@ export default function Inbox() {
         ) : (
           <>
             {/* ── Contact info header ── */}
-            <div className="border-b border-secondary p-4 flex-shrink-0">
+            <div className="border-b border-secondary p-4 flex-shrink-0 sticky top-0 z-10 bg-background">
               <div className="flex items-start gap-3">
                 {/* Mobile back button */}
                 <button
