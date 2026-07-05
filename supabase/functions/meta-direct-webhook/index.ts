@@ -43,6 +43,7 @@ interface NormalizedMetaPayload {
   senderId: string;
   messageId: string | null;
   text: string | null;
+  attachments: Array<{ type: string; url: string | null }>;
   rawEventType: string;
   timestamp: number;
 }
@@ -130,11 +131,22 @@ function normalizeMetaEvents(
     let text: string | null = null;
     let messageId: string | null = null;
     let rawEventType = 'unknown';
+    let attachments: Array<{ type: string; url: string | null }> = [];
 
     if (event.message) {
       text = event.message.text ?? null;
       messageId = event.message.mid ?? null;
       rawEventType = 'message';
+      attachments = (event.message.attachments ?? []).map((a) => ({
+        type: a.type ?? 'attachment',
+        url: a.payload?.url ?? null,
+      }));
+      // Attachment-only messages (images, audio, shares, story replies) must
+      // still reach the pipeline so the conversation is logged and answered.
+      if (!text && attachments.length > 0) {
+        const kinds = [...new Set(attachments.map((a) => a.type))].join(', ');
+        text = `[User sent: ${kinds}]`;
+      }
     } else if (event.postback) {
       text = event.postback.payload ?? event.postback.title;
       messageId = event.postback.mid ?? null;
@@ -147,6 +159,7 @@ function normalizeMetaEvents(
       senderId: event.sender.id,
       messageId,
       text,
+      attachments,
       rawEventType,
       timestamp: event.timestamp ?? Date.now(),
     });
@@ -174,6 +187,64 @@ async function fetchMetaUserProfile(
     if (platform === 'instagram' && data.username) return `@${data.username}`;
     return data.name ?? null;
   } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Voice note transcription (best-effort, never blocks the pipeline)
+// ---------------------------------------------------------------------------
+
+const AUDIO_EXT_BY_CONTENT_TYPE: Record<string, string> = {
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'mp4',
+  'video/mp4': 'mp4',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/webm': 'webm',
+};
+
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+
+async function transcribeMetaAudio(
+  audioUrl: string,
+  openaiKey: string,
+): Promise<string | null> {
+  try {
+    const audioResp = await fetch(audioUrl);
+    if (!audioResp.ok) {
+      console.warn(`[meta-direct] Audio download failed: ${audioResp.status}`);
+      return null;
+    }
+    const buffer = await audioResp.arrayBuffer();
+    if (buffer.byteLength === 0 || buffer.byteLength > MAX_AUDIO_BYTES) {
+      console.warn(`[meta-direct] Audio size out of range: ${buffer.byteLength} bytes`);
+      return null;
+    }
+
+    const contentType = audioResp.headers.get('content-type')?.split(';')[0].trim() ?? 'audio/mp4';
+    const ext = AUDIO_EXT_BY_CONTENT_TYPE[contentType] ?? 'mp4';
+
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: contentType }), `voice-message.${ext}`);
+    form.append('model', 'whisper-1');
+
+    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}` },
+      body: form,
+    });
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      console.warn(`[meta-direct] Whisper failed: ${resp.status} ${errBody.substring(0, 200)}`);
+      return null;
+    }
+    const data = await resp.json() as { text?: string };
+    return data.text?.trim() || null;
+  } catch (err) {
+    console.warn('[meta-direct] Audio transcription error:', err);
     return null;
   }
 }
@@ -289,22 +360,39 @@ Deno.serve(async (request: Request) => {
 
       console.log(`[meta-direct] ${event.platform} from ${event.senderId}: "${event.text.substring(0, 80)}"`);
 
-      // ── Persist raw webhook event ────────────────────────────────────
-      if (supabase) {
-        await supabase.from('wpm_webhook_events').insert({
-          provider: `meta_${event.platform}`,
-          event_type: event.rawEventType,
-          external_event_id: event.messageId,
-          raw_payload: rawPayload,
-          normalized_payload: event,
-          status: 'received',
-        });
-      }
-
       if (!supabase) {
         console.warn('[meta-direct] No Supabase — skipping');
         continue;
       }
+
+      // Isolate each event: one failure must not 500 the batch (Meta would
+      // retry and re-deliver every event in it).
+      try {
+
+      // ── Dedup: Meta retries deliveries; skip mids already recorded ────
+      if (event.messageId) {
+        const { data: dupe } = await supabase
+          .from('wpm_webhook_events')
+          .select('id')
+          .eq('provider', `meta_${event.platform}`)
+          .eq('external_event_id', event.messageId)
+          .limit(1)
+          .maybeSingle();
+        if (dupe) {
+          console.log(`[meta-direct] Duplicate delivery for mid=${event.messageId} — skipped`);
+          continue;
+        }
+      }
+
+      // ── Persist raw webhook event ────────────────────────────────────
+      await supabase.from('wpm_webhook_events').insert({
+        provider: `meta_${event.platform}`,
+        event_type: event.rawEventType,
+        external_event_id: event.messageId,
+        raw_payload: rawPayload,
+        normalized_payload: event,
+        status: 'received',
+      });
 
       // ── Channel lookup by page ID ────────────────────────────────────
       // Resolve channel_type early so we can filter the lookup and avoid matching
@@ -329,6 +417,12 @@ Deno.serve(async (request: Request) => {
 
       if (!channel) {
         console.warn(`[meta-direct] No channel for pageId=${event.pageId} channelType=${channelType}`);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({ status: 'unmatched_channel', processed_at: new Date().toISOString() })
+            .eq('external_event_id', event.messageId);
+        }
         continue;
       }
 
@@ -345,6 +439,23 @@ Deno.serve(async (request: Request) => {
       let externalUserName: string | null = null;
       if (pageAccessToken) {
         externalUserName = await fetchMetaUserProfile(event.senderId, pageAccessToken, event.platform);
+      }
+
+      // ── Voice note transcription ─────────────────────────────────────
+      // Replace the '[User sent: audio]' placeholder with the actual words so
+      // the AI can answer the content and the Inbox shows what was said.
+      let transcribedFromAudio = false;
+      const audioAttachment = event.attachments.find((a) => a.type === 'audio' && a.url);
+      if (audioAttachment?.url) {
+        const openaiKeyForAudio = Deno.env.get('OPENAI_API_KEY');
+        if (openaiKeyForAudio) {
+          const transcript = await transcribeMetaAudio(audioAttachment.url, openaiKeyForAudio);
+          if (transcript) {
+            event.text = `[Voice message] ${transcript}`;
+            transcribedFromAudio = true;
+            console.log(`[meta-direct] Transcribed voice note: "${transcript.substring(0, 80)}"`);
+          }
+        }
       }
 
       // ── Conversation upsert ──────────────────────────────────────────
@@ -388,7 +499,12 @@ Deno.serve(async (request: Request) => {
         role: 'user',
         content: event.text,
         provider_message_id: event.messageId,
-        metadata: { platform: event.platform, sender_id: event.senderId },
+        metadata: {
+          platform: event.platform,
+          sender_id: event.senderId,
+          ...(event.attachments.length > 0 ? { attachments: event.attachments } : {}),
+          ...(transcribedFromAudio ? { transcribed_from_audio: true } : {}),
+        },
       });
 
       // ── Skip AI if a human has taken over this conversation ──────────
@@ -397,7 +513,11 @@ Deno.serve(async (request: Request) => {
         if (event.messageId) {
           await supabase
             .from('wpm_webhook_events')
-            .update({ status: 'processed', response_payload: { handoff: true } })
+            .update({
+              status: 'processed',
+              response_payload: { handoff: true },
+              processed_at: new Date().toISOString(),
+            })
             .eq('external_event_id', event.messageId);
         }
         continue;
@@ -420,6 +540,16 @@ Deno.serve(async (request: Request) => {
 
       if (!aiResult.ok) {
         console.error('[meta-direct] AI failed:', aiResult.error);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({
+              status: 'failed',
+              error_message: `AI reply failed: ${aiResult.error}`,
+              processed_at: new Date().toISOString(),
+            })
+            .eq('external_event_id', event.messageId);
+        }
         continue;
       }
 
@@ -428,19 +558,32 @@ Deno.serve(async (request: Request) => {
       // ── Send reply via Graph API ─────────────────────────────────────
       if (!pageAccessToken) {
         console.warn(`[meta-direct] No page access token for channel ${channel.id} (and no META_PAGE_ACCESS_TOKEN fallback)`);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({
+              status: 'failed',
+              error_message: 'No page access token for channel',
+              processed_at: new Date().toISOString(),
+            })
+            .eq('external_event_id', event.messageId);
+        }
         continue;
       }
 
       const sendResult = await sendGraphApiReply(event.senderId, replyText, pageAccessToken);
       console.log(`[meta-direct] Send: ${sendResult.ok ? 'OK' : sendResult.error}`);
 
-      // Update webhook event status
+      // Update webhook event status ('failed' — 'send_failed' violates the
+      // status CHECK constraint, so those updates were silently rejected)
       if (event.messageId) {
         await supabase
           .from('wpm_webhook_events')
           .update({
-            status: sendResult.ok ? 'processed' : 'send_failed',
+            status: sendResult.ok ? 'processed' : 'failed',
             response_payload: sendResult,
+            error_message: sendResult.ok ? null : (sendResult.error ?? JSON.stringify(sendResult.response ?? {})),
+            processed_at: new Date().toISOString(),
           })
           .eq('external_event_id', event.messageId);
       }
@@ -463,6 +606,20 @@ Deno.serve(async (request: Request) => {
         }
       } catch (err) {
         console.error('[meta-direct] Lead extraction error:', err);
+      }
+
+      } catch (err) {
+        console.error(`[meta-direct] Event processing failed (mid=${event.messageId}):`, err);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({
+              status: 'failed',
+              error_message: String(err),
+              processed_at: new Date().toISOString(),
+            })
+            .eq('external_event_id', event.messageId);
+        }
       }
     }
   }
