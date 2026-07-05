@@ -531,11 +531,16 @@ Deno.serve(async (request: Request) => {
       }
 
       const aiClient = createOpenAIChatClient(openaiKey);
+      const inboundImageUrls = event.attachments
+        .filter((a) => a.type === 'image' && a.url)
+        .map((a) => a.url as string);
+
       const aiResult = await generateAndStoreAssistantReply({
         supabase,
         openAI: aiClient,
         conversationId,
         inboundMessage: event.text,
+        imageUrls: inboundImageUrls,
       });
 
       if (!aiResult.ok) {
