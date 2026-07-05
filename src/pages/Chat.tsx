@@ -311,7 +311,7 @@ export default function Chat() {
         </AnimatePresence>
       </div>
 
-      <ChatInput onSend={handleSendMessage} isLoading={status === 'typing'} apiKey={currentBot?.api_key} />
+      <ChatInput onSend={handleSendMessage} isLoading={status === 'typing'} accessToken={accessToken} botId={currentBot?.id} />
     </div>
   );
 }

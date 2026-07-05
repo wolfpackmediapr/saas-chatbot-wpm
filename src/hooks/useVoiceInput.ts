@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { transcribeAudio } from '../lib/openai';
 
-export function useVoiceInput(apiKey?: string) {
+export function useVoiceInput(accessToken?: string | null, botId?: string) {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -37,10 +37,10 @@ export function useVoiceInput(apiKey?: string) {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         try {
-          if (!apiKey) {
-            throw new Error('API key is required for transcription');
+          if (!accessToken) {
+            throw new Error('You must be signed in to use voice input');
           }
-          const text = await transcribeAudio(audioBlob, apiKey);
+          const text = await transcribeAudio(audioBlob, accessToken, botId);
           resolve(text);
         } catch (error) {
           console.error('Transcription failed:', error);
@@ -58,7 +58,7 @@ export function useVoiceInput(apiKey?: string) {
       setIsRecording(false);
       setMediaRecorder(null);
     });
-  }, [mediaRecorder, isRecording, apiKey]);
+  }, [mediaRecorder, isRecording, accessToken, botId]);
 
   return {
     isRecording,

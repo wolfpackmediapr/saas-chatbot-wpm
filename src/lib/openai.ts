@@ -1,5 +1,3 @@
-import OpenAI from 'openai';
-
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
 // ── Edge-function proxy (chat) ────────────────────────────────────────────────
@@ -54,19 +52,28 @@ export async function sendMessage(
   }
 }
 
-// ── Audio transcription (browser-side, user's own Whisper key) ────────────────
-// The API key stays in the user's own bot row (protected by RLS).
-// This is the only remaining browser-side OpenAI call; chat is fully proxied above.
+// ── Audio transcription (proxied through openai-chat edge function) ──────────
+// The bot's API key stays server-side; the browser only sends the session JWT.
 
-export async function transcribeAudio(audioBlob: Blob, apiKey: string): Promise<string> {
+export async function transcribeAudio(
+  audioBlob: Blob,
+  accessToken: string,
+  botId?: string,
+): Promise<string> {
   try {
-    if (!apiKey) throw new Error('API key is required');
-    const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-    const response = await openai.audio.transcriptions.create({
-      file: audioBlob,
-      model: 'whisper-1',
+    const bytes = new Uint8Array(await audioBlob.arrayBuffer());
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    const result = await callOpenAIChatProxy(accessToken, {
+      action: 'transcribe_audio',
+      audio: btoa(binary),
+      mimeType: audioBlob.type || 'audio/webm',
+      botId,
     });
-    return response.text;
+    return result.text as string;
   } catch (error) {
     console.error('Error transcribing audio:', error);
     throw new Error('Failed to transcribe audio. Please check your API configuration.');
