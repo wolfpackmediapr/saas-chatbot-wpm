@@ -7,14 +7,15 @@ import { useVoiceInput } from '../hooks/useVoiceInput';
 interface ChatInputProps {
   onSend: (message: string, files?: File[]) => void;
   isLoading?: boolean;
-  apiKey?: string;
+  accessToken?: string | null;
+  botId?: string;
 }
 
-export default function ChatInput({ onSend, isLoading, apiKey }: ChatInputProps) {
+export default function ChatInput({ onSend, isLoading, accessToken, botId }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { isRecording, startRecording, stopRecording } = useVoiceInput(apiKey);
+  const { isRecording, startRecording, stopRecording } = useVoiceInput(accessToken, botId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

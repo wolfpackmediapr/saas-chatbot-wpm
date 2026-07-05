@@ -55,10 +55,17 @@ Deno.serve(async (request) => {
   const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
   if (userError || !user) return jsonResponse({ error: 'Invalid token' }, 401);
 
-  let body: { action?: string; botId?: string; threadId?: string; message?: string };
+  let body: {
+    action?: string;
+    botId?: string;
+    threadId?: string;
+    message?: string;
+    audio?: string;
+    mimeType?: string;
+  };
   try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
 
-  const { action, botId, threadId, message } = body;
+  const { action, botId, threadId, message, audio, mimeType } = body;
 
   // Look up the user's bot — active one or by explicit ID
   const baseQuery = supabase
@@ -84,6 +91,33 @@ Deno.serve(async (request) => {
       .eq('user_id', user.id)
       .maybeSingle();
     assistantId = (settings as { openai_assistant_id?: string | null } | null)?.openai_assistant_id ?? null;
+  }
+
+  // ── transcribe_audio ──────────────────────────────────────────────────────
+  if (action === 'transcribe_audio') {
+    if (!audio) return jsonResponse({ error: 'audio is required' }, 400);
+
+    try {
+      const bytes = Uint8Array.from(atob(audio), (c) => c.charCodeAt(0));
+      const form = new FormData();
+      form.append('file', new Blob([bytes], { type: mimeType ?? 'audio/webm' }), 'audio.webm');
+      form.append('model', 'whisper-1');
+
+      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data as { error?: { message?: string } })?.error?.message
+          ?? `OpenAI error ${res.status}`;
+        throw new Error(msg);
+      }
+      return jsonResponse({ text: (data as { text: string }).text });
+    } catch (err) {
+      return jsonResponse({ error: (err as Error).message }, 502);
+    }
   }
 
   // ── create_thread ─────────────────────────────────────────────────────────
