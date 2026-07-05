@@ -192,6 +192,64 @@ async function fetchMetaUserProfile(
 }
 
 // ---------------------------------------------------------------------------
+// Voice note transcription (best-effort, never blocks the pipeline)
+// ---------------------------------------------------------------------------
+
+const AUDIO_EXT_BY_CONTENT_TYPE: Record<string, string> = {
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'mp4',
+  'video/mp4': 'mp4',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/webm': 'webm',
+};
+
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+
+async function transcribeMetaAudio(
+  audioUrl: string,
+  openaiKey: string,
+): Promise<string | null> {
+  try {
+    const audioResp = await fetch(audioUrl);
+    if (!audioResp.ok) {
+      console.warn(`[meta-direct] Audio download failed: ${audioResp.status}`);
+      return null;
+    }
+    const buffer = await audioResp.arrayBuffer();
+    if (buffer.byteLength === 0 || buffer.byteLength > MAX_AUDIO_BYTES) {
+      console.warn(`[meta-direct] Audio size out of range: ${buffer.byteLength} bytes`);
+      return null;
+    }
+
+    const contentType = audioResp.headers.get('content-type')?.split(';')[0].trim() ?? 'audio/mp4';
+    const ext = AUDIO_EXT_BY_CONTENT_TYPE[contentType] ?? 'mp4';
+
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: contentType }), `voice-message.${ext}`);
+    form.append('model', 'whisper-1');
+
+    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}` },
+      body: form,
+    });
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      console.warn(`[meta-direct] Whisper failed: ${resp.status} ${errBody.substring(0, 200)}`);
+      return null;
+    }
+    const data = await resp.json() as { text?: string };
+    return data.text?.trim() || null;
+  } catch (err) {
+    console.warn('[meta-direct] Audio transcription error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Send reply via Facebook Graph API (direct, no Woztell)
 // ---------------------------------------------------------------------------
 
@@ -383,6 +441,23 @@ Deno.serve(async (request: Request) => {
         externalUserName = await fetchMetaUserProfile(event.senderId, pageAccessToken, event.platform);
       }
 
+      // ── Voice note transcription ─────────────────────────────────────
+      // Replace the '[User sent: audio]' placeholder with the actual words so
+      // the AI can answer the content and the Inbox shows what was said.
+      let transcribedFromAudio = false;
+      const audioAttachment = event.attachments.find((a) => a.type === 'audio' && a.url);
+      if (audioAttachment?.url) {
+        const openaiKeyForAudio = Deno.env.get('OPENAI_API_KEY');
+        if (openaiKeyForAudio) {
+          const transcript = await transcribeMetaAudio(audioAttachment.url, openaiKeyForAudio);
+          if (transcript) {
+            event.text = `[Voice message] ${transcript}`;
+            transcribedFromAudio = true;
+            console.log(`[meta-direct] Transcribed voice note: "${transcript.substring(0, 80)}"`);
+          }
+        }
+      }
+
       // ── Conversation upsert ──────────────────────────────────────────
       // Use a stable external_conversation_id for Meta DM threads (page + sender)
       const externalConversationId = `${event.pageId}:${event.senderId}`;
@@ -428,6 +503,7 @@ Deno.serve(async (request: Request) => {
           platform: event.platform,
           sender_id: event.senderId,
           ...(event.attachments.length > 0 ? { attachments: event.attachments } : {}),
+          ...(transcribedFromAudio ? { transcribed_from_audio: true } : {}),
         },
       });
 
