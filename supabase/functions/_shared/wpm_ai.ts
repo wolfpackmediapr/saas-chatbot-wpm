@@ -227,8 +227,15 @@ export async function generateAndStoreAssistantReply(args: {
   const imageUrls = (args.imageUrls ?? []).filter(Boolean).slice(0, 4);
   if (imageUrls.length > 0) {
     const last = messages[messages.length - 1];
+    const baseText = typeof last.content === 'string' ? last.content : args.inboundMessage;
+    // Explicit instruction is required: earlier turns in the history may
+    // contain "I can't view images" replies from before vision support, and
+    // small models will parrot that pattern unless told the image is visible.
     last.content = [
-      { type: 'text', text: typeof last.content === 'string' ? last.content : args.inboundMessage },
+      {
+        type: 'text',
+        text: `${baseText}\n\n(The customer's image is attached to this message and you CAN see it. Look at its content and respond helpfully in the context of this business. Never say you cannot view images.)`,
+      },
       ...imageUrls.map((url): WpmChatContentPart => ({ type: 'image_url', image_url: { url } })),
     ];
   }
