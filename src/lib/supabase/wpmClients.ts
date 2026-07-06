@@ -252,6 +252,28 @@ export async function getPlanLimits(): Promise<{ max_channels: number | null; ma
   return data[0] as { max_channels: number | null; max_bots: number | null };
 }
 
+export interface UsageSummary {
+  conversations_used: number;
+  max_conversations: number | null; // null = unlimited
+  messages_in: number;
+  messages_out: number;
+  tokens_used: number;
+  period_start: string;
+}
+
+/** Current-month usage across the signed-in user's clients (null if unavailable). */
+export async function getUsageSummary(): Promise<UsageSummary | null> {
+  if (!supabase) return null;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await (supabase as any).rpc('get_wpm_usage', { p_user_id: user.id });
+  if (error || !data?.length) {
+    if (error) console.error('[wpmClients] getUsageSummary error', error);
+    return null;
+  }
+  return data[0] as UsageSummary;
+}
+
 export async function assignChannelBot(channelId: string, botProfileId: string | null) {
   if (!supabase) throw new Error('Supabase not configured');
   const { error } = await (supabase as any)
