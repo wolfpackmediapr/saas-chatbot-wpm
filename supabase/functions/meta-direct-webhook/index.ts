@@ -250,6 +250,41 @@ async function transcribeMetaAudio(
 }
 
 // ---------------------------------------------------------------------------
+// Image download → base64 data URL (OpenAI can't always fetch Meta CDN URLs)
+// ---------------------------------------------------------------------------
+
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.warn(`[meta-direct] Image download failed: ${resp.status}`);
+      return null;
+    }
+    const contentType = resp.headers.get('content-type')?.split(';')[0].trim() ?? 'image/jpeg';
+    if (!contentType.startsWith('image/')) return null;
+
+    const buffer = await resp.arrayBuffer();
+    if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
+      console.warn(`[meta-direct] Image size out of range: ${buffer.byteLength} bytes`);
+      return null;
+    }
+
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return `data:${contentType};base64,${btoa(binary)}`;
+  } catch (err) {
+    console.warn('[meta-direct] Image download error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Send reply via Facebook Graph API (direct, no Woztell)
 // ---------------------------------------------------------------------------
 
@@ -531,11 +566,21 @@ Deno.serve(async (request: Request) => {
       }
 
       const aiClient = createOpenAIChatClient(openaiKey);
+      const inboundImageUrls: string[] = [];
+      for (const attachment of event.attachments.filter((a) => a.type === 'image' && a.url).slice(0, 2)) {
+        const dataUrl = await fetchImageAsDataUrl(attachment.url as string);
+        if (dataUrl) inboundImageUrls.push(dataUrl);
+      }
+      if (inboundImageUrls.length > 0) {
+        console.log(`[meta-direct] Attaching ${inboundImageUrls.length} image(s) to vision request`);
+      }
+
       const aiResult = await generateAndStoreAssistantReply({
         supabase,
         openAI: aiClient,
         conversationId,
         inboundMessage: event.text,
+        imageUrls: inboundImageUrls,
       });
 
       if (!aiResult.ok) {

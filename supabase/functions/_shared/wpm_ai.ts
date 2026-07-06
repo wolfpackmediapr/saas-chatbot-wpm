@@ -4,9 +4,18 @@ interface SupabaseLike {
   from(table: string): any;
 }
 
+export type WpmChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+export interface WpmMultimodalChatMessage {
+  role: WpmChatMessage['role'];
+  content: string | WpmChatContentPart[];
+}
+
 export interface OpenAIChatRequest {
   model: string;
-  messages: WpmChatMessage[];
+  messages: WpmMultimodalChatMessage[];
   temperature?: number;
   max_tokens?: number;
 }
@@ -184,6 +193,8 @@ export async function generateAndStoreAssistantReply(args: {
   openAI: OpenAIChatClient;
   conversationId: string;
   inboundMessage: string;
+  /** Public image URLs attached to the inbound message (sent to vision-capable models). */
+  imageUrls?: string[];
 }): Promise<
   | { ok: true; content: string; messageId: string; modelProvider: string; modelName: string; tokenUsage: unknown }
   | { ok: false; error: string }
@@ -205,12 +216,50 @@ export async function generateAndStoreAssistantReply(args: {
       ? 900
       : 600;
 
-  const completion = await args.openAI.createChatCompletion({
-    model: modelName,
-    messages: buildWpmAssistantMessages(loaded.context, loaded.recentMessages, args.inboundMessage),
-    temperature: 0.4,
-    max_tokens: maxTokens,
-  });
+  const messages: WpmMultimodalChatMessage[] = buildWpmAssistantMessages(
+    loaded.context,
+    loaded.recentMessages,
+    args.inboundMessage,
+  );
+
+  // Attach inbound images to the final user message so vision-capable models
+  // can react to their content (max 4 to bound cost).
+  const imageUrls = (args.imageUrls ?? []).filter(Boolean).slice(0, 4);
+  if (imageUrls.length > 0) {
+    const last = messages[messages.length - 1];
+    const baseText = typeof last.content === 'string' ? last.content : args.inboundMessage;
+    // Explicit instruction is required: earlier turns in the history may
+    // contain "I can't view images" replies from before vision support, and
+    // small models will parrot that pattern unless told the image is visible.
+    last.content = [
+      {
+        type: 'text',
+        text: `${baseText}\n\n(The customer's image is attached to this message and you CAN see it. Look at its content and respond helpfully in the context of this business. Never say you cannot view images.)`,
+      },
+      ...imageUrls.map((url): WpmChatContentPart => ({ type: 'image_url', image_url: { url } })),
+    ];
+  }
+
+  let completion: OpenAIChatResponse;
+  try {
+    completion = await args.openAI.createChatCompletion({
+      model: modelName,
+      messages,
+      temperature: 0.4,
+      max_tokens: maxTokens,
+    });
+  } catch (err) {
+    // If the vision request fails (expired CDN URL, non-vision model, ...),
+    // retry once as text-only rather than leaving the customer unanswered.
+    if (imageUrls.length === 0) throw err;
+    console.warn('[wpm_ai] Vision completion failed, retrying text-only:', err);
+    completion = await args.openAI.createChatCompletion({
+      model: modelName,
+      messages: buildWpmAssistantMessages(loaded.context, loaded.recentMessages, args.inboundMessage),
+      temperature: 0.4,
+      max_tokens: maxTokens,
+    });
+  }
 
   const content = completion.content.trim();
   if (!content) return { ok: false, error: 'OpenAI returned an empty assistant response' };
