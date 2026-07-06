@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, Zap, Crown, Rocket, Building2, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Check, Zap, Crown, Rocket, Building2, Loader2, AlertCircle, ExternalLink, MessageSquare } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase/client';
+import { getUsageSummary, type UsageSummary } from '../lib/supabase/wpmClients';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
@@ -106,6 +107,7 @@ export default function Subscription() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [searchParams] = useSearchParams();
 
   const checkoutStatus = searchParams.get('checkout');
@@ -124,6 +126,8 @@ export default function Subscription() {
 
       setSubscription(data as UserSubscription | null);
       setLoadingPlan(false);
+
+      getUsageSummary().then(setUsage).catch(() => {});
     }
     loadSubscription();
   }, []);
@@ -220,6 +224,49 @@ export default function Subscription() {
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 text-red-500 rounded-xl flex items-start gap-3 text-sm">
             <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             {error}
+          </div>
+        )}
+
+        {/* Usage this month */}
+        {usage && (
+          <div className="mb-6 p-4 md:p-5 bg-secondary/30 border border-secondary rounded-xl">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 font-medium">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                Usage this month
+              </div>
+              <span className="text-sm text-secondary-foreground">
+                since {new Date(usage.period_start).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold">{usage.conversations_used.toLocaleString()}</span>
+              <span className="text-sm text-secondary-foreground">
+                / {usage.max_conversations === null ? 'Unlimited' : usage.max_conversations.toLocaleString()} conversations
+              </span>
+            </div>
+            {usage.max_conversations !== null && (
+              <div className="h-2 rounded-full bg-secondary overflow-hidden mb-3">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    usage.conversations_used / usage.max_conversations >= 0.9
+                      ? 'bg-red-500'
+                      : usage.conversations_used / usage.max_conversations >= 0.7
+                      ? 'bg-yellow-500'
+                      : 'bg-primary',
+                  )}
+                  style={{
+                    width: `${Math.min(100, (usage.conversations_used / usage.max_conversations) * 100)}%`,
+                  }}
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-secondary-foreground">
+              <span>{usage.messages_in.toLocaleString()} messages received</span>
+              <span>{usage.messages_out.toLocaleString()} AI replies</span>
+              <span>{usage.tokens_used.toLocaleString()} tokens</span>
+            </div>
           </div>
         )}
 
