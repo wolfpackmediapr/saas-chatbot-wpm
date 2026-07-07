@@ -13,6 +13,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
+import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -551,6 +552,48 @@ Deno.serve(async (request: Request) => {
             .update({
               status: 'processed',
               response_payload: { handoff: true },
+              processed_at: new Date().toISOString(),
+            })
+            .eq('external_event_id', event.messageId);
+        }
+        continue;
+      }
+
+      // ── Plan usage cap: pause AI when monthly conversations run out ──
+      // The conversation stays in the Inbox so a human can still reply.
+      const allowance = await checkConversationAllowance(supabase, channel.client_id);
+      if (!allowance.allowed) {
+        console.warn(`[meta-direct] Conversation cap reached (${allowance.used}/${allowance.max}) for client ${channel.client_id} — AI reply skipped`);
+
+        // Tell the customer once per conversation so they aren't ignored.
+        const { data: priorNotice } = await supabase
+          .from('wpm_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .eq('metadata->>generated_by', 'usage_cap_notice')
+          .limit(1)
+          .maybeSingle();
+
+        if (!priorNotice && pageAccessToken) {
+          const noticeSend = await sendGraphApiReply(event.senderId, USAGE_CAP_NOTICE, pageAccessToken);
+          if (noticeSend.ok) {
+            await supabase.from('wpm_messages').insert({
+              conversation_id: conversationId,
+              client_id: channel.client_id,
+              direction: 'outbound',
+              role: 'assistant',
+              content: USAGE_CAP_NOTICE,
+              metadata: { generated_by: 'usage_cap_notice' },
+            });
+          }
+        }
+
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({
+              status: 'ignored',
+              error_message: `Monthly conversation cap reached (${allowance.used}/${allowance.max})`,
               processed_at: new Date().toISOString(),
             })
             .eq('external_event_id', event.messageId);
