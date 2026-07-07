@@ -197,7 +197,7 @@ export default function ChannelConnections() {
       setPendingChannelId(prev => ({ ...prev, [channelId]: '' }));
     } catch (err: any) {
       console.error('Channel connect failed', err);
-      setError('Failed to save channel to database.');
+      setError(err?.message || 'Failed to save channel to database.');
       setChannels(prev =>
         prev.map(ch =>
           ch.id === channelId ? { ...ch, status: 'connected', phoneOrHandle: inputId } : ch
