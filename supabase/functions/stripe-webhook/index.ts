@@ -37,9 +37,12 @@ async function upsertSubscription(
   const status = stripeStatusToInternal(stripeSub.status);
   const currentPeriodEnd = new Date(stripeSub.current_period_end * 1000).toISOString();
 
+  // True upsert (UNIQUE on user_id): a paying user gets their plan recorded
+  // even if the signup trigger never created their subscriptions row.
   const { data, error } = await supabase
     .from('subscriptions')
-    .update({
+    .upsert({
+      user_id: userId,
       stripe_subscription_id: stripeSub.id,
       stripe_customer_id: typeof stripeSub.customer === 'string'
         ? stripeSub.customer
@@ -49,16 +52,15 @@ async function upsertSubscription(
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: stripeSub.cancel_at_period_end,
       updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId)
+    }, { onConflict: 'user_id' })
     .select('user_id');
 
   if (error) {
     console.error('[stripe-webhook] upsertSubscription error', error.message);
     return { ok: false, detail: error.message };
   }
-  console.log(`[stripe-webhook] subscription updated for user ${userId}: ${plan} / ${status} (${data?.length ?? 0} rows)`);
-  return { ok: true, detail: `updated ${data?.length ?? 0} rows for ${userId} -> ${plan}/${status}` };
+  console.log(`[stripe-webhook] subscription upserted for user ${userId}: ${plan} / ${status} (${data?.length ?? 0} rows)`);
+  return { ok: true, detail: `upserted ${data?.length ?? 0} rows for ${userId} -> ${plan}/${status}` };
 }
 
 async function handleCheckoutCompleted(
@@ -107,15 +109,19 @@ Deno.serve(async (request) => {
   const rawBody = await request.text();
   const sig = request.headers.get('stripe-signature');
 
+  // This endpoint is public (verify_jwt = false): signature verification is
+  // the ONLY thing stopping forged subscription events. Never skip it.
+  if (!webhookSecret) {
+    console.error('[stripe-webhook] STRIPE_WEBHOOK_SECRET not configured — rejecting');
+    return new Response('Webhook secret not configured', { status: 500 });
+  }
+  if (!sig) {
+    return new Response('Missing stripe-signature header', { status: 400 });
+  }
+
   let event: Stripe.Event;
   try {
-    if (webhookSecret && sig) {
-      event = await stripe.webhooks.constructEventAsync(rawBody, sig, webhookSecret);
-    } else {
-      // Dev fallback — skip signature verification if secret not set
-      console.warn('[stripe-webhook] STRIPE_WEBHOOK_SECRET not set — skipping signature check');
-      event = JSON.parse(rawBody) as Stripe.Event;
-    }
+    event = await stripe.webhooks.constructEventAsync(rawBody, sig, webhookSecret);
   } catch (err) {
     console.error('[stripe-webhook] Signature verification failed:', (err as Error).message);
     return new Response(`Webhook error: ${(err as Error).message}`, { status: 400 });

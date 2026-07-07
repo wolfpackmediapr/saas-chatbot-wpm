@@ -81,10 +81,18 @@ Deno.serve(async (request) => {
     });
     customerId = customer.id;
 
-    await supabase
+    // Upsert (UNIQUE on user_id): if the signup trigger never created this
+    // user's row, an UPDATE would match 0 rows and every checkout attempt
+    // would mint a new orphaned Stripe customer.
+    const { error: saveError } = await supabase
       .from('subscriptions')
-      .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
-      .eq('user_id', user.id);
+      .upsert(
+        { user_id: user.id, stripe_customer_id: customerId, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' },
+      );
+    if (saveError) {
+      console.error('[stripe-billing] Failed to save stripe_customer_id:', saveError.message);
+    }
   }
 
   // ── create_checkout ────────────────────────────────────────────────────────
