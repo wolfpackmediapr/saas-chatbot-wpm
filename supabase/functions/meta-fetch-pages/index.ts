@@ -13,6 +13,7 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,8 +49,18 @@ Deno.serve(async (request: Request) => {
   try {
     const body = await request.json();
 
-    const supabase_user_id: string = body.supabase_user_id;
-    if (!supabase_user_id) return jsonResponse({ error: "supabase_user_id required" }, 400);
+    // Require a valid session: without this the endpoint is an open proxy
+    // that exchanges any Facebook token using this app's secret.
+    const jwt = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!jwt) return jsonResponse({ error: "No authorization token" }, 401);
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) return jsonResponse({ error: "Supabase not configured" }, 500);
+    const authClient = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: { user }, error: authError } = await authClient.auth.getUser(jwt);
+    if (authError || !user) return jsonResponse({ error: "Invalid token" }, 401);
 
     const appId = Deno.env.get("META_APP_ID");
     const appSecret = Deno.env.get("META_APP_SECRET");

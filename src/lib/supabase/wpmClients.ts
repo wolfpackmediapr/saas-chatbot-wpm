@@ -502,7 +502,16 @@ export async function upsertClientChannel(clientId: string, channel: {
         is_active: true,
         metadata: channel.metadata || {},
       });
-    if (error) throw error;
+    if (error) {
+      // 23505 = the global (provider, provider_channel_id, channel_type)
+      // unique constraint: this exact channel is connected on another account.
+      if (error.code === '23505') {
+        throw new Error(
+          'This channel ID is already connected to another account. Disconnect it there first, or contact support.',
+        );
+      }
+      throw error;
+    }
   }
 }
 
