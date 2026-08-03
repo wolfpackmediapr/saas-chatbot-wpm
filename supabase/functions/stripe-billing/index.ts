@@ -58,7 +58,7 @@ Deno.serve(async (request) => {
   try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
 
   const { action, plan, billingCycle } = body;
-  const siteUrl = Deno.env.get('SITE_URL') ?? 'https://your-app.vercel.app';
+  const siteUrl = Deno.env.get('SITE_URL') ?? 'https://ai.wolfpackmediapr.com';
 
   let stripe: Stripe;
   try { stripe = getStripe(); } catch (err) {
