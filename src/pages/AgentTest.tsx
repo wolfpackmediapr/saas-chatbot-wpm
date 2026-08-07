@@ -164,7 +164,7 @@ export default function AgentTest() {
     'Tell me about your services for automating leads.',
     'What exactly does your business do, and where are you located?',
     'I want to book a discovery call next week.',
-    'Can you handle Instagram and WhatsApp messages?',
+    'Can you handle Instagram and Facebook messages?',
   ];
 
   if (loadingContext) {

@@ -182,7 +182,7 @@ export default function LaunchChecklist() {
                 <div>
                   <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Launch Checklist</h1>
                   <p className="mt-3 text-secondary-foreground">
-                    A client-operated launch flow for getting the Woztell → WPM bridge → OpenAI → Woztell loop ready without requiring WPM support.
+                    A client-operated launch flow for getting the Meta → WPM bridge → OpenAI → Meta reply loop ready without requiring WPM support.
                   </p>
                 </div>
               </div>
@@ -408,7 +408,7 @@ export default function LaunchChecklist() {
               <p className="text-sm text-secondary-foreground">Complete each self-setup step and let the system expose blockers before launch.</p>
             </div>
             <a
-              href="https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/woztell-webhook"
+              href="https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/meta-direct-webhook"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-lg border border-secondary px-3 py-2 text-sm text-secondary-foreground transition-colors hover:bg-secondary hover:text-foreground"

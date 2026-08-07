@@ -19,7 +19,7 @@ export interface LaunchChecklistSummary {
   launchReady: boolean;
 }
 
-const WOZTELL_WEBHOOK_URL = 'https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/woztell-webhook';
+const META_WEBHOOK_URL = 'https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/meta-direct-webhook';
 
 export function buildLaunchChecklist(): LaunchChecklistItem[] {
   return [
@@ -34,9 +34,9 @@ export function buildLaunchChecklist(): LaunchChecklistItem[] {
     },
     {
       key: 'channel-mapping',
-      title: 'Woztell channel mapped',
-      description: 'Replace placeholder routing with the real Woztell channel._id from an inbound payload.',
-      action: 'Set wpm_client_channels.provider = woztell and provider_channel_id = actual Woztell channel._id.',
+      title: 'Meta channel mapped',
+      description: 'Connect a Facebook Page or Instagram account via the Channel Connections page.',
+      action: 'Use Channel Connections to authorize Meta and select the Page/Instagram account for messaging.',
       owner: 'WPM setup',
       stage: 'channel',
       required: true,
@@ -60,10 +60,10 @@ export function buildLaunchChecklist(): LaunchChecklistItem[] {
       required: true,
     },
     {
-      key: 'woztell-webhook',
-      title: 'Woztell webhook points to WPM bridge',
-      description: 'Configure Woztell to POST inbound events to the deployed Supabase Edge Function.',
-      action: `Set the Woztell action/webhook URL to ${WOZTELL_WEBHOOK_URL}.`,
+      key: 'meta-webhook',
+      title: 'Meta webhook subscription active',
+      description: 'Confirm the Meta webhook subscription is registered and receiving inbound events.',
+      action: `Verify the Meta webhook callback URL points to ${META_WEBHOOK_URL} and the subscription is live.`,
       owner: 'WPM setup',
       stage: 'channel',
       required: true,
@@ -80,7 +80,7 @@ export function buildLaunchChecklist(): LaunchChecklistItem[] {
     {
       key: 'live-smoke-test',
       title: 'Live inbound/outbound smoke test passed',
-      description: 'Send one real Instagram/WhatsApp/Facebook message through Woztell and confirm a BotAPI reply appears.',
+      description: 'Send one real Instagram/Facebook message through Meta and confirm a BotAPI reply appears.',
       action: 'Use the WPM test message with name, service interest, email, and channel; inspect webhook events after.',
       owner: 'Client',
       stage: 'validation',

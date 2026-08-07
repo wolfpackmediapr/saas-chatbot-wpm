@@ -18,15 +18,14 @@ import { loadFacebookSDK } from '../lib/facebook';
 interface Channel {
   id: string;
   name: string;
-  platform: 'whatsapp' | 'instagram' | 'facebook';
-  provider: 'woztell' | 'meta';
+  platform: 'instagram' | 'facebook';
+  provider: 'meta';
   status: 'connected' | 'disconnected' | 'pending';
   phoneOrHandle?: string;
   channelId?: string;
 }
 
 const CHANNEL_CONFIG: Record<string, Omit<Channel, 'status'>> = {
-  wa: { id: 'wa', name: 'WhatsApp Business', platform: 'whatsapp', provider: 'woztell' },
   ig: { id: 'ig', name: 'Instagram DMs', platform: 'instagram', provider: 'meta' },
   fb: { id: 'fb', name: 'Facebook Messenger', platform: 'facebook', provider: 'meta' },
 };
@@ -48,7 +47,6 @@ export default function ChannelConnections() {
     Object.values(CHANNEL_CONFIG).map(c => ({ ...c, status: 'disconnected' }))
   );
   const [connecting, setConnecting] = useState<string | null>(null);
-  const [pendingChannelId, setPendingChannelId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -168,45 +166,7 @@ export default function ChannelConnections() {
     }
   }
 
-  // ── Woztell manual connect ───────────────────────────────────────────────
 
-  const handleConnect = async (channelId: string) => {
-    const inputId = pendingChannelId[channelId]?.trim();
-    if (!inputId) {
-      alert('Please enter the channel ID before connecting.');
-      return;
-    }
-    setConnecting(channelId);
-    try {
-      if (clientId && !isDemoMode) {
-        const config = CHANNEL_CONFIG[channelId];
-        await upsertClientChannel(clientId, {
-          provider: config.provider,
-          provider_channel_id: inputId,
-          channel_type: config.platform,
-          metadata: { phone_or_handle: inputId, connected_via: 'self-serve' },
-        });
-      }
-      setChannels(prev =>
-        prev.map(ch =>
-          ch.id === channelId
-            ? { ...ch, status: 'connected', phoneOrHandle: inputId, channelId: inputId }
-            : ch
-        )
-      );
-      setPendingChannelId(prev => ({ ...prev, [channelId]: '' }));
-    } catch (err: any) {
-      console.error('Channel connect failed', err);
-      setError('Failed to save channel to database.');
-      setChannels(prev =>
-        prev.map(ch =>
-          ch.id === channelId ? { ...ch, status: 'connected', phoneOrHandle: inputId } : ch
-        )
-      );
-    } finally {
-      setConnecting(null);
-    }
-  };
 
   const handleDisconnect = async (channelId: string) => {
     try {
@@ -366,7 +326,6 @@ export default function ChannelConnections() {
     );
   }
 
-  const woztellChannels = channels.filter(c => c.provider === 'woztell');
   const metaChannels = channels.filter(c => c.provider === 'meta');
   const anyMetaConnected = metaChannels.some(c => c.status === 'connected');
   const allMetaConnected = metaChannels.every(c => c.status === 'connected');
@@ -388,8 +347,7 @@ export default function ChannelConnections() {
           <h1 className="text-3xl font-semibold">Channel Connections</h1>
         </div>
         <p className="text-secondary-foreground">
-          Connect your messaging channels. <span className="font-medium">WhatsApp</span> uses
-          Woztell. <span className="font-medium">Instagram &amp; Facebook Messenger</span> connect
+          Connect your messaging channels. <span className="font-medium">Instagram &amp; Facebook Messenger</span> connect
           directly via Meta.
         </p>
         {isDemoMode && (
@@ -443,68 +401,6 @@ export default function ChannelConnections() {
       )}
 
       <div className="space-y-4">
-        {/* Woztell channels */}
-        {woztellChannels.map((channel) => (
-          <div key={channel.id} className="bg-secondary/30 border border-secondary rounded-2xl p-6">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center">
-                  <PlugZap className="h-6 w-6 text-green-500" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div className="font-semibold text-lg">{channel.name}</div>
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-green-500/20 text-green-400">
-                      Woztell
-                    </span>
-                  </div>
-                  <div className="text-sm text-secondary-foreground">
-                    {channel.status === 'connected'
-                      ? `Connected as ${channel.phoneOrHandle || channel.channelId}`
-                      : 'Not connected'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {channel.status === 'connected' ? (
-                  <>
-                    <div className="flex items-center gap-1.5 text-emerald-400 text-sm">
-                      <CheckCircle2 className="h-4 w-4" /> Connected
-                    </div>
-                    <button
-                      onClick={() => handleDisconnect(channel.id)}
-                      className="px-4 py-2 text-sm rounded-lg border border-secondary hover:bg-secondary"
-                    >
-                      Disconnect
-                    </button>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Woztell Channel ID"
-                      value={pendingChannelId[channel.id] || ''}
-                      onChange={e => setPendingChannelId(prev => ({ ...prev, [channel.id]: e.target.value }))}
-                      className="w-56 rounded-lg border border-secondary bg-background px-3 py-2 text-sm"
-                    />
-                    <button
-                      onClick={() => handleConnect(channel.id)}
-                      disabled={connecting === channel.id}
-                      className={cn(
-                        'px-5 py-2.5 rounded-xl text-sm font-medium transition-all',
-                        'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60'
-                      )}
-                    >
-                      {connecting === channel.id ? 'Saving...' : 'Connect via Woztell'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-
         {/* Meta channels — single shared connect button */}
         <div className="bg-secondary/30 border border-secondary rounded-2xl p-6">
           <div className="flex items-start justify-between gap-4">
@@ -680,9 +576,8 @@ export default function ChannelConnections() {
         <div className="flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 text-primary flex-shrink-0" />
           <div>
-            <strong>Important:</strong> WhatsApp requires a Woztell account and approved WhatsApp
-            Business profile. Instagram &amp; Facebook Messenger connect directly via Meta Graph API
-            — no Woztell needed. Connected channels power the AI reply bridge and Launch Checklist.
+            <strong>Important:</strong> Instagram &amp; Facebook Messenger connect directly via Meta Graph API.
+            Connected channels power the AI reply bridge and Launch Checklist.
           </div>
         </div>
       </div>
