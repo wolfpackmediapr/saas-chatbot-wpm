@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  Bot, 
+ 
   MessageCircle, 
   Users, 
   Zap, 
@@ -118,9 +118,11 @@ export default function Landing() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-md border-b border-secondary">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-xl">
-              <Bot className="h-6 w-6 text-primary" />
-            </div>
+            <img
+              src="/WolfPack_Media_AI_logo_only_icon.png"
+              alt="WolfPack AI"
+              className="h-10 w-10 rounded-xl bg-white object-contain p-0.5 shadow-sm"
+            />
             <div>
               <div className="font-semibold text-lg">WolfPack AI</div>
               <div className="text-[10px] text-secondary-foreground -mt-1">DM Agent</div>

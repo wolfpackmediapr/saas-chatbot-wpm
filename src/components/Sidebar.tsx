@@ -82,8 +82,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <img src={logo} alt="WolfPack Media Logo" className="h-10 max-w-[180px] object-contain" />
             ) : (
               <div className="flex items-center gap-2 text-xl font-semibold">
-                <Bot className="h-6 w-6 text-primary" />
-                <span>WolfPack Media</span>
+                <img
+                  src="/WolfPack_Media_AI_logo_only_icon.png"
+                  alt="WolfPack AI"
+                  className="h-8 w-8 rounded-md bg-white object-contain p-0.5 shadow-sm"
+                />
+                <span>WolfPack AI</span>
               </div>
             )}
           </div>

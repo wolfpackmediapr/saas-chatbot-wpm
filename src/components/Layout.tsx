@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Menu, Bot } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 export default function Layout() {
@@ -30,8 +30,12 @@ export default function Layout() {
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-primary" />
-            <span className="font-semibold">WolfPack Media</span>
+            <img
+              src="/WolfPack_Media_AI_logo_only_icon.png"
+              alt="WolfPack AI"
+              className="h-8 w-8 rounded-md bg-white object-contain p-0.5 shadow-sm"
+            />
+            <span className="font-semibold">WolfPack AI</span>
           </div>
           <div className="w-10" />
         </div>

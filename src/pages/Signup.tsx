@@ -1,6 +1,5 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Bot } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import SignupForm, { SignupFormData } from '../components/auth/SignupForm';
 import { signUp } from '../lib/supabase/auth';
@@ -35,9 +34,11 @@ export default function Signup() {
             className="text-center mb-6 md:mb-8"
           >
             <div className="inline-flex items-center gap-2 mb-6 md:mb-8">
-              <div className="p-2 bg-primary/20 rounded-lg">
-                <Bot className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-              </div>
+              <img
+                src="/WolfPack_Media_AI_logo_only_icon.png"
+                alt="WolfPack AI"
+                className="h-9 w-9 md:h-10 md:w-10 rounded-lg bg-white object-contain p-0.5 shadow-sm"
+              />
               <span className="text-lg md:text-xl font-semibold">WolfPack Media AI</span>
             </div>
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ForgotPasswordForm from '../components/auth/ForgotPasswordForm';
 import { resetPassword } from '../lib/supabase/auth';
@@ -41,9 +41,11 @@ export default function ForgotPassword() {
             className="text-center mb-8"
           >
             <div className="inline-flex items-center gap-2 mb-8">
-              <div className="p-2 bg-primary/20 rounded-lg">
-                <Bot className="h-6 w-6 text-primary" />
-              </div>
+              <img
+                src="/WolfPack_Media_AI_logo_only_icon.png"
+                alt="WolfPack AI"
+                className="h-10 w-10 rounded-lg bg-white object-contain p-0.5 shadow-sm"
+              />
               <span className="text-xl font-semibold">WolfPack Media AI</span>
             </div>
 
