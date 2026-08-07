@@ -15,6 +15,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import LegalFooter from '../components/LegalFooter';
 
 export default function Landing() {
   const { user } = useAuth();
@@ -351,10 +352,7 @@ export default function Landing() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-secondary py-8 px-6 text-center text-sm text-secondary-foreground">
-        <div>© {new Date().getFullYear()} WolfPack Media LLC — AI-native systems that make businesses impossible to ignore.</div>
-        <div className="mt-1">Puerto Rico • Results, not reports.</div>
-      </footer>
+      <LegalFooter className="border-t border-secondary py-8 px-6" />
     </div>
   );
 }

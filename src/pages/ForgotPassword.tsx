@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ForgotPasswordForm from '../components/auth/ForgotPasswordForm';
 import { resetPassword } from '../lib/supabase/auth';
+import LegalFooter from '../components/LegalFooter';
 
 export default function ForgotPassword() {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -86,9 +87,7 @@ export default function ForgotPassword() {
           </motion.div>
         </div>
       </div>
-      <footer className="py-4 px-6 text-center text-sm text-muted-foreground">
-        <p>© 2026 All Rights Reserved. Built by WolfPack Media LLC</p>
-      </footer>
+      <LegalFooter variant="compact" className="py-4 px-6" />
     </div>
   );
 }

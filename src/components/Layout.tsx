@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
+import LegalFooter from './LegalFooter';
 
 export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -42,6 +43,7 @@ export default function Layout() {
 
         <div className="flex-1 min-h-0 overflow-auto">
           <Outlet />
+          <LegalFooter variant="compact" className="border-t border-secondary py-4 px-6" />
         </div>
       </main>
     </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
+import LegalFooter from '../components/LegalFooter';
 
 type BillingPeriod = 'monthly' | 'yearly';
 
@@ -271,9 +272,7 @@ export default function Pricing() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-secondary py-8 px-6 text-center text-sm text-secondary-foreground">
-        <div>© {new Date().getFullYear()} WolfPack Media LLC — AI-native systems that make businesses impossible to ignore.</div>
-      </footer>
+      <LegalFooter className="border-t border-secondary py-8 px-6" />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import SignupForm, { SignupFormData } from '../components/auth/SignupForm';
 import { signUp } from '../lib/supabase/auth';
+import LegalFooter from '../components/LegalFooter';
 
 export default function Signup() {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -75,19 +76,17 @@ export default function Signup() {
 
           <p className="mt-6 md:mt-8 text-center text-xs md:text-sm text-secondary-foreground px-2">
             By signing up, you agree to our{' '}
-            <a href="#" className="text-primary hover:text-primary-hover transition-colors touch-manipulation">
+            <a href="https://wolfpackmediapr.com/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary-hover transition-colors touch-manipulation">
               Terms of Service
             </a>{' '}
             and{' '}
-            <a href="#" className="text-primary hover:text-primary-hover transition-colors touch-manipulation">
+            <a href="https://wolfpackmediapr.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary-hover transition-colors touch-manipulation">
               Privacy Policy
             </a>
           </p>
         </div>
       </div>
-      <footer className="py-4 px-6 text-center text-xs md:text-sm text-muted-foreground">
-        <p>© 2026 All Rights Reserved. Built by WolfPack Media LLC</p>
-      </footer>
+      <LegalFooter variant="compact" className="py-4 px-6" />
     </div>
   );
 }

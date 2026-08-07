@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import LoginForm, { LoginFormData } from '../components/auth/LoginForm';
 import { signIn } from '../lib/supabase/auth';
+import LegalFooter from '../components/LegalFooter';
 
 export default function Login() {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -86,9 +87,7 @@ export default function Login() {
           </motion.div>
         </div>
       </div>
-      <footer className="py-4 px-6 text-center text-xs md:text-sm text-muted-foreground">
-        <p>© 2026 All Rights Reserved. Built by WolfPack Media LLC</p>
-      </footer>
+      <LegalFooter variant="compact" className="py-4 px-6" />
     </div>
   );
 }
