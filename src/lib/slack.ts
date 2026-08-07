@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { supabase } from './supabase/client';
 
 interface FeedbackData {
   name: string;
@@ -9,83 +9,42 @@ interface FeedbackData {
 }
 
 export async function sendFeedbackToSlack(feedback: FeedbackData): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) {
+    return { success: false, error: 'Supabase is not configured' };
+  }
+
   try {
-    // Sanitize and serialize the feedback data
-    const sanitizedFeedback = {
-      name: String(feedback.name).trim(),
-      email: String(feedback.email).trim(),
-      subject: String(feedback.subject).trim(),
-      message: String(feedback.message).trim(),
-      category: String(feedback.category).trim()
-    };
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      return { success: false, error: 'You must be signed in to send feedback' };
+    }
 
-    const response = await axios.post(
-      'https://slack.com/api/chat.postMessage',
-      {
-        channel: '#ai',
-        text: 'New Feedback Received',
-        blocks: [
-          {
-            type: 'header',
-            text: {
-              type: 'plain_text',
-              text: '📬 New Feedback Received',
-              emoji: true
-            }
-          },
-          {
-            type: 'section',
-            fields: [
-              {
-                type: 'mrkdwn',
-                text: `*From:*\n${sanitizedFeedback.name}`
-              },
-              {
-                type: 'mrkdwn',
-                text: `*Email:*\n${sanitizedFeedback.email}`
-              }
-            ]
-          },
-          {
-            type: 'section',
-            fields: [
-              {
-                type: 'mrkdwn',
-                text: `*Category:*\n${sanitizedFeedback.category}`
-              },
-              {
-                type: 'mrkdwn',
-                text: `*Subject:*\n${sanitizedFeedback.subject}`
-              }
-            ]
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Message:*\n${sanitizedFeedback.message}`
-            }
-          }
-        ]
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/slack-feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
       },
-      {
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SLACK_BOT_TOKEN || ''}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+      body: JSON.stringify({
+        name: String(feedback.name).trim(),
+        email: String(feedback.email).trim(),
+        subject: String(feedback.subject).trim(),
+        message: String(feedback.message).trim(),
+        category: String(feedback.category).trim(),
+      }),
+    });
 
-    if (!response.data.ok) {
-      throw new Error(response.data.error || 'Failed to send message to Slack');
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Failed to send feedback' };
     }
 
     return { success: true };
   } catch (error) {
-    console.error('Error sending feedback to Slack:', error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Failed to send feedback'
+    console.error('Error sending feedback:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send feedback',
     };
   }
 }
