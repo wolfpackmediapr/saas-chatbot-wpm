@@ -1,11 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { Save, Check } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Save,
+  Check,
+  AlertCircle,
+  LogOut,
+  User as UserIcon,
+  Image as ImageIcon,
+  Bot as BotIcon,
+  Key as KeyIcon,
+  Eye,
+  EyeOff,
+  Loader2,
+  ArrowRight,
+} from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import LogoUpload from '../components/LogoUpload';
 import BotManagement from '../components/BotManagement';
 import Subscription from './Subscription';
 import Help from './Help';
-import { getUserSettings, updateUserSettings, UserSettings } from '../lib/supabase/settings';
+import {
+  getUserSettings,
+  updateUserSettings,
+  getProfile,
+  updateProfileName,
+  UserSettings,
+} from '../lib/supabase/settings';
+import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 
 const tabs = [
@@ -28,7 +48,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto p-4 md:p-6 max-w-4xl">
       <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Settings</h1>
 
       <div className="border-b border-secondary mb-4 md:mb-6">
@@ -57,31 +77,125 @@ export default function Settings() {
   );
 }
 
+function SectionCard({
+  icon: Icon,
+  title,
+  description,
+  children,
+  className,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={cn(
+        'bg-secondary/50 rounded-xl p-4 md:p-6 border border-secondary/60',
+        className,
+      )}
+    >
+      <div className="flex items-start gap-3 mb-4 md:mb-5">
+        <div className="rounded-lg bg-primary/10 p-2 flex-shrink-0">
+          <Icon className="w-5 h-5 text-primary" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-base md:text-lg font-semibold">{title}</h2>
+          {description && (
+            <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
+          )}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 rounded-lg p-3 text-sm">
+      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="bg-secondary/50 rounded-xl p-4 md:p-6 border border-secondary/60 animate-pulse">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-9 h-9 rounded-lg bg-secondary" />
+        <div className="space-y-2">
+          <div className="h-4 w-32 rounded bg-secondary" />
+          <div className="h-3 w-48 rounded bg-secondary/60" />
+        </div>
+      </div>
+      <div className="space-y-3">
+        <div className="h-10 rounded-lg bg-secondary/60" />
+        <div className="h-10 rounded-lg bg-secondary/60" />
+      </div>
+    </div>
+  );
+}
+
 function GeneralSettings() {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
   const [settings, setSettings] = useState<Partial<UserSettings>>({
     company_logo: null,
-    response_style: 'professional',
-    response_length: 'balanced',
+    openai_api_key: null,
+    openai_assistant_id: null,
   });
+  const [profileName, setProfileName] = useState('');
+  const [originalProfileName, setOriginalProfileName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [savedSection, setSavedSection] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [assistantIdInput, setAssistantIdInput] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [hasAssistantId, setHasAssistantId] = useState(false);
 
   useEffect(() => {
-    async function loadSettings() {
+    async function loadAll() {
       try {
-        const userSettings = await getUserSettings();
+        const [userSettings, profile] = await Promise.all([
+          getUserSettings(),
+          getProfile().catch(() => null),
+        ]);
         if (userSettings) {
           setSettings(userSettings);
+          setHasApiKey(!!userSettings.openai_api_key);
+          setHasAssistantId(!!userSettings.openai_assistant_id);
+          setApiKeyInput('');
+          setAssistantIdInput(userSettings.openai_assistant_id || '');
         }
-      } catch (error) {
-        console.error('Failed to load settings:', error);
+        if (profile?.name) {
+          setProfileName(profile.name);
+          setOriginalProfileName(profile.name);
+        } else if (user?.email) {
+          const emailName = user.email.split('@')[0];
+          setProfileName(emailName);
+          setOriginalProfileName(emailName);
+        }
+      } catch (err) {
+        setError('Failed to load your settings. Please refresh the page.');
       } finally {
         setLoading(false);
       }
     }
-    loadSettings();
-  }, []);
+    loadAll();
+  }, [user?.email]);
+
+  const flashSaved = (section: string) => {
+    setSavedSection(section);
+    setTimeout(() => setSavedSection(null), 2500);
+  };
 
   const handleLogoUpload = (newLogo: string) => {
     setSettings((prev) => ({ ...prev, company_logo: newLogo }));
@@ -91,97 +205,291 @@ function GeneralSettings() {
     setSettings((prev) => ({ ...prev, company_logo: null }));
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaved(false);
+  const handleSaveBrand = async () => {
+    setSavingSection('brand');
+    setError(null);
     try {
-      await updateUserSettings(settings);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (error) {
-      console.error('Failed to save settings:', error);
+      await updateUserSettings({ company_logo: settings.company_logo });
+      flashSaved('brand');
+    } catch (err) {
+      setError('Failed to save your logo. Please try again.');
     } finally {
-      setSaving(false);
+      setSavingSection(null);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileName.trim()) return;
+    setSavingSection('profile');
+    setError(null);
+    try {
+      await updateProfileName(profileName.trim());
+      setOriginalProfileName(profileName.trim());
+      flashSaved('profile');
+    } catch (err) {
+      setError('Failed to update your profile name. Please try again.');
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  const handleSaveKeys = async () => {
+    setSavingSection('keys');
+    setError(null);
+    try {
+      const updates: Partial<UserSettings> = {};
+      if (apiKeyInput.trim()) {
+        updates.openai_api_key = apiKeyInput.trim();
+      }
+      if (assistantIdInput !== (settings.openai_assistant_id || '')) {
+        updates.openai_assistant_id = assistantIdInput.trim() || null;
+      }
+      if (Object.keys(updates).length > 0) {
+        await updateUserSettings(updates);
+        if (updates.openai_api_key) {
+          setHasApiKey(true);
+          setApiKeyInput('');
+        }
+        if (updates.openai_assistant_id !== undefined) {
+          setHasAssistantId(!!updates.openai_assistant_id);
+        }
+      }
+      flashSaved('keys');
+    } catch (err) {
+      setError('Failed to save your OpenAI keys. Please try again.');
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (err) {
+      setError('Failed to sign out. Please try again.');
     }
   };
 
   if (loading) {
-    return <div className="max-w-2xl animate-pulse">Loading settings...</div>;
+    return (
+      <div className="space-y-4 md:space-y-6">
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
+  const brandDirty = settings.company_logo !== undefined;
+  const profileDirty = profileName !== originalProfileName;
+  const keysDirty =
+    apiKeyInput.trim() !== '' ||
+    assistantIdInput !== (settings.openai_assistant_id || '');
+
   return (
-    <div className="max-w-2xl space-y-4 md:space-y-6">
-      <div className="bg-secondary/50 rounded-lg p-4 md:p-6">
-        <BotManagement />
-      </div>
+    <div className="space-y-4 md:space-y-6">
+      {error && <ErrorBanner message={error} />}
 
-      <div className="bg-secondary/50 rounded-lg p-4 md:p-6">
-        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Brand Settings</h2>
-        <LogoUpload
-          currentLogo={settings.company_logo || undefined}
-          onUpload={handleLogoUpload}
-          onRemove={handleLogoRemove}
-        />
-      </div>
-
-      <div className="bg-secondary/50 rounded-lg p-4 md:p-6">
-        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Assistant Preferences</h2>
+      {/* Account */}
+      <SectionCard
+        icon={UserIcon}
+        title="Account"
+        description="Your signed-in account details."
+      >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Response Style</label>
-            <select
-              value={settings.response_style}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  response_style: e.target.value as UserSettings['response_style'],
-                }))
-              }
-              className="w-full bg-secondary rounded-lg px-4 py-2.5 md:py-2 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base"
+            <label className="block text-sm font-medium mb-1.5">Email</label>
+            <div className="w-full bg-secondary/70 rounded-lg px-4 py-2.5 text-sm text-muted-foreground border border-secondary/60">
+              {user?.email || 'Unknown'}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Display name</label>
+            <input
+              type="text"
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+              className="w-full bg-secondary rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60"
+              placeholder="Your name"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSaveProfile}
+              disabled={savingSection === 'profile' || !profileName.trim() || !profileDirty}
+              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
             >
-              <option value="professional">Professional</option>
-              <option value="casual">Casual</option>
-              <option value="friendly">Friendly</option>
-            </select>
+              {savedSection === 'profile' ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Saved
+                </>
+              ) : savingSection === 'profile' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save Name
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg px-4 py-2.5 transition-colors touch-manipulation"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Brand & Appearance */}
+      <SectionCard
+        icon={ImageIcon}
+        title="Brand & Appearance"
+        description="Your company logo appears in the chat sidebar and on shared conversations."
+      >
+        <div className="space-y-5">
+          <LogoUpload
+            currentLogo={settings.company_logo || undefined}
+            onUpload={handleLogoUpload}
+            onRemove={handleLogoRemove}
+          />
+          <button
+            onClick={handleSaveBrand}
+            disabled={savingSection === 'brand' || !brandDirty}
+            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+          >
+            {savedSection === 'brand' ? (
+              <>
+                <Check className="w-4 h-4" />
+                Saved
+              </>
+            ) : savingSection === 'brand' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Logo
+              </>
+            )}
+          </button>
+        </div>
+      </SectionCard>
+
+      {/* AI Bots */}
+      <SectionCard
+        icon={BotIcon}
+        title="AI Bots"
+        description="Create and manage your AI assistants. Full bot behavior is configured on the Agent Setup page."
+      >
+        <BotManagement />
+        <button
+          onClick={() => navigate('/dashboard/agent-setup')}
+          className="mt-4 flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover transition-colors touch-manipulation"
+        >
+          Go to Agent Setup
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </SectionCard>
+
+      {/* OpenAI Keys */}
+      <SectionCard
+        icon={KeyIcon}
+        title="OpenAI Keys"
+        description="Your global OpenAI API key and Assistant ID. Individual bots can override these."
+      >
+        <div className="space-y-5">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium">API Key</label>
+              <span
+                className={cn(
+                  'text-xs px-2 py-0.5 rounded-full font-medium',
+                  hasApiKey
+                    ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                    : 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
+                )}
+              >
+                {hasApiKey ? 'Configured' : 'Not configured'}
+              </span>
+            </div>
+            <div className="relative">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                className="w-full bg-secondary rounded-lg px-4 py-2.5 pr-11 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60 font-mono"
+                placeholder={hasApiKey ? 'Enter new key to replace' : 'sk-...'}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                title={showApiKey ? 'Hide' : 'Reveal'}
+              >
+                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Leave blank to keep your current key. Your key is stored encrypted and never shown in full.
+            </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Response Length</label>
-            <select
-              value={settings.response_length}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  response_length: e.target.value as UserSettings['response_length'],
-                }))
-              }
-              className="w-full bg-secondary rounded-lg px-4 py-2.5 md:py-2 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base"
-            >
-              <option value="concise">Concise</option>
-              <option value="balanced">Balanced</option>
-              <option value="detailed">Detailed</option>
-            </select>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium">Assistant ID</label>
+              <span
+                className={cn(
+                  'text-xs px-2 py-0.5 rounded-full font-medium',
+                  hasAssistantId
+                    ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                    : 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
+                )}
+              >
+                {hasAssistantId ? 'Configured' : 'Not configured'}
+              </span>
+            </div>
+            <input
+              type="text"
+              value={assistantIdInput}
+              onChange={(e) => setAssistantIdInput(e.target.value)}
+              className="w-full bg-secondary rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60 font-mono"
+              placeholder="asst_..."
+            />
           </div>
-        </div>
-      </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-3 md:py-2 flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm md:text-base"
-      >
-        {saved ? (
-          <>
-            <Check className="w-4 h-4" />
-            Saved!
-          </>
-        ) : (
-          <>
-            <Save className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save Changes'}
-          </>
-        )}
-      </button>
+          <button
+            onClick={handleSaveKeys}
+            disabled={savingSection === 'keys' || !keysDirty}
+            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+          >
+            {savedSection === 'keys' ? (
+              <>
+                <Check className="w-4 h-4" />
+                Saved
+              </>
+            ) : savingSection === 'keys' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Keys
+              </>
+            )}
+          </button>
+        </div>
+      </SectionCard>
     </div>
   );
 }

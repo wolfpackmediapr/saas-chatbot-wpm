@@ -51,3 +51,51 @@ export async function getCompanyLogo() {
 export async function updateCompanyLogo(logo: string | null) {
   return updateUserSettings({ company_logo: logo });
 }
+
+export async function getOpenAIConfig() {
+  const settings = await getUserSettings();
+  return {
+    apiKey: settings?.openai_api_key || null,
+    assistantId: settings?.openai_assistant_id || null,
+  };
+}
+
+export async function updateOpenAIConfig(updates: {
+  openai_api_key?: string | null;
+  openai_assistant_id?: string | null;
+}) {
+  return updateUserSettings(updates);
+}
+
+export async function getProfile() {
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const { data: session } = await supabase.auth.getSession();
+  if (!session.session?.user) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, name, avatar_url')
+    .eq('id', session.session.user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as { id: string; name: string; avatar_url: string | null } | null;
+}
+
+export async function updateProfileName(name: string) {
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const { data: session } = await supabase.auth.getSession();
+  if (!session.session?.user) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ name, updated_at: new Date().toISOString() })
+    .eq('id', session.session.user.id)
+    .select('id, name, avatar_url')
+    .single();
+
+  if (error) throw error;
+  return data as { id: string; name: string; avatar_url: string | null };
+}
