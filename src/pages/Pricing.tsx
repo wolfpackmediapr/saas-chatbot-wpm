@@ -11,7 +11,7 @@ interface Tier {
   popular?: boolean;
   description: string;
   messages: string;
-  model: string;
+  aiBenefit: string;
   features: string[];
   cta: string;
   ctaLink: string;
@@ -25,7 +25,7 @@ const tiers: Tier[] = [
     yearlyPrice: 290,
     description: "Perfect for small businesses getting started with AI-powered DMs.",
     messages: "1 channel • 500 conversations/mo",
-    model: "GPT-4o-mini",
+    aiBenefit: "Reliable AI replies for everyday conversations",
     features: [
       "1 connected channel (WhatsApp, Instagram or Facebook)",
       "1 AI bot with your brand voice & knowledge",
@@ -45,7 +45,7 @@ const tiers: Tier[] = [
     yearlyPrice: 790,
     description: "For growing businesses handling real DM volume.",
     messages: "3 channels • 2,500 conversations/mo",
-    model: "Full GPT-4o",
+    aiBenefit: "Advanced replies and lead qualification",
     features: [
       "3 connected channels",
       "2 AI bots",
@@ -67,7 +67,7 @@ const tiers: Tier[] = [
     popular: true,
     description: "The sweet spot for serious operators. Most popular plan.",
     messages: "10 channels • 10,000 conversations/mo",
-    model: "Full GPT-4o + priority",
+    aiBenefit: "Priority AI performance for higher-volume teams",
     features: [
       "10 connected channels",
       "3 AI bots",
@@ -88,7 +88,7 @@ const tiers: Tier[] = [
     yearlyPrice: 4990,
     description: "For agencies and high-volume businesses with multiple brands.",
     messages: "Unlimited channels & conversations",
-    model: "GPT-4o + dedicated priority",
+    aiBenefit: "High-volume AI operations with dedicated support",
     features: [
       "Unlimited connected channels",
       "10 AI bots",
@@ -226,7 +226,7 @@ export default function Pricing() {
                 <div className="space-y-2 mb-6">
                   <div className="text-xs uppercase tracking-widest text-primary/80 font-medium mb-1">Included</div>
                   <div className="font-medium text-lg">{tier.messages}</div>
-                  <div className="text-secondary-foreground">{tier.model}</div>
+                  <div className="text-secondary-foreground">{tier.aiBenefit}</div>
                 </div>
 
                 <ul className="space-y-[13px] text-[15px] mb-8 flex-1">
@@ -258,7 +258,7 @@ export default function Pricing() {
 
         {/* Cost & Value Note */}
         <div className="max-w-2xl mx-auto mt-12 text-center text-sm text-secondary-foreground">
-          Prices are designed for healthy margins after real OpenAI token usage and Woztell messaging fees. 
+          Prices are designed to scale sustainably with your conversation volume. 
           Overages are transparent and charged only when you go over. 
           We monitor average usage and will suggest the right plan as you grow.
         </div>
