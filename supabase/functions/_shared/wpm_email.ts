@@ -12,6 +12,14 @@
 interface SupabaseLike {
   // deno-lint-ignore no-explicit-any
   from(table: string): any;
+  auth?: {
+    admin?: {
+      getUserById(id: string): Promise<{
+        data: { user: { email?: string | null } | null };
+        error: unknown;
+      }>;
+    };
+  };
 }
 
 export interface EmailResult {
@@ -30,8 +38,12 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Who to notify for a client, most specific first:
- * the agent's own handoff contact, then the business contact address.
+ * Who to notify, most specific first:
+ *   1. the agent's own handoff contact
+ *   2. the business contact address
+ *   3. the address the account was created with
+ *
+ * The third exists so escalation email works with zero configuration.
  */
 export async function resolveHandoffRecipient(
   supabase: SupabaseLike,
@@ -51,11 +63,25 @@ export async function resolveHandoffRecipient(
 
     const { data: client } = await supabase
       .from('wpm_clients')
-      .select('contact_email')
+      .select('contact_email, owner_user_id')
       .eq('id', clientId)
       .maybeSingle();
-    const email = (client as { contact_email?: string | null } | null)?.contact_email;
-    return email?.includes('@') ? email.trim() : null;
+
+    const clientRow = client as
+      | { contact_email?: string | null; owner_user_id?: string | null }
+      | null;
+
+    if (clientRow?.contact_email?.includes('@')) return clientRow.contact_email.trim();
+
+    // Final fallback: the address the account was created with. Without this a
+    // customer who configures neither field gets no escalation email at all —
+    // which fails exactly the people least likely to have configured anything.
+    if (clientRow?.owner_user_id && supabase.auth?.admin) {
+      const { data, error } = await supabase.auth.admin.getUserById(clientRow.owner_user_id);
+      if (!error && data?.user?.email?.includes('@')) return data.user.email.trim();
+    }
+
+    return null;
   } catch (err) {
     console.error('[email] recipient lookup failed:', err);
     return null;
@@ -107,7 +133,7 @@ export async function sendEscalationEmail(
   },
 ): Promise<EmailResult> {
   const to = await resolveHandoffRecipient(supabase, args.clientId, args.botProfileId);
-  if (!to) return { sent: false, reason: 'no handoff contact or client contact email' };
+  if (!to) return { sent: false, reason: 'no handoff contact, business email, or account email' };
 
   const who = args.customerName?.trim() || 'A customer';
   const urgent = args.priority === 'urgent';
