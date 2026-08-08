@@ -20,15 +20,14 @@ export async function fetchLaunchEvidence(): Promise<LaunchEvidence> {
   const clientId = client.id;
   const db = supabase;
 
+  /** head+count query, logging rather than silently folding an error into 0. */
   async function countWhere(
     table: string,
-    apply: (query: ReturnType<typeof db.from>) => unknown,
+    apply: (query: any) => any,
   ): Promise<number> {
-    const query = db.from(table).select('id', { count: 'exact', head: true });
-    const { count, error } = (await apply(query as never)) as {
-      count: number | null;
-      error: { message: string } | null;
-    };
+    const { count, error } = await apply(
+      db.from(table).select('id', { count: 'exact', head: true }),
+    );
     if (error) {
       console.error(`[launchStatus] ${table} count failed:`, error.message);
       return 0;
@@ -65,30 +64,30 @@ export async function fetchLaunchEvidence(): Promise<LaunchEvidence> {
   const [readyKnowledge, liveConversations, aiReplies, activeIntegrations, activeInstructions] =
     await Promise.all([
       countWhere('wpm_knowledge_sources', (q) =>
-        (q as never as ReturnType<typeof db.from>)
+        q
           .eq('client_id', clientId)
           .eq('status', 'ready'),
       ),
       // Deliberately NOT wpm_webhook_events: its client_id is never populated
       // by the webhook pipeline, so any count scoped to a client is always 0.
       countWhere('wpm_conversations', (q) =>
-        (q as never as ReturnType<typeof db.from>)
+        q
           .eq('client_id', clientId)
           .in('channel_type', ['instagram', 'facebook']),
       ),
       countWhere('wpm_messages', (q) =>
-        (q as never as ReturnType<typeof db.from>)
+        q
           .eq('client_id', clientId)
           .eq('metadata->>generated_by', 'wpm_ai'),
       ),
       countWhere('wpm_integrations', (q) =>
-        (q as never as ReturnType<typeof db.from>)
+        q
           .eq('client_id', clientId)
           .eq('is_active', true),
       ),
       botProfileIds.length
         ? countWhere('wpm_bot_instructions', (q) =>
-            (q as never as ReturnType<typeof db.from>)
+            q
               .in('bot_profile_id', botProfileIds)
               .eq('is_active', true),
           )

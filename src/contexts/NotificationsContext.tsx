@@ -198,8 +198,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       )
       .subscribe();
 
+    const db = supabase;
     return () => {
-      supabase.removeChannel(channel);
+      db.removeChannel(channel);
     };
   }, [clientId, alert]);
 

@@ -14,6 +14,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Only pull in the ambient types this app actually uses. Without this,
+       TypeScript auto-includes every @types/* package it can find, including
+       ones that are referenced but not installed — which produced a permanent
+       "Cannot find type definition file for 'minimatch'" error. A tsc run that
+       always fails is a tsc run nobody reads. */
+    "types": ["vite/client"],
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
