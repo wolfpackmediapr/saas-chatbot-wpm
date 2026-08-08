@@ -409,6 +409,15 @@ export async function ensureDefaultBotSetup(clientId: string, businessName?: str
   }
 }
 
+/** UI type → the source_type values the table's CHECK constraint accepts. */
+export const UI_TYPE_TO_SCHEMA: Record<string, string> = {
+  faq: 'faq',
+  service: 'manual',
+  policy: 'manual',
+  url: 'url',
+  other: 'manual',
+};
+
 export async function listKnowledgeSources(clientId: string): Promise<KnowledgeSource[]> {
   if (!supabase) return [];
   const { data, error } = await (supabase as any)
@@ -420,30 +429,52 @@ export async function listKnowledgeSources(clientId: string): Promise<KnowledgeS
   return (data || []) as KnowledgeSource[];
 }
 
+/**
+ * Insert a knowledge source and return the stored row.
+ *
+ * Returning it matters: the page used to keep a locally generated id for the
+ * new item, so deleting it sent an id that matched no database row — the
+ * source disappeared from the screen, stayed in the table, and kept feeding
+ * the agent until the next reload brought it back.
+ */
 export async function createKnowledgeSource(clientId: string, source: {
-  title: string; content_text: string; source_type?: string; source_url?: string | null; tags?: string; bot_profile_id?: string | null;
-}) {
+  title: string;
+  content_text: string;
+  /** UI-facing type (faq | service | policy | url | other). */
+  ui_type?: string;
+  source_url?: string | null;
+  tags?: string;
+  bot_profile_id?: string | null;
+}): Promise<KnowledgeSource> {
   if (!supabase) throw new Error('Supabase not configured');
-  const sourceType = source.source_type || 'manual';
-  const validTypes = ['manual', 'file', 'url', 'faq', 'notion', 'google_doc'];
-  const finalType = validTypes.includes(sourceType) ? sourceType : 'manual';
-  const metadata: Record<string, any> = {};
-  if (source.tags) metadata.tags = source.tags.split(',').map(t => t.trim()).filter(Boolean);
-  if (source.source_type) metadata.ui_type = source.source_type; // preserve UI type
 
-  const { error } = await (supabase as any)
+  const uiType = source.ui_type || 'other';
+  const schemaType = UI_TYPE_TO_SCHEMA[uiType] ?? 'manual';
+
+  const metadata: Record<string, any> = {};
+  if (source.tags) metadata.tags = source.tags.split(',').map((t) => t.trim()).filter(Boolean);
+  // Store the UI type, not the schema type. This previously recorded the
+  // already-mapped schema value, so "Service" and "Policy" both came back as
+  // an unrecognised type on reload.
+  metadata.ui_type = uiType;
+
+  const { data, error } = await (supabase as any)
     .from('wpm_knowledge_sources')
     .insert({
       client_id: clientId,
       bot_profile_id: source.bot_profile_id || null,
-      source_type: finalType,
+      source_type: schemaType,
       title: source.title,
       source_url: source.source_url || null,
       content_text: source.content_text,
       status: 'ready',
       metadata,
-    });
+    })
+    .select('id, client_id, bot_profile_id, source_type, title, source_url, content_text, status, metadata')
+    .single();
+
   if (error) throw error;
+  return data as KnowledgeSource;
 }
 
 export async function deleteKnowledgeSource(id: string) {
