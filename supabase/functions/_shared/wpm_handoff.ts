@@ -156,9 +156,23 @@ export async function openHandoff(
     source?: 'auto' | 'manual';
     metadata?: Record<string, unknown>;
   },
-): Promise<void> {
+): Promise<{ opened: boolean }> {
   const now = new Date().toISOString();
   try {
+    // An escalated conversation keeps being answered until a person steps in,
+    // so the same conversation can re-trigger escalation on every message.
+    // Without this, each one would add another handoff event, reset the
+    // "waiting for" timer, and fire another alert for a handoff already raised.
+    const { data: alreadyOpen } = await supabase
+      .from('wpm_handoff_events')
+      .select('id')
+      .eq('conversation_id', args.conversationId)
+      .eq('status', 'open')
+      .limit(1)
+      .maybeSingle();
+
+    if (alreadyOpen) return { opened: false };
+
     const { data: conversation } = await supabase
       .from('wpm_conversations')
       .select('metadata')
@@ -183,8 +197,11 @@ export async function openHandoff(
       status: 'open',
       metadata: args.metadata ?? {},
     });
+
+    return { opened: true };
   } catch (err) {
     console.error('[handoff] openHandoff failed:', err);
+    return { opened: false };
   }
 }
 

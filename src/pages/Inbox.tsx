@@ -138,7 +138,11 @@ export default function Inbox() {
   const conversationsRef = useRef<Conversation[]>([]);
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+  const needsYouCount = conversations.filter((c) => c.status === 'handoff').length;
+  const visibleConversations =
+    filter === 'needs_you' ? conversations.filter((c) => c.status === 'handoff') : conversations;
   const { markInboxSeen } = useNotifications();
+  const [filter, setFilter] = useState<'all' | 'needs_you'>('all');
 
   // Opening the Inbox clears its badge.
   useEffect(() => { markInboxSeen(); }, [markInboxSeen]);
@@ -355,21 +359,63 @@ export default function Inbox() {
           </button>
         </div>
 
+        {/* Filter — escalated conversations are the ones with someone waiting,
+            and they are easy to lose in a long list. */}
+        <div className="flex gap-1.5 px-4 pb-3">
+          {([
+            { id: 'all' as const, label: 'All', count: conversations.length },
+            { id: 'needs_you' as const, label: 'Needs you', count: needsYouCount },
+          ]).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                filter === tab.id
+                  ? 'bg-primary text-white'
+                  : 'bg-secondary text-secondary-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+              {tab.count > 0 && (
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[0.65rem] leading-none tabular-nums',
+                    filter === tab.id
+                      ? 'bg-white/20'
+                      : tab.id === 'needs_you'
+                        ? 'bg-orange-500/20 text-orange-500'
+                        : 'bg-background/60',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         {/* List */}
         <div className="flex-1 overflow-y-auto">
           {loadingConvs ? (
             <div className="flex items-center justify-center h-32 text-secondary-foreground text-sm">
               <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
             </div>
-          ) : conversations.length === 0 ? (
+          ) : visibleConversations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-secondary-foreground text-sm px-6 text-center">
               <MessageCircle className="h-8 w-8 mb-3 opacity-30" />
-              <p className="font-medium">No conversations yet</p>
-              <p className="text-xs mt-1">Incoming Instagram and Facebook DMs will appear here.</p>
+              <p className="font-medium">
+                {filter === 'needs_you' ? 'Nobody is waiting' : 'No conversations yet'}
+              </p>
+              <p className="text-xs mt-1">
+                {filter === 'needs_you'
+                  ? 'Escalated conversations show up here.'
+                  : 'Incoming Instagram and Facebook DMs will appear here.'}
+              </p>
             </div>
           ) : (
             <AnimatePresence initial={false}>
-              {conversations.map((conv) => (
+              {visibleConversations.map((conv) => (
                 <motion.button
                   key={conv.id}
                   initial={{ opacity: 0 }}

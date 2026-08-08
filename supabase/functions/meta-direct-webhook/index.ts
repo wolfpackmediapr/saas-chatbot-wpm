@@ -15,6 +15,7 @@ import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } 
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
+import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -701,15 +702,33 @@ Deno.serve(async (request: Request) => {
       // After the reply goes out, so the customer gets the acknowledgement the
       // AI just promised them and only then does the thread move to a human.
       if (aiResult.handoffRequested) {
-        console.log(`[meta-direct] Handoff opened for ${conversationId}: ${aiResult.handoffReason}`);
-        await openHandoff(supabase, {
+        const priority = aiResult.handoffReason?.startsWith('Emergency keyword') ? 'urgent' : 'normal';
+        const reason = aiResult.handoffReason ?? 'Escalation requested';
+
+        const { opened } = await openHandoff(supabase, {
           clientId: channel.client_id,
           conversationId,
-          reason: aiResult.handoffReason ?? 'Escalation requested',
-          priority: aiResult.handoffReason?.startsWith('Emergency keyword') ? 'urgent' : 'normal',
+          reason,
+          priority,
           source: 'auto',
           metadata: { platform: event.platform, triggered_by_message_id: event.messageId ?? null },
         });
+
+        // Only mail on a genuinely new handoff — an escalated conversation keeps
+        // being answered, so it can re-trigger on every message.
+        if (opened) {
+          console.log(`[meta-direct] Handoff opened for ${conversationId}: ${reason}`);
+          const mail = await sendEscalationEmail(supabase, {
+            clientId: channel.client_id,
+            botProfileId: botProfileId ?? null,
+            reason,
+            priority,
+            channelLabel: event.platform === 'instagram' ? 'Instagram' : 'Facebook Messenger',
+            customerName: externalUserName ?? null,
+            lastMessage: event.text,
+          });
+          if (!mail.sent) console.warn(`[meta-direct] Escalation email not sent: ${mail.reason}`);
+        }
       }
 
       // Update webhook event status ('failed' — 'send_failed' violates the
