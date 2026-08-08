@@ -2,12 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Users, RefreshCw, ExternalLink } from 'lucide-react';
 import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { listOwnedLeads, WpmLeadRecord, getStatusColor } from '../lib/supabase/wpmLeads';
+import { useNotifications } from '../contexts/NotificationsContext';
 
 export default function Leads() {
   const [leads, setLeads] = useState<WpmLeadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string>('');
+  const { markLeadsSeen } = useNotifications();
+
+  // Opening Leads clears its badge.
+  useEffect(() => { markLeadsSeen(); }, [markLeadsSeen]);
 
   const loadLeads = async () => {
     setLoading(true);

@@ -34,6 +34,8 @@ class ErrorBoundary extends React.Component<
   }
 }
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationsProvider } from './contexts/NotificationsContext';
+import { ToastProvider } from './components/ui/Toast';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -60,6 +62,8 @@ function App() {
   return (
     <ErrorBoundary>
     <AuthProvider>
+    <ToastProvider>
+    <NotificationsProvider>
       <BrowserRouter>
         <Routes>
           {/* Public marketing pages */}
@@ -103,6 +107,8 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+    </NotificationsProvider>
+    </ToastProvider>
     </AuthProvider>
     </ErrorBoundary>
   );

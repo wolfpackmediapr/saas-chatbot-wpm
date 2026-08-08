@@ -18,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getCompanyLogo } from '../lib/supabase/settings';
 
@@ -44,6 +45,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { unreadConversations, newLeads } = useNotifications();
+
+  /** Only Inbox and Leads carry a count; everything else returns 0. */
+  const badgeFor = (path: string) => {
+    if (path === '/dashboard/inbox') return unreadConversations;
+    if (path === '/dashboard/leads') return newLeads;
+    return 0;
+  };
   const [logo, setLogo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,7 +122,15 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               }
             >
               <item.icon className="h-4 w-4" />
-              <span>{item.label}</span>
+              <span className="flex-1">{item.label}</span>
+              {badgeFor(item.path) > 0 && (
+                <span
+                  className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[0.68rem] font-semibold leading-none text-white tabular-nums"
+                  aria-label={`${badgeFor(item.path)} unread`}
+                >
+                  {badgeFor(item.path) > 99 ? '99+' : badgeFor(item.path)}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

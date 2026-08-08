@@ -5,6 +5,7 @@ import {
   ChevronLeft, Send, Loader2, RefreshCw, AlertCircle, Clock,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { supabase } from '../lib/supabase/client';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -137,6 +138,10 @@ export default function Inbox() {
   const conversationsRef = useRef<Conversation[]>([]);
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+  const { markInboxSeen } = useNotifications();
+
+  // Opening the Inbox clears its badge.
+  useEffect(() => { markInboxSeen(); }, [markInboxSeen]);
 
   // Keep refs in sync with state so notification callbacks never read stale closures
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -147,13 +152,6 @@ export default function Inbox() {
     supabase?.auth.getSession().then(({ data: { session } }) => {
       setAccessToken(session?.access_token ?? null);
     });
-  }, []);
-
-  // ── Browser notification permission ───────────────────────────────────────
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
   }, []);
 
   // ── Load conversation list ─────────────────────────────────────────────────
@@ -197,36 +195,8 @@ export default function Inbox() {
     return () => { supabase.removeChannel(ch); };
   }, [loadConversations]);
 
-  // ── Realtime: global inbound message notifications ────────────────────────
-  // Runs once; reads selectedId and conversations via refs to avoid stale closures.
-  useEffect(() => {
-    if (!supabase) return;
-    const ch = supabase
-      .channel('inbox-global-notify')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'wpm_messages' },
-        (payload) => {
-          const msg = payload.new as Message & { conversation_id: string; direction: string };
-          if (msg.direction !== 'inbound') return;
-          // Skip if the user is actively viewing this conversation and the tab is visible
-          if (!document.hidden && msg.conversation_id === selectedIdRef.current) return;
-          if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
-          const conv = conversationsRef.current.find((c) => c.id === msg.conversation_id);
-          const name = conv ? displayName(conv) : 'New message';
-          const platform = conv ? platformLabel(conv.channel_type) : '';
-
-          new Notification(name, {
-            body: `${platform}: ${(msg.content ?? '').slice(0, 120)}`,
-            icon: '/favicon.ico',
-            tag: msg.conversation_id, // Collapses multiple rapid messages from same conv
-          });
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Global inbound alerts now live in NotificationsContext so they work on
+  // every page, not only while the Inbox happens to be mounted.
 
   // ── Load messages for selected conversation ───────────────────────────────
   useEffect(() => {
