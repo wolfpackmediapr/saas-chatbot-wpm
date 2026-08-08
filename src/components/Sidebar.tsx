@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Inbox,
-  History,
   Settings,
   Crown,
   Send,
@@ -32,7 +31,6 @@ const mainNavItems = [
   { icon: Users, label: 'Leads', path: '/dashboard/leads' },
   { icon: Play, label: 'Test Agent', path: '/dashboard/agent-test' },
   { icon: ClipboardCheck, label: 'Launch Checklist', path: '/dashboard/launch-checklist' },
-  { icon: History, label: 'Recent History', path: '/dashboard/history' },
   { icon: Send, label: 'Send Feedback', path: '/dashboard/feedback' },
   { icon: Settings, label: 'Settings', path: '/dashboard/settings' },
 ];

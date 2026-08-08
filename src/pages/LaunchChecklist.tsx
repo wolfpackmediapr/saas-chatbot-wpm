@@ -1,195 +1,148 @@
-import React, { useMemo, useState } from 'react';
-import { CheckCircle2, Circle, ClipboardCheck, ExternalLink, Rocket, ShieldCheck, RefreshCw, Play, List } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  Circle,
+  ClipboardCheck,
+  Rocket,
+  ShieldCheck,
+  RefreshCw,
+  Play,
+  ArrowRight,
+  AlertCircle,
+  Loader2,
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   buildLaunchChecklist,
   getNextLaunchAction,
   summarizeLaunchChecklist,
+  EMPTY_EVIDENCE,
+  type LaunchEvidence,
 } from '../lib/wpm/launchChecklist';
-import { cn } from '../lib/utils';
+import { fetchLaunchEvidence } from '../lib/supabase/launchStatus';
 import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { supabase } from '../lib/supabase/client';
+import { cn } from '../lib/utils';
 
-const STORAGE_KEY = 'wpm-launch-checklist-completed';
-
-function loadCompletedKeys(): string[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCompletedKeys(keys: string[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
-}
-
-interface AutomationStatus {
-  pending: number;
-  recent: Array<{
-    id: string;
-    status: string;
-    tool_name?: string;
-    created_at: string;
-    output_payload?: any;
-  }>;
-  error?: string;
+interface ToolExecution {
+  id: string;
+  status: string;
+  tool_name?: string;
+  created_at: string;
 }
 
 export default function LaunchChecklist() {
+  const navigate = useNavigate();
   const items = useMemo(() => buildLaunchChecklist(), []);
-  const [completedKeys, setCompletedKeys] = useState<string[]>(loadCompletedKeys);
-  const summary = summarizeLaunchChecklist(items, completedKeys);
-  const nextAction = getNextLaunchAction(items, completedKeys);
 
-  const [readiness, setReadiness] = useState<any>(null);
-  const [checking, setChecking] = useState(false);
+  const [evidence, setEvidence] = useState<LaunchEvidence>(EMPTY_EVIDENCE);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
-  const [automationStatus, setAutomationStatus] = useState<AutomationStatus | null>(null);
-  const [loadingAutomations, setLoadingAutomations] = useState(false);
-
-  const [triggerResult, setTriggerResult] = useState<any>(null);
+  const [pendingAutomations, setPendingAutomations] = useState(0);
+  const [recentExecutions, setRecentExecutions] = useState<ToolExecution[]>([]);
   const [triggering, setTriggering] = useState(false);
+  const [triggerNotice, setTriggerNotice] = useState<string | null>(null);
 
-  const toggleItem = (key: string) => {
-    setCompletedKeys((current) => {
-      const next = current.includes(key)
-        ? current.filter((completedKey) => completedKey !== key)
-        : [...current, key];
-      saveCompletedKeys(next);
-      return next;
-    });
-  };
+  const summary = summarizeLaunchChecklist(items, evidence);
+  const nextAction = getNextLaunchAction(items, evidence);
 
-  const runReadinessCheck = async () => {
-    setChecking(true);
+  const loadAutomations = useCallback(async () => {
+    if (!supabase) return;
     try {
       const client = await getOwnedWpmClient();
-      if (!client) {
-        setReadiness({ error: 'No client profile found. Complete Business Profile first.' });
-        return;
-      }
+      if (!client) return;
 
-      // Lightweight client-side readiness using existing tables (no secret needed)
-      const [channels, profiles, instructions, knowledge, integrations] = await Promise.all([
-        supabase.from('wpm_client_channels').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('is_active', true),
-        supabase.from('wpm_bot_profiles').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('is_active', true),
-        supabase.from('wpm_bot_instructions').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('is_active', true),
-        supabase.from('wpm_knowledge_sources').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('status', 'ready'),
-        supabase.from('wpm_integrations').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('is_active', true),
+      const [pending, recent] = await Promise.all([
+        supabase
+          .from('wpm_tool_executions')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', client.id)
+          .eq('status', 'pending'),
+        supabase
+          .from('wpm_tool_executions')
+          .select('id, status, tool_name, created_at')
+          .eq('client_id', client.id)
+          .order('created_at', { ascending: false })
+          .limit(6),
       ]);
 
-      const report = {
-        client: client.business_name || client.id,
-        channels: channels.count ?? 0,
-        botProfiles: profiles.count ?? 0,
-        instructions: instructions.count ?? 0,
-        readyKnowledge: knowledge.count ?? 0,
-        automations: integrations.count ?? 0,
-        timestamp: new Date().toISOString(),
-      };
-
-      setReadiness(report);
-    } catch (e) {
-      setReadiness({ error: e instanceof Error ? e.message : 'Readiness check failed' });
-    } finally {
-      setChecking(false);
+      setPendingAutomations(pending.count ?? 0);
+      setRecentExecutions((recent.data ?? []) as ToolExecution[]);
+    } catch (err) {
+      console.error('[launch] automation status failed:', err);
     }
-  };
+  }, []);
 
-  const loadAutomationStatus = async () => {
-    setLoadingAutomations(true);
+  const refresh = useCallback(async () => {
+    setError(null);
     try {
-      const client = await getOwnedWpmClient();
-      if (!client) {
-        setAutomationStatus({ pending: 0, recent: [], error: 'No client profile found. Complete Business Profile first.' });
-        return;
-      }
-
-      // Pending count
-      const { count: pendingCount } = await supabase
-        .from('wpm_tool_executions')
-        .select('*', { count: 'exact', head: true })
-        .eq('client_id', client.id)
-        .eq('status', 'pending');
-
-      // Recent executions (last 8)
-      const { data: recentData } = await supabase
-        .from('wpm_tool_executions')
-        .select('id, status, tool_name, created_at, output_payload')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false })
-        .limit(8);
-
-      setAutomationStatus({
-        pending: pendingCount ?? 0,
-        recent: (recentData ?? []) as any,
-      });
-    } catch (e) {
-      setAutomationStatus({
-        pending: 0,
-        recent: [],
-        error: e instanceof Error ? e.message : 'Failed to load automation status',
-      });
-    } finally {
-      setLoadingAutomations(false);
+      const next = await fetchLaunchEvidence();
+      setEvidence(next);
+      setCheckedAt(new Date());
+      await loadAutomations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not check your setup. Try again.');
     }
+  }, [loadAutomations]);
+
+  useEffect(() => {
+    (async () => {
+      await refresh();
+      setLoading(false);
+    })();
+  }, [refresh]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
   };
 
   const handleProcessNow = async () => {
+    if (!supabase) return;
     setTriggering(true);
-    setTriggerResult(null);
+    setTriggerNotice(null);
     try {
-      const { data, error } = await supabase.functions.invoke('wpm-trigger-automations', {
+      const { error: fnError } = await supabase.functions.invoke('wpm-trigger-automations', {
         method: 'POST',
       });
-      if (error) throw error;
-      setTriggerResult(data);
-      // Auto refresh status after processing
-      await loadAutomationStatus();
-    } catch (e) {
-      setTriggerResult({ error: e instanceof Error ? e.message : 'Failed to trigger processor' });
+      if (fnError) throw fnError;
+      setTriggerNotice('Queued automations sent for delivery.');
+      await loadAutomations();
+    } catch (err) {
+      setTriggerNotice(
+        err instanceof Error ? `Could not run delivery: ${err.message}` : 'Could not run delivery.',
+      );
     } finally {
       setTriggering(false);
     }
   };
 
-  const copyProcessorCommand = () => {
-    const secret = 'YOUR_WPM_ACTION_PROCESSOR_SECRET_HERE';
-    const command = `curl -X POST \\\\
-  \"https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/wpm-actions-processor?secret=${secret}\" \\\\
-  -H \"x-action-secret: ${secret}\" \\\\
-  -H \"Content-Type: application/json\"`;
-
-    navigator.clipboard.writeText(command).then(() => {
-      alert('Curl command copied! Replace YOUR_WPM_ACTION_PROCESSOR_SECRET_HERE with your real secret (set in Supabase Edge Function secrets or your .env).');
-    });
-  };
-
   return (
     <div className="min-h-full bg-background p-4 md:p-8">
-      <div className="mx-auto max-w-6xl space-y-8">
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* Header + progress */}
         <section className="overflow-hidden rounded-2xl border border-secondary bg-secondary/30">
           <div className="relative p-6 md:p-8">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-transparent to-accent/20" />
             <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl space-y-4">
+              <div className="max-w-2xl space-y-3">
                 <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm text-primary">
                   <Rocket className="h-4 w-4" />
-                  WPM AI DM Agent self-setup control
+                  Go live
                 </div>
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Launch Checklist</h1>
-                  <p className="mt-3 text-secondary-foreground">
-                    A client-operated launch flow for getting the Meta → WPM bridge → OpenAI → Meta reply loop ready without requiring WPM support.
-                  </p>
-                </div>
+                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Launch Checklist</h1>
+                <p className="text-secondary-foreground">
+                  Every step below is checked against your account — nothing here is ticked by hand.
+                </p>
               </div>
 
               <div className="rounded-xl border border-secondary bg-background/80 p-5 shadow-lg backdrop-blur">
                 <div className="text-sm text-secondary-foreground">Progress</div>
-                <div className="mt-1 text-4xl font-bold">{summary.percentComplete}%</div>
+                <div className="mt-1 text-4xl font-bold tabular-nums">{summary.percentComplete}%</div>
                 <div className="mt-2 h-2 w-56 overflow-hidden rounded-full bg-secondary">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all"
@@ -197,244 +150,101 @@ export default function LaunchChecklist() {
                   />
                 </div>
                 <div className="mt-3 text-sm text-secondary-foreground">
-                  {summary.completed} of {summary.total} steps completed
+                  {summary.completed} of {summary.total} steps done
                 </div>
               </div>
             </div>
           </div>
         </section>
 
+        {error && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Status + next action */}
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-secondary bg-secondary/30 p-5">
             <div className="flex items-center gap-2 text-primary">
               <ShieldCheck className="h-5 w-5" />
-              <span className="font-semibold">Launch status</span>
+              <span className="font-semibold">Status</span>
             </div>
-            <p className="mt-3 text-2xl font-bold">
-              {summary.launchReady ? 'Ready for client launch' : 'Not launch-ready yet'}
+            <p className="mt-3 text-xl font-bold">
+              {loading ? 'Checking…' : summary.launchReady ? 'Ready to go live' : 'Not ready yet'}
             </p>
             <p className="mt-2 text-sm text-secondary-foreground">
-              {summary.requiredBlockers.length} required blocker{summary.requiredBlockers.length === 1 ? '' : 's'} remaining.
+              {summary.requiredBlockers.length === 0
+                ? 'All required steps are done.'
+                : `${summary.requiredBlockers.length} required step${
+                    summary.requiredBlockers.length === 1 ? '' : 's'
+                  } left.`}
             </p>
           </div>
 
           <div className="rounded-xl border border-secondary bg-secondary/30 p-5 md:col-span-2">
             <div className="flex items-center gap-2 text-primary">
               <ClipboardCheck className="h-5 w-5" />
-              <span className="font-semibold">Next action</span>
+              <span className="font-semibold">Do this next</span>
             </div>
             {nextAction ? (
               <>
-                <p className="mt-3 text-2xl font-bold">{nextAction.title}</p>
-                <p className="mt-2 text-sm text-secondary-foreground">{nextAction.action}</p>
+                <p className="mt-3 text-xl font-bold">{nextAction.title}</p>
+                <p className="mt-1 text-sm text-secondary-foreground">{nextAction.description}</p>
+                {nextAction.route && (
+                  <button
+                    onClick={() => navigate(nextAction.route!)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary-hover"
+                  >
+                    {nextAction.routeLabel}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                )}
               </>
             ) : (
-              <p className="mt-3 text-2xl font-bold">All checklist items are complete.</p>
+              <p className="mt-3 text-xl font-bold">Everything is set up. You're live.</p>
             )}
           </div>
         </section>
 
-        {/* Real Readiness Check */}
-        <section className="rounded-2xl border border-secondary bg-secondary/20 p-6">
-          <div className="flex items-center justify-between mb-4">
+        {/* Steps */}
+        <section className="rounded-2xl border border-secondary bg-secondary/20 p-4 md:p-6">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <RefreshCw className="h-5 w-5" /> System Readiness Check
-              </h2>
-              <p className="text-sm text-secondary-foreground">Live counts from your Supabase data (no secrets exposed).</p>
-            </div>
-            <button
-              onClick={runReadinessCheck}
-              disabled={checking}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-            >
-              {checking ? 'Checking...' : 'Run Check'}
-            </button>
-          </div>
-
-          {readiness && (
-            <div className="mt-4 rounded-lg border border-secondary bg-background p-4 text-sm">
-              {readiness.error ? (
-                <div className="text-red-400">{readiness.error}</div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div>Channels: <span className="font-semibold">{readiness.channels}</span></div>
-                  <div>Bot Profiles: <span className="font-semibold">{readiness.botProfiles}</span></div>
-                  <div>Instructions: <span className="font-semibold">{readiness.instructions}</span></div>
-                  <div>Ready Knowledge: <span className="font-semibold">{readiness.readyKnowledge}</span></div>
-                  <div>Automations: <span className="font-semibold">{readiness.automations}</span></div>
-                </div>
-              )}
-              <div className="mt-2 text-xs text-secondary-foreground">
-                {readiness.timestamp && `Checked ${new Date(readiness.timestamp).toLocaleTimeString()}`}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Automation Delivery Status + Processor Trigger */}
-        <section className="rounded-2xl border border-secondary bg-secondary/20 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Play className="h-5 w-5" /> Automation Processing &amp; Delivery
-              </h2>
+              <h2 className="text-xl font-semibold">Setup steps</h2>
               <p className="text-sm text-secondary-foreground">
-                See queued leads from the Test Agent / live bridge and trigger delivery to Zapier, webhooks, or email.
+                {checkedAt
+                  ? `Checked at ${checkedAt.toLocaleTimeString()}`
+                  : 'Reading your account…'}
               </p>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleProcessNow}
-                disabled={triggering || loadingAutomations}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-              >
-                <Play className="h-4 w-4" />
-                {triggering ? 'Processing...' : 'Process Now'}
-              </button>
-              <button
-                onClick={loadAutomationStatus}
-                disabled={loadingAutomations}
-                className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-background px-4 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60"
-              >
-                <List className="h-4 w-4" />
-                {loadingAutomations ? 'Loading...' : 'Refresh Status'}
-              </button>
-            </div>
-          </div>
-
-          {triggerResult && (
-            <div className="mb-4 rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
-              {triggerResult.error ? (
-                <div className="text-red-400">Error: {triggerResult.error}</div>
-              ) : (
-                <div>
-                  <div className="font-semibold text-primary">Processor triggered successfully</div>
-                  <div className="mt-1 text-secondary-foreground">{triggerResult.message}</div>
-                  {triggerResult.processorResult && (
-                    <pre className="mt-2 text-xs bg-background p-2 rounded overflow-auto">
-                      {JSON.stringify(triggerResult.processorResult, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {automationStatus && (
-            <div className="space-y-4">
-              {automationStatus.error && (
-                <div className="text-red-400 text-sm">{automationStatus.error}</div>
-              )}
-
-              <div className="rounded-lg border border-secondary bg-background p-4">
-                <div className="flex items-center gap-3">
-                  <div className="text-3xl font-bold text-primary">{automationStatus.pending}</div>
-                  <div>
-                    <div className="font-semibold">Pending automations</div>
-                    <div className="text-sm text-secondary-foreground">Executions waiting to be delivered</div>
-                  </div>
-                </div>
-              </div>
-
-              {automationStatus.recent.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium mb-2 text-secondary-foreground">Recent executions (newest first)</div>
-                  <div className="space-y-2">
-                    {automationStatus.recent.map((exec) => (
-                      <div key={exec.id} className="rounded-lg border border-secondary bg-background/70 p-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div>
-                          <span className="font-mono text-xs text-secondary-foreground">{exec.id.slice(0, 8)}…</span>
-                          <span className="ml-2 font-medium">{exec.tool_name || 'automation'}</span>
-                          <span className={`ml-2 px-2 py-0.5 rounded text-xs ${exec.status === 'completed' ? 'bg-green-500/20 text-green-400' : exec.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-                            {exec.status}
-                          </span>
-                        </div>
-                        <div className="text-xs text-secondary-foreground">
-                          {new Date(exec.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="mt-6 rounded-xl border border-primary/30 bg-primary/5 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Play className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Process pending automations</span>
-            </div>
-            <p className="text-sm text-secondary-foreground mb-4">
-              The processor runs queued leads through your configured automations (Zapier, custom webhooks, or email via Resend).
-              Use the "Process Now" button above (authenticated for owners) or the curl for manual/cron use.
-            </p>
-
-            <div className="bg-background rounded-lg p-4 font-mono text-xs overflow-auto mb-4 border border-secondary">
-              curl -X POST \<br />
-              &nbsp;&nbsp;"https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/wpm-actions-processor?secret=YOUR_SECRET" \<br />
-              &nbsp;&nbsp;-H "x-action-secret: YOUR_SECRET"
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={copyProcessorCommand}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-              >
-                Copy curl command
-              </button>
-
-              <button
-                onClick={loadAutomationStatus}
-                className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-background px-4 py-2 text-sm font-medium hover:bg-secondary"
-              >
-                Check status again
-              </button>
-            </div>
-
-            <div className="mt-4 text-xs text-secondary-foreground space-y-1">
-              <div>• "Process Now" button uses your login (no secret needed in browser).</div>
-              <div>• Set <code className="bg-secondary px-1">WPM_ACTION_PROCESSOR_SECRET</code> and optionally <code className="bg-secondary px-1">RESEND_API_KEY</code> / <code className="bg-secondary px-1">RESEND_FROM</code> in Supabase secrets for full functionality.</div>
-              <div>• Use the <strong>Test Agent</strong> page to queue demo leads and verify end-to-end routing.</div>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-secondary bg-secondary/20 p-4 md:p-6">
-          <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Setup sequence</h2>
-              <p className="text-sm text-secondary-foreground">Complete each self-setup step and let the system expose blockers before launch.</p>
-            </div>
-            <a
-              href="https://upthfjkxbsqtipzoeecd.supabase.co/functions/v1/meta-direct-webhook"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-secondary px-3 py-2 text-sm text-secondary-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              className="inline-flex items-center gap-2 rounded-lg border border-secondary bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-60"
             >
-              Webhook URL
-              <ExternalLink className="h-4 w-4" />
-            </a>
+              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+              {refreshing ? 'Checking…' : 'Re-check'}
+            </button>
           </div>
 
           <div className="space-y-3">
             {items.map((item, index) => {
-              const completed = completedKeys.includes(item.key);
+              const complete = item.isComplete(evidence);
               return (
-                <button
+                <div
                   key={item.key}
-                  onClick={() => toggleItem(item.key)}
                   className={cn(
-                    'w-full rounded-xl border p-4 text-left transition-colors',
-                    completed
-                      ? 'border-primary/40 bg-primary/10'
-                      : 'border-secondary bg-background/60 hover:bg-secondary/50',
+                    'rounded-xl border p-4 transition-colors',
+                    complete ? 'border-primary/40 bg-primary/10' : 'border-secondary bg-background/60',
                   )}
                 >
                   <div className="flex gap-4">
-                    <div className="pt-1">
-                      {completed ? (
+                    <div className="pt-0.5">
+                      {loading ? (
+                        <Loader2 className="h-6 w-6 animate-spin text-secondary-foreground" />
+                      ) : complete ? (
                         <CheckCircle2 className="h-6 w-6 text-primary" />
                       ) : (
                         <Circle className="h-6 w-6 text-secondary-foreground" />
@@ -443,25 +253,117 @@ export default function LaunchChecklist() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm text-secondary-foreground">Step {index + 1}</span>
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs uppercase tracking-wide text-secondary-foreground">
-                          {item.stage}
-                        </span>
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-                          {item.owner}
-                        </span>
-                        {item.required && (
-                          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">Required</span>
+                        {item.required ? (
+                          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">
+                            Required
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                            Optional
+                          </span>
                         )}
                       </div>
                       <h3 className="mt-2 text-lg font-semibold">{item.title}</h3>
                       <p className="mt-1 text-sm text-secondary-foreground">{item.description}</p>
-                      <p className="mt-3 rounded-lg bg-secondary/60 p-3 text-sm">{item.action}</p>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p
+                          className={cn(
+                            'text-sm font-medium',
+                            complete ? 'text-primary' : 'text-secondary-foreground',
+                          )}
+                        >
+                          {loading ? 'Checking…' : item.detail(evidence)}
+                        </p>
+                        {!complete && item.route && (
+                          <button
+                            onClick={() => navigate(item.route!)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+                          >
+                            {item.routeLabel}
+                            <ArrowRight className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
+        </section>
+
+        {/* Lead delivery */}
+        <section className="rounded-2xl border border-secondary bg-secondary/20 p-4 md:p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">Lead delivery</h2>
+              <p className="text-sm text-secondary-foreground">
+                Qualified leads waiting to be sent to your integrations.
+              </p>
+            </div>
+            <button
+              onClick={handleProcessNow}
+              disabled={triggering}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
+            >
+              {triggering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {triggering ? 'Sending…' : 'Send now'}
+            </button>
+          </div>
+
+          {triggerNotice && (
+            <div className="mb-4 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+              {triggerNotice}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-secondary bg-background p-4">
+            <div className="flex items-center gap-3">
+              <div className="text-3xl font-bold tabular-nums text-primary">{pendingAutomations}</div>
+              <div>
+                <div className="font-semibold">Waiting to send</div>
+                <div className="text-sm text-secondary-foreground">
+                  {pendingAutomations === 0
+                    ? 'Nothing queued.'
+                    : 'These deliver automatically; use Send now to push them immediately.'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {recentExecutions.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-sm font-medium text-secondary-foreground">Recent deliveries</div>
+              <div className="space-y-2">
+                {recentExecutions.map((execution) => (
+                  <div
+                    key={execution.id}
+                    className="flex flex-col gap-2 rounded-lg border border-secondary bg-background/70 p-3 text-sm md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{execution.tool_name || 'automation'}</span>
+                      <span
+                        className={cn(
+                          'rounded px-2 py-0.5 text-xs',
+                          execution.status === 'completed'
+                            ? 'bg-green-500/20 text-green-400'
+                            : execution.status === 'pending'
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : 'bg-red-500/20 text-red-400',
+                        )}
+                      >
+                        {execution.status}
+                      </span>
+                    </div>
+                    <div className="text-xs text-secondary-foreground">
+                      {new Date(execution.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </div>
     </div>

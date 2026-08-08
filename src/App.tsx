@@ -38,7 +38,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Chat from './pages/Chat';
-import History from './pages/History';
 import Settings from './pages/Settings';
 import Feedback from './pages/Feedback';
 import LaunchChecklist from './pages/LaunchChecklist';
@@ -86,7 +85,6 @@ function App() {
             <Route path="inbox" element={<Inbox />} />
             <Route path="chat/new" element={<Chat />} />
             <Route path="chat/:threadId" element={<Chat />} />
-            <Route path="history" element={<History />} />
             <Route path="settings" element={<Settings />} />
             <Route path="subscription" element={<SettingsTabRedirect tab="plan" />} />
             <Route path="business-profile" element={<BusinessProfile />} />
