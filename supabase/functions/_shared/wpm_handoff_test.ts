@@ -1,5 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert';
 import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
+import { extractLeadFromConversationText } from './wpm_leads.ts';
 
 Deno.test('stripHandoffSignal removes the tag and reports the request', () => {
   const result = stripHandoffSignal('Someone will call you shortly. [[HANDOFF]]');
@@ -53,4 +54,40 @@ Deno.test('matchEmergencyKeyword returns null for empty inputs', () => {
   assertEquals(matchEmergencyKeyword('refund', []), null);
   assertEquals(matchEmergencyKeyword(null, ['refund']), null);
   assertEquals(matchEmergencyKeyword('refund', null), null);
+});
+
+// ── Lead name extraction ─────────────────────────────────────────────────────
+
+function nameFrom(inbound: string): string | null {
+  return extractLeadFromConversationText({
+    inboundText: inbound,
+    assistantText: '',
+    sourceChannel: 'instagram',
+  }).fullName;
+}
+
+Deno.test('lead name: bare answer to "share your name and email" (the live failure)', () => {
+  assertEquals(
+    nameFrom('Wilfredo Carrasquillo disqueravirtual@gmail.com 9am everyday'),
+    'Wilfredo Carrasquillo',
+  );
+});
+
+Deno.test('lead name: still handles introductions', () => {
+  assertEquals(nameFrom('Hi, my name is Maria Gonzalez'), 'Maria Gonzalez');
+  assertEquals(nameFrom("i'm juan carlos perez"), 'Juan Carlos Perez');
+});
+
+Deno.test('lead name: email first, then name', () => {
+  assertEquals(nameFrom('test@example.com Ana Rivera'), 'Ana Rivera');
+});
+
+Deno.test('lead name: does not invent names from greetings or products', () => {
+  assertEquals(nameFrom('Hi there, can I talk to a human?'), null);
+  assertEquals(nameFrom('Thanks! Best time is 9am everyday'), null);
+  assertEquals(nameFrom('hello'), null);
+});
+
+Deno.test('lead name: ignores single capitalised words', () => {
+  assertEquals(nameFrom('Wilfredo'), null);
 });

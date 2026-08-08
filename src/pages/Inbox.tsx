@@ -542,13 +542,11 @@ export default function Inbox() {
                     </div>
                   </div>
 
-                  {/* Status pill */}
-                  {selected.status === 'handoff' && (
-                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-500 text-xs font-medium">
-                      <UserCheck className="h-3 w-3" />
-                      Human takeover active — bot responses paused
-                    </div>
-                  )}
+                  {/* The handoff line above already states who owns this and
+                      whether the bot is still replying. A second pill here used
+                      to claim "bot responses paused" unconditionally, which
+                      contradicted it on AI escalations, where the bot is not
+                      paused until a human actually sends something. */}
                 </div>
               </div>
 
@@ -669,7 +667,9 @@ export default function Inbox() {
                   </button>
                 </div>
                 <p className="text-xs text-secondary-foreground mt-1.5 px-1">
-                  Replying as human — bot is paused for this conversation
+                  {handoffSource(selected) === 'manual'
+                    ? 'Replying as human — the bot is paused for this conversation'
+                    : 'Replying as human — the bot is still answering; sending takes over'}
                 </p>
               </div>
             )}

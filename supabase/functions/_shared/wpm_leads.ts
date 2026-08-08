@@ -27,13 +27,60 @@ function clean(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function extractName(text: string): string | null {
-  const match = text.match(/(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i);
-  if (!match) return null;
-  return match[1]
+function titleCase(value: string): string {
+  return value
     .split(/\s+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+/** Words that look like names to a regex but never are. */
+const NOT_A_NAME = new Set([
+  'i', 'im', 'hi', 'hey', 'hello', 'thanks', 'thank', 'you', 'the', 'and', 'my',
+  'am', 'is', 'are', 'a', 'an', 'to', 'for', 'me', 'we', 'us', 'it', 'yes', 'no',
+  'ok', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
+  'every', 'day', 'today', 'tomorrow', 'am/pm', 'best', 'time', 'email', 'name',
+]);
+
+function looksLikeName(candidate: string): boolean {
+  const parts = candidate.trim().split(/\s+/);
+  if (parts.length < 2 || parts.length > 4) return false;
+  return parts.every((part) => {
+    const bare = part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
+    return bare.length >= 2 && !NOT_A_NAME.has(bare);
+  });
+}
+
+/**
+ * Pull a person's name out of a message.
+ *
+ * The introduction forms ("my name is …") are tried first. They miss the most
+ * common case by far, though: the agent asks for name, email and a good time,
+ * and the customer answers with the bare values —
+ * "Wilfredo Carrasquillo someone@example.com 9am everyday". That reply used to
+ * yield an email and a lead named "Unknown", so a second pass looks for
+ * capitalised words sitting next to an email address.
+ */
+function extractName(text: string): string | null {
+  const introduced = text.match(
+    /(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i,
+  );
+  if (introduced) return titleCase(introduced[1]);
+
+  // Bare answer: capitalised words immediately before or after an email.
+  const beside = text.match(
+    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
+  ) ?? text.match(
+    /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})/u,
+  );
+  if (beside && looksLikeName(beside[1])) return titleCase(beside[1]);
+
+  // Otherwise the first run of capitalised words that reads like a full name.
+  for (const candidate of text.match(/[A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3}/gu) ?? []) {
+    if (looksLikeName(candidate)) return titleCase(candidate);
+  }
+
+  return null;
 }
 
 function extractServiceInterest(text: string): string | null {
