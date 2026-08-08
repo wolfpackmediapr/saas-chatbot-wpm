@@ -88,7 +88,7 @@ function App() {
             <Route path="chat/:threadId" element={<Chat />} />
             <Route path="history" element={<History />} />
             <Route path="settings" element={<Settings />} />
-            <Route path="subscription" element={<SettingsTabRedirect tab="billing" />} />
+            <Route path="subscription" element={<SettingsTabRedirect tab="plan" />} />
             <Route path="business-profile" element={<BusinessProfile />} />
             <Route path="agent-setup" element={<AgentSetup />} />
             <Route path="knowledge-base" element={<KnowledgeBase />} />

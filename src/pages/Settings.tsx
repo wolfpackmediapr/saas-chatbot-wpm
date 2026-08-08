@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Save,
   Check,
@@ -6,16 +6,15 @@ import {
   LogOut,
   User as UserIcon,
   Image as ImageIcon,
-  Bot as BotIcon,
-  Key as KeyIcon,
-  Eye,
-  EyeOff,
+  Building2,
+  Lock,
   Loader2,
   ArrowRight,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import LogoUpload from '../components/LogoUpload';
-import BotManagement from '../components/BotManagement';
 import Subscription from './Subscription';
 import Help from './Help';
 import {
@@ -25,21 +24,42 @@ import {
   updateProfileName,
   UserSettings,
 } from '../lib/supabase/settings';
+import { updatePassword } from '../lib/supabase/auth';
+import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 
+/**
+ * Settings owns the account and the workspace. Product configuration lives on
+ * the page that owns it — Agent Setup, Channels, Business Profile — and is
+ * linked to from here rather than mirrored, so there is never a second place
+ * that looks like it configures something but doesn't.
+ */
 const tabs = [
-  { id: 'general', label: 'General' },
-  { id: 'billing', label: 'Billing & Subscription' },
-  { id: 'help', label: 'Help Center' },
+  { id: 'account', label: 'Account' },
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'plan', label: 'Plan & Usage' },
+  { id: 'help', label: 'Help' },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
 
+/** Tab ids used before the rebuild, kept working so old links don't 404. */
+const LEGACY_TAB_ALIASES: Record<string, TabId> = {
+  general: 'account',
+  billing: 'plan',
+  subscription: 'plan',
+};
+
+function resolveTab(raw: string | null): TabId {
+  if (!raw) return 'account';
+  if (tabs.some((t) => t.id === raw)) return raw as TabId;
+  return LEGACY_TAB_ALIASES[raw] ?? 'account';
+}
+
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab');
-  const activeTab: TabId = tabs.some((t) => t.id === tabParam) ? (tabParam as TabId) : 'general';
+  const activeTab = resolveTab(searchParams.get('tab'));
 
   const selectTab = (id: TabId) => {
     const params = new URLSearchParams(searchParams);
@@ -61,7 +81,7 @@ export default function Settings() {
                 'px-3 md:px-4 py-2.5 text-sm md:text-base whitespace-nowrap border-b-2 transition-colors touch-manipulation',
                 activeTab === tab.id
                   ? 'border-primary text-foreground font-medium'
-                  : 'border-transparent text-secondary-foreground hover:text-foreground'
+                  : 'border-transparent text-secondary-foreground hover:text-foreground',
               )}
             >
               {tab.label}
@@ -70,33 +90,29 @@ export default function Settings() {
         </nav>
       </div>
 
-      {activeTab === 'general' && <GeneralSettings />}
-      {activeTab === 'billing' && <Subscription />}
-      {activeTab === 'help' && <Help />}
+      {activeTab === 'account' && <AccountSettings />}
+      {activeTab === 'workspace' && <WorkspaceSettings />}
+      {activeTab === 'plan' && <Subscription embedded />}
+      {activeTab === 'help' && <Help embedded />}
     </div>
   );
 }
+
+// ─── Shared pieces ───────────────────────────────────────────────────────────
 
 function SectionCard({
   icon: Icon,
   title,
   description,
   children,
-  className,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description?: string;
   children: React.ReactNode;
-  className?: string;
 }) {
   return (
-    <section
-      className={cn(
-        'bg-secondary/50 rounded-xl p-4 md:p-6 border border-secondary/60',
-        className,
-      )}
-    >
+    <section className="bg-secondary/50 rounded-xl p-4 md:p-6 border border-secondary/60">
       <div className="flex items-start gap-3 mb-4 md:mb-5">
         <div className="rounded-lg bg-primary/10 p-2 flex-shrink-0">
           <Icon className="w-5 h-5 text-primary" />
@@ -113,12 +129,63 @@ function SectionCard({
   );
 }
 
-function ErrorBanner({ message }: { message: string }) {
+function Banner({ kind, message }: { kind: 'error' | 'success'; message: string }) {
+  const error = kind === 'error';
   return (
-    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 rounded-lg p-3 text-sm">
-      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg p-3 text-sm border',
+        error
+          ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+          : 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-400',
+      )}
+    >
+      {error ? (
+        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      ) : (
+        <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      )}
       <span>{message}</span>
     </div>
+  );
+}
+
+function SaveButton({
+  onClick,
+  disabled,
+  saving,
+  saved,
+  label,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  saving: boolean;
+  saved: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+    >
+      {saved ? (
+        <>
+          <Check className="w-4 h-4" />
+          Saved
+        </>
+      ) : saving ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Saving…
+        </>
+      ) : (
+        <>
+          <Save className="w-4 h-4" />
+          {label}
+        </>
+      )}
+    </button>
   );
 }
 
@@ -140,82 +207,46 @@ function SkeletonCard() {
   );
 }
 
-function GeneralSettings() {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
+const inputClass =
+  'w-full bg-secondary rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60';
 
-  const [settings, setSettings] = useState<Partial<UserSettings>>({
-    company_logo: null,
-    openai_api_key: null,
-    openai_assistant_id: null,
-  });
+// ─── Account ─────────────────────────────────────────────────────────────────
+
+function AccountSettings() {
+  const { user, signOut } = useAuth();
+
   const [profileName, setProfileName] = useState('');
   const [originalProfileName, setOriginalProfileName] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [savedSection, setSavedSection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [assistantIdInput, setAssistantIdInput] = useState('');
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [hasAssistantId, setHasAssistantId] = useState(false);
+
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadAll() {
+    async function load() {
       try {
-        const [userSettings, profile] = await Promise.all([
-          getUserSettings(),
-          getProfile().catch(() => null),
-        ]);
-        if (userSettings) {
-          setSettings(userSettings);
-          setHasApiKey(!!userSettings.openai_api_key);
-          setHasAssistantId(!!userSettings.openai_assistant_id);
-          setApiKeyInput('');
-          setAssistantIdInput(userSettings.openai_assistant_id || '');
-        }
-        if (profile?.name) {
-          setProfileName(profile.name);
-          setOriginalProfileName(profile.name);
-        } else if (user?.email) {
-          const emailName = user.email.split('@')[0];
-          setProfileName(emailName);
-          setOriginalProfileName(emailName);
-        }
-      } catch (err) {
-        setError('Failed to load your settings. Please refresh the page.');
+        const profile = await getProfile().catch(() => null);
+        const fallback = user?.email?.split('@')[0] ?? '';
+        const name = profile?.name || fallback;
+        setProfileName(name);
+        setOriginalProfileName(name);
+      } catch {
+        setError('Could not load your account. Refresh the page to try again.');
       } finally {
         setLoading(false);
       }
     }
-    loadAll();
+    load();
   }, [user?.email]);
 
   const flashSaved = (section: string) => {
     setSavedSection(section);
     setTimeout(() => setSavedSection(null), 2500);
-  };
-
-  const handleLogoUpload = (newLogo: string) => {
-    setSettings((prev) => ({ ...prev, company_logo: newLogo }));
-  };
-
-  const handleLogoRemove = () => {
-    setSettings((prev) => ({ ...prev, company_logo: null }));
-  };
-
-  const handleSaveBrand = async () => {
-    setSavingSection('brand');
-    setError(null);
-    try {
-      await updateUserSettings({ company_logo: settings.company_logo });
-      flashSaved('brand');
-    } catch (err) {
-      setError('Failed to save your logo. Please try again.');
-    } finally {
-      setSavingSection(null);
-    }
   };
 
   const handleSaveProfile = async () => {
@@ -226,47 +257,36 @@ function GeneralSettings() {
       await updateProfileName(profileName.trim());
       setOriginalProfileName(profileName.trim());
       flashSaved('profile');
-    } catch (err) {
-      setError('Failed to update your profile name. Please try again.');
+    } catch {
+      setError('Could not update your name. Try again.');
     } finally {
       setSavingSection(null);
     }
   };
 
-  const handleSaveKeys = async () => {
-    setSavingSection('keys');
+  const handleChangePassword = async () => {
+    setPasswordNotice(null);
     setError(null);
+
+    if (newPassword.length < 8) {
+      setError('Use at least 8 characters for your new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Those passwords do not match.');
+      return;
+    }
+
+    setSavingSection('password');
     try {
-      const updates: Partial<UserSettings> = {};
-      if (apiKeyInput.trim()) {
-        updates.openai_api_key = apiKeyInput.trim();
-      }
-      if (assistantIdInput !== (settings.openai_assistant_id || '')) {
-        updates.openai_assistant_id = assistantIdInput.trim() || null;
-      }
-      if (Object.keys(updates).length > 0) {
-        await updateUserSettings(updates);
-        if (updates.openai_api_key) {
-          setHasApiKey(true);
-          setApiKeyInput('');
-        }
-        if (updates.openai_assistant_id !== undefined) {
-          setHasAssistantId(!!updates.openai_assistant_id);
-        }
-      }
-      flashSaved('keys');
+      await updatePassword(newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordNotice('Password updated. Use it next time you sign in.');
     } catch (err) {
-      setError('Failed to save your OpenAI keys. Please try again.');
+      setError(err instanceof Error ? err.message : 'Could not update your password.');
     } finally {
       setSavingSection(null);
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (err) {
-      setError('Failed to sign out. Please try again.');
     }
   };
 
@@ -275,27 +295,18 @@ function GeneralSettings() {
       <div className="space-y-4 md:space-y-6">
         <SkeletonCard />
         <SkeletonCard />
-        <SkeletonCard />
       </div>
     );
   }
 
-  const brandDirty = settings.company_logo !== undefined;
   const profileDirty = profileName !== originalProfileName;
-  const keysDirty =
-    apiKeyInput.trim() !== '' ||
-    assistantIdInput !== (settings.openai_assistant_id || '');
+  const passwordReady = newPassword.length > 0 && confirmPassword.length > 0;
 
   return (
     <div className="space-y-4 md:space-y-6">
-      {error && <ErrorBanner message={error} />}
+      {error && <Banner kind="error" message={error} />}
 
-      {/* Account */}
-      <SectionCard
-        icon={UserIcon}
-        title="Account"
-        description="Your signed-in account details."
-      >
+      <SectionCard icon={UserIcon} title="Account" description="How you sign in and appear in the app.">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1.5">Email</label>
@@ -304,189 +315,198 @@ function GeneralSettings() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Display name</label>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="display-name">
+              Display name
+            </label>
             <input
+              id="display-name"
               type="text"
               value={profileName}
               onChange={(e) => setProfileName(e.target.value)}
-              className="w-full bg-secondary rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60"
+              className={inputClass}
               placeholder="Your name"
             />
           </div>
           <div className="flex items-center gap-3">
-            <button
+            <SaveButton
               onClick={handleSaveProfile}
               disabled={savingSection === 'profile' || !profileName.trim() || !profileDirty}
-              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
-            >
-              {savedSection === 'profile' ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Saved
-                </>
-              ) : savingSection === 'profile' ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Name
-                </>
-              )}
-            </button>
+              saving={savingSection === 'profile'}
+              saved={savedSection === 'profile'}
+              label="Save name"
+            />
             <button
-              onClick={handleSignOut}
+              onClick={() => signOut().catch(() => setError('Could not sign out. Try again.'))}
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg px-4 py-2.5 transition-colors touch-manipulation"
             >
               <LogOut className="w-4 h-4" />
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
       </SectionCard>
 
-      {/* Brand & Appearance */}
-      <SectionCard
-        icon={ImageIcon}
-        title="Brand & Appearance"
-        description="Your company logo appears in the chat sidebar and on shared conversations."
-      >
-        <div className="space-y-5">
-          <LogoUpload
-            currentLogo={settings.company_logo || undefined}
-            onUpload={handleLogoUpload}
-            onRemove={handleLogoRemove}
-          />
-          <button
-            onClick={handleSaveBrand}
-            disabled={savingSection === 'brand' || !brandDirty}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
-          >
-            {savedSection === 'brand' ? (
-              <>
-                <Check className="w-4 h-4" />
-                Saved
-              </>
-            ) : savingSection === 'brand' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save Logo
-              </>
-            )}
-          </button>
-        </div>
-      </SectionCard>
-
-      {/* AI Bots */}
-      <SectionCard
-        icon={BotIcon}
-        title="AI Bots"
-        description="Create and manage your AI assistants. Full bot behavior is configured on the Agent Setup page."
-      >
-        <BotManagement />
-        <button
-          onClick={() => navigate('/dashboard/agent-setup')}
-          className="mt-4 flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover transition-colors touch-manipulation"
-        >
-          Go to Agent Setup
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </SectionCard>
-
-      {/* OpenAI Keys */}
-      <SectionCard
-        icon={KeyIcon}
-        title="OpenAI Keys"
-        description="Your global OpenAI API key and Assistant ID. Individual bots can override these."
-      >
-        <div className="space-y-5">
+      <SectionCard icon={Lock} title="Password" description="Change the password you use to sign in.">
+        <div className="space-y-4">
+          {passwordNotice && <Banner kind="success" message={passwordNotice} />}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-sm font-medium">API Key</label>
-              <span
-                className={cn(
-                  'text-xs px-2 py-0.5 rounded-full font-medium',
-                  hasApiKey
-                    ? 'bg-green-500/15 text-green-600 dark:text-green-400'
-                    : 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
-                )}
-              >
-                {hasApiKey ? 'Configured' : 'Not configured'}
-              </span>
-            </div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="new-password">
+              New password
+            </label>
             <div className="relative">
               <input
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="w-full bg-secondary rounded-lg px-4 py-2.5 pr-11 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60 font-mono"
-                placeholder={hasApiKey ? 'Enter new key to replace' : 'sk-...'}
+                id="new-password"
+                type={showPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className={cn(inputClass, 'pr-11')}
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
               />
               <button
                 type="button"
-                onClick={() => setShowApiKey((s) => !s)}
+                onClick={() => setShowPassword((s) => !s)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                title={showApiKey ? 'Hide' : 'Reveal'}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Leave blank to keep your current key. Your key is stored encrypted and never shown in full.
-            </p>
           </div>
-
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-sm font-medium">Assistant ID</label>
-              <span
-                className={cn(
-                  'text-xs px-2 py-0.5 rounded-full font-medium',
-                  hasAssistantId
-                    ? 'bg-green-500/15 text-green-600 dark:text-green-400'
-                    : 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
-                )}
-              >
-                {hasAssistantId ? 'Configured' : 'Not configured'}
-              </span>
-            </div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="confirm-password">
+              Confirm new password
+            </label>
             <input
-              type="text"
-              value={assistantIdInput}
-              onChange={(e) => setAssistantIdInput(e.target.value)}
-              className="w-full bg-secondary rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm md:text-base border border-secondary/60 font-mono"
-              placeholder="asst_..."
+              id="confirm-password"
+              type={showPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className={inputClass}
+              placeholder="Re-enter it"
+              autoComplete="new-password"
             />
           </div>
+          <SaveButton
+            onClick={handleChangePassword}
+            disabled={savingSection === 'password' || !passwordReady}
+            saving={savingSection === 'password'}
+            saved={false}
+            label="Update password"
+          />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
 
+// ─── Workspace ───────────────────────────────────────────────────────────────
+
+function WorkspaceSettings() {
+  const navigate = useNavigate();
+
+  const [logo, setLogo] = useState<string | null>(null);
+  const [originalLogo, setOriginalLogo] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [settings, client] = await Promise.all([
+          getUserSettings(),
+          getOwnedWpmClient().catch(() => null),
+        ]);
+        const current = (settings as UserSettings | null)?.company_logo ?? null;
+        setLogo(current);
+        setOriginalLogo(current);
+        setBusinessName(client?.name ?? null);
+      } catch {
+        setError('Could not load your workspace. Refresh the page to try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateUserSettings({ company_logo: logo });
+      setOriginalLogo(logo);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {
+      setError('Could not save your logo. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-4 md:space-y-6">
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
+  }
+
+  // Compared against the loaded value — the previous version compared against
+  // `undefined`, so the button was permanently enabled.
+  const logoDirty = logo !== originalLogo;
+
+  return (
+    <div className="space-y-4 md:space-y-6">
+      {error && <Banner kind="error" message={error} />}
+
+      <SectionCard
+        icon={ImageIcon}
+        title="Logo"
+        description="Shown in your sidebar and on shared conversations."
+      >
+        <div className="space-y-5">
+          <LogoUpload
+            currentLogo={logo || undefined}
+            onUpload={(next) => setLogo(next)}
+            onRemove={() => setLogo(null)}
+          />
+          <SaveButton
+            onClick={handleSave}
+            disabled={saving || !logoDirty}
+            saving={saving}
+            saved={saved}
+            label="Save logo"
+          />
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        icon={Building2}
+        title="Business profile"
+        description="What your agents say about your business — name, industry, services and location."
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Business</label>
+            <div className="w-full bg-secondary/70 rounded-lg px-4 py-2.5 text-sm text-muted-foreground border border-secondary/60">
+              {businessName ?? 'Not set up yet'}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Your business details are edited on their own page so your agents always read from one source.
+          </p>
           <button
-            onClick={handleSaveKeys}
-            disabled={savingSection === 'keys' || !keysDirty}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover active:bg-primary-hover text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+            onClick={() => navigate('/dashboard/business-profile')}
+            className="flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover transition-colors touch-manipulation"
           >
-            {savedSection === 'keys' ? (
-              <>
-                <Check className="w-4 h-4" />
-                Saved
-              </>
-            ) : savingSection === 'keys' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save Keys
-              </>
-            )}
+            Edit business profile
+            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </SectionCard>

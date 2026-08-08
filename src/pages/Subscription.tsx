@@ -100,7 +100,7 @@ async function callBillingProxy(
   return res.json();
 }
 
-export default function Subscription() {
+export default function Subscription({ embedded = false }: { embedded?: boolean } = {}) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(true);
@@ -182,10 +182,10 @@ export default function Subscription() {
   const hasActivePaidPlan = subscription?.status === 'active' || subscription?.status === 'trialing';
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-accent/20 p-4 md:p-6">
-      <div className="mx-auto max-w-6xl">
-        {/* Header */}
-        <div className="text-center mb-8 md:mb-12">
+    <div className={embedded ? '' : 'min-h-screen bg-gradient-to-b from-background to-accent/20 p-4 md:p-6'}>
+      <div className={embedded ? '' : 'mx-auto max-w-6xl'}>
+        {/* Header — the Settings page supplies its own, so skip it when embedded */}
+        <div className={cn('text-center mb-8 md:mb-12', embedded && 'hidden')}>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

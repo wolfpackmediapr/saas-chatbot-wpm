@@ -3,8 +3,12 @@ import { supabase } from './client';
 export interface UserSettings {
   user_id: string;
   company_logo: string | null;
-  response_style: 'professional' | 'casual' | 'friendly';
-  response_length: 'concise' | 'balanced' | 'detailed';
+  /**
+   * Legacy assistant-path fields. The browser no longer reads openai_api_key —
+   * the legacy Chat proxies through the openai-chat edge function — and neither
+   * is editable in Settings any more. openai_assistant_id is still read as a
+   * fallback by bots.ts.
+   */
   openai_api_key: string | null;
   openai_assistant_id: string | null;
   created_at: string;
@@ -50,14 +54,6 @@ export async function getCompanyLogo() {
 
 export async function updateCompanyLogo(logo: string | null) {
   return updateUserSettings({ company_logo: logo });
-}
-
-export async function getOpenAIConfig() {
-  const settings = await getUserSettings();
-  return {
-    apiKey: settings?.openai_api_key || null,
-    assistantId: settings?.openai_assistant_id || null,
-  };
 }
 
 export async function updateOpenAIConfig(updates: {

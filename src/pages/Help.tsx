@@ -5,8 +5,9 @@ import HelpSection from '../components/help/HelpSection';
 import SearchBar from '../components/help/SearchBar';
 import ContactSupport from '../components/help/ContactSupport';
 import FeedbackSection from '../components/help/FeedbackSection';
+import { cn } from '../lib/utils';
 
-export default function Help() {
+export default function Help({ embedded = false }: { embedded?: boolean } = {}) {
   const sections = [
     {
       title: 'Getting Started',
@@ -80,12 +81,12 @@ export default function Help() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-accent/20 p-4 md:p-6">
-      <div className="max-w-6xl mx-auto">
+    <div className={embedded ? '' : 'min-h-screen bg-gradient-to-b from-background to-accent/20 p-4 md:p-6'}>
+      <div className={embedded ? '' : 'max-w-6xl mx-auto'}>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8 md:mb-12"
+          className={cn('text-center mb-8 md:mb-12', embedded && 'hidden')}
         >
           <h1 className="text-2xl md:text-4xl font-bold mb-3 md:mb-4">WolfPack Media AI Help Center</h1>
           <p className="text-sm md:text-xl text-secondary-foreground px-2">
