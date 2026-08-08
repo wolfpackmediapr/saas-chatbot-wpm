@@ -30,6 +30,11 @@ const RESPONSE_LANGUAGES = [
   'Auto-detect',
 ] as const;
 
+/** "refund, lawsuit , " -> ["refund", "lawsuit"] */
+function splitList(value: string): string[] {
+  return value.split(',').map((part) => part.trim()).filter(Boolean);
+}
+
 interface AgentSettings {
   instructions: string;
   neverSayRules: string;
@@ -38,6 +43,14 @@ interface AgentSettings {
   responseLength: string;
   primaryGoal: string;
   responseLanguage: string;
+  /** Offered when the primary goal is booking. Injected into the goal playbook. */
+  bookingUrl: string;
+  /** Where escalation email is sent. */
+  handoffContact: string;
+  /** Comma separated. Matched server-side on every inbound message. */
+  emergencyKeywords: string;
+  /** Comma separated. What the agent collects before a lead is qualified. */
+  leadFields: string;
 }
 
 const defaultSettings: AgentSettings = {
@@ -52,6 +65,10 @@ const defaultSettings: AgentSettings = {
   responseLength: 'medium',
   primaryGoal: 'Book a Calendly meeting',
   responseLanguage: 'English + Latin American Spanish',
+  bookingUrl: '',
+  handoffContact: '',
+  emergencyKeywords: '',
+  leadFields: 'name, email, phone, service interest, timeline',
 };
 
 // ─── Template Picker ──────────────────────────────────────────────────────────
@@ -220,7 +237,16 @@ export default function AgentSetup() {
       if (instructions.business_summary) loaded.toneGuidelines = instructions.business_summary;
       if (instructions.primary_goal) loaded.primaryGoal = instructions.primary_goal;
       if (instructions.response_language) loaded.responseLanguage = instructions.response_language;
+      if (instructions.emergency_keywords?.length) {
+        loaded.emergencyKeywords = instructions.emergency_keywords.join(', ');
+      }
+      if (instructions.lead_fields?.length) {
+        loaded.leadFields = (instructions.lead_fields as string[]).join(', ');
+      }
     }
+
+    loaded.bookingUrl = profile.booking_url ?? '';
+    loaded.handoffContact = profile.handoff_contact ?? '';
 
     if (profile.response_length) {
       const map: Record<string, string> = { concise: 'short', balanced: 'medium', detailed: 'detailed' };
@@ -328,18 +354,29 @@ export default function AgentSetup() {
     try {
       const lengthMap: Record<string, string> = { short: 'concise', medium: 'balanced', detailed: 'detailed' };
 
+      // `tone` is deliberately not written here. Business Profile owns it —
+      // both pages used to write this column with different meanings, so
+      // whichever you saved last silently overwrote the other.
       await updateBotProfile(botProfileId, {
-        tone: settings.toneGuidelines.split('.')[0] || undefined,
         response_length: lengthMap[settings.responseLength] || 'balanced',
+        booking_url: settings.bookingUrl.trim() || null,
+        handoff_contact: settings.handoffContact.trim() || null,
       });
+
+      const leadFields = splitList(settings.leadFields);
 
       await upsertBotInstructions(botProfileId, {
         system_prompt: settings.instructions,
         never_say_rules: settings.neverSayRules,
         handoff_rules: settings.escalationPolicy,
         business_summary: settings.toneGuidelines,
-        lead_qualification_instructions:
-          "Collect name, service interest, email, phone, and timeline naturally.",
+        // Was a hardcoded sentence, identical for every customer regardless of
+        // what they sell. Now built from the fields they actually chose.
+        lead_qualification_instructions: leadFields.length
+          ? `Collect the following naturally over the conversation, never as an interrogation: ${leadFields.join(', ')}.`
+          : 'Collect contact details naturally over the conversation.',
+        lead_fields: leadFields,
+        emergency_keywords: splitList(settings.emergencyKeywords),
         primary_goal: settings.primaryGoal,
         response_language: settings.responseLanguage,
       });
@@ -465,6 +502,72 @@ export default function AgentSetup() {
             className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary font-mono text-sm resize-y"
           />
           <p className="text-xs text-secondary-foreground mt-2">When and how to hand off to a human.</p>
+        </div>
+
+        {/* Emergency keywords — the deterministic escalation path */}
+        <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
+          <label className="block text-sm font-medium mb-3">Escalate immediately on these words</label>
+          <input
+            type="text"
+            value={settings.emergencyKeywords}
+            onChange={e => set('emergencyKeywords', e.target.value)}
+            placeholder="lawsuit, chargeback, medical emergency, data breach"
+            className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+          />
+          <p className="text-xs text-secondary-foreground mt-2">
+            Comma separated. Checked on every incoming message before the AI even runs, so these
+            never depend on the agent noticing. Whole words only — “refund” will not fire on
+            “refundable”. Leave empty if you would rather rely on the escalation policy above.
+          </p>
+        </div>
+
+        {/* Where escalations go */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
+            <label className="block text-sm font-medium mb-3">Escalation email</label>
+            <input
+              type="email"
+              value={settings.handoffContact}
+              onChange={e => set('handoffContact', e.target.value)}
+              placeholder="you@yourbusiness.com"
+              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+            />
+            <p className="text-xs text-secondary-foreground mt-2">
+              Emailed the moment a conversation is escalated, so you hear about it when the
+              dashboard is closed. Falls back to your business contact email.
+            </p>
+          </div>
+
+          <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
+            <label className="block text-sm font-medium mb-3">Booking link</label>
+            <input
+              type="url"
+              value={settings.bookingUrl}
+              onChange={e => set('bookingUrl', e.target.value)}
+              placeholder="https://calendly.com/your-team/discovery"
+              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+            />
+            <p className="text-xs text-secondary-foreground mt-2">
+              The link your agent shares when someone is ready to talk. Without it, a booking goal
+              has nothing to offer.
+            </p>
+          </div>
+        </div>
+
+        {/* Lead capture */}
+        <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
+          <label className="block text-sm font-medium mb-3">Collect from every lead</label>
+          <input
+            type="text"
+            value={settings.leadFields}
+            onChange={e => set('leadFields', e.target.value)}
+            placeholder="name, email, phone, service interest, timeline"
+            className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+          />
+          <p className="text-xs text-secondary-foreground mt-2">
+            Comma separated. Your agent gathers these naturally over the conversation rather than
+            asking for them all at once, and a lead counts as qualified once it has them.
+          </p>
         </div>
 
         {/* Tone Guidelines + Response Length */}

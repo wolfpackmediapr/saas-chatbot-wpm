@@ -201,6 +201,10 @@ interface BusinessProfileData {
   contactEmail: string;
   contactPhone: string;
   website: string;
+  /** Read by the prompt but never collected before, so it was always blank. */
+  industry: string;
+  /** Used for "are we open right now" style answers. */
+  timezone: string;
 }
 
 const defaultProfile: BusinessProfileData = {
@@ -213,6 +217,8 @@ const defaultProfile: BusinessProfileData = {
   contactEmail: '',
   contactPhone: '',
   website: '',
+  industry: '',
+  timezone: 'America/Puerto_Rico',
 };
 
 export default function BusinessProfile() {
@@ -242,6 +248,8 @@ export default function BusinessProfile() {
           website: ownedClient.website_url || '',
           contactEmail: ownedClient.contact_email || '',
           contactPhone: ownedClient.contact_phone || '',
+          industry: ownedClient.industry || '',
+          timezone: ownedClient.timezone || 'America/Puerto_Rico',
         };
 
         const botProfile = await getActiveBotProfile(ownedClient.id);
@@ -298,21 +306,15 @@ export default function BusinessProfile() {
         website_url: profile.website || null,
         contact_email: profile.contactEmail || null,
         contact_phone: profile.contactPhone || null,
+        industry: profile.industry || null,
+        timezone: profile.timezone || null,
       });
 
-      await upsertBotProfile(client.id, {
-        name: profile.name,
-        public_name: profile.name,
-        tone: toneValue,
-        settings: {
-          description: profile.description,
-          services: profile.serviceTags.join(', '),
-          location: profile.location,
-          website: profile.website,
-          contact_email: profile.contactEmail,
-          contact_phone: profile.contactPhone,
-        },
-      });
+      // Business Profile owns `tone` and nothing else on the agent. It used to
+      // also write name/public_name from the business name, which silently
+      // renamed whichever agent you had named in Agent Setup, and to copy the
+      // business details into a settings blob the prompt never reads.
+      await upsertBotProfile(client.id, { tone: toneValue });
 
       setClient(prev => prev ? {
         ...prev,
@@ -388,6 +390,49 @@ export default function BusinessProfile() {
               placeholder="San Juan, Puerto Rico"
               className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
             />
+          </div>
+        </div>
+
+        {/* Industry + Timezone */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium mb-2">Industry</label>
+            <input
+              type="text"
+              value={profile.industry}
+              onChange={e => set('industry', e.target.value)}
+              placeholder="Digital marketing agency"
+              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
+            />
+            <p className="text-xs text-secondary-foreground mt-2">
+              Helps your agent pitch in the right language for your field.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Timezone</label>
+            <select
+              value={profile.timezone}
+              onChange={e => set('timezone', e.target.value)}
+              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
+            >
+              {[
+                'America/Puerto_Rico',
+                'America/New_York',
+                'America/Chicago',
+                'America/Denver',
+                'America/Los_Angeles',
+                'America/Mexico_City',
+                'America/Bogota',
+                'America/Santo_Domingo',
+                'Europe/Madrid',
+                'UTC',
+              ].map(zone => (
+                <option key={zone} value={zone}>{zone.replace('_', ' ')}</option>
+              ))}
+            </select>
+            <p className="text-xs text-secondary-foreground mt-2">
+              So the agent answers “are you open right now” correctly.
+            </p>
           </div>
         </div>
 

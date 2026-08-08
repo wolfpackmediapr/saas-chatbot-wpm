@@ -23,6 +23,8 @@ export interface WpmBotProfileRecord {
   template_key?: string | null;
   tone?: string | null;
   response_length?: string | null;
+  booking_url?: string | null;
+  handoff_contact?: string | null;
   settings?: Record<string, any>;
   is_active: boolean;
 }
@@ -172,7 +174,7 @@ export async function getActiveBotProfile(clientId: string): Promise<WpmBotProfi
   if (!supabase) return null;
   const { data, error } = await (supabase as any)
     .from('wpm_bot_profiles')
-    .select('id, client_id, name, public_name, template_key, tone, response_length, settings, is_active')
+    .select('id, client_id, name, public_name, template_key, tone, response_length, booking_url, handoff_contact, settings, is_active')
     .eq('client_id', clientId)
     .eq('is_active', true)
     .order('created_at', { ascending: false })
@@ -189,7 +191,7 @@ export async function listBotProfiles(clientId: string): Promise<WpmBotProfileRe
   if (!supabase) return [];
   const { data, error } = await (supabase as any)
     .from('wpm_bot_profiles')
-    .select('id, client_id, name, public_name, template_key, tone, response_length, settings, is_active')
+    .select('id, client_id, name, public_name, template_key, tone, response_length, booking_url, handoff_contact, settings, is_active')
     .eq('client_id', clientId)
     .eq('is_active', true)
     .order('created_at', { ascending: true });
@@ -228,7 +230,12 @@ export async function createBotProfile(clientId: string, name: string): Promise<
 }
 
 export async function updateBotProfile(botProfileId: string, updates: {
-  name?: string; public_name?: string; tone?: string; response_length?: string; settings?: Record<string, any>;
+  name?: string; public_name?: string; tone?: string; response_length?: string;
+  /** Injected into the goal playbook when the primary goal is booking a call. */
+  booking_url?: string | null;
+  /** Where escalation email goes. See _shared/wpm_email.ts. */
+  handoff_contact?: string | null;
+  settings?: Record<string, any>;
 }) {
   if (!supabase) throw new Error('Supabase not configured');
   const { error } = await (supabase as any)
@@ -338,6 +345,14 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
   system_prompt?: string; business_summary?: string; faq_instructions?: string;
   lead_qualification_instructions?: string; handoff_rules?: string; never_say_rules?: string;
   primary_goal?: string; response_language?: string;
+  /**
+   * Matched server-side against every inbound message. This is the escalation
+   * path that does not depend on the model noticing anything — see
+   * matchEmergencyKeyword in _shared/wpm_handoff.ts.
+   */
+  emergency_keywords?: string[];
+  /** Which details the agent should collect before a lead counts as qualified. */
+  lead_fields?: string[];
 }) {
   if (!supabase) throw new Error('Supabase not configured');
 
@@ -356,6 +371,8 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
     never_say_rules: updates.never_say_rules || null,
     primary_goal: updates.primary_goal || 'Book a Calendly meeting',
     response_language: updates.response_language || 'English + Latin American Spanish',
+    emergency_keywords: updates.emergency_keywords ?? [],
+    lead_fields: updates.lead_fields ?? [],
     is_active: true,
     version: existing ? (existing.version || 1) + 1 : 1,
   };
