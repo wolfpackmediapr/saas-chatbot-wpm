@@ -28,7 +28,7 @@ const tiers: Tier[] = [
     messages: "1 channel • 500 conversations/mo",
     aiBenefit: "Reliable AI replies for everyday conversations",
     features: [
-      "1 connected channel (WhatsApp, Instagram or Facebook)",
+      "1 connected channel (Instagram or Facebook)",
       "1 AI bot with your brand voice & knowledge",
       "500 conversations per month",
       "Human handoff inbox included",

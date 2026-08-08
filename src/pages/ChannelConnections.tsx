@@ -4,7 +4,6 @@ import { cn } from '../lib/utils';
 import {
   getOwnedWpmClient,
   listClientChannels,
-  upsertClientChannel,
   deactivateClientChannel,
   listBotProfiles,
   assignChannelBot,
