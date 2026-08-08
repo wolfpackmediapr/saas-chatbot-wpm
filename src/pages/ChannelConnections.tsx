@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { PlugZap, CheckCircle2, AlertCircle, Instagram, MessageCircle, ExternalLink, Bot, RefreshCw, Wifi } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -45,7 +45,6 @@ export default function ChannelConnections() {
   const [channels, setChannels] = useState<Channel[]>(
     Object.values(CHANNEL_CONFIG).map(c => ({ ...c, status: 'disconnected' }))
   );
-  const [connecting, setConnecting] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);

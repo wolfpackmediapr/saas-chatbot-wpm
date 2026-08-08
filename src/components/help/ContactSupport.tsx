@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { MessageCircle, Mail, Ticket } from 'lucide-react';
 
 export default function ContactSupport() {

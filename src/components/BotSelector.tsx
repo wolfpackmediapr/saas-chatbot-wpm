@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { AIBot, getBots, setActiveBot } from '../lib/supabase/bots';

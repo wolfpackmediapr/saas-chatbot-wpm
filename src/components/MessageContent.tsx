@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { parseTextWithLinks } from '../lib/linkify';
 
 interface MessageContentProps {
@@ -6,7 +6,7 @@ interface MessageContentProps {
   isUser: boolean;
 }
 
-export default function MessageContent({ content, isUser }: MessageContentProps) {
+export default function MessageContent({ content}: MessageContentProps) {
   const segments = parseTextWithLinks(content);
 
   return (

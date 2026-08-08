@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Users, RefreshCw, ExternalLink } from 'lucide-react';
 import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { listOwnedLeads, WpmLeadRecord, getStatusColor } from '../lib/supabase/wpmLeads';
@@ -171,15 +171,4 @@ export default function Leads() {
       </div>
     </div>
   );
-}
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  });
 }

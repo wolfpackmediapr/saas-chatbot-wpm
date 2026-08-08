@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface CanvasRevealEffectProps {
   animationSpeed?: number;
@@ -16,7 +16,6 @@ export function CanvasRevealEffect({
   dotSize = 2
 }: CanvasRevealEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mousePosition = useRef({ x: 0, y: 0 });
   const dots = useRef<Array<{x: number; y: number; vx: number; vy: number}>>([]);
   const animationFrameId = useRef<number>();
 

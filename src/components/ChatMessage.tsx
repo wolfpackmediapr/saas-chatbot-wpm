@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { User, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 import MessageContent from './MessageContent';

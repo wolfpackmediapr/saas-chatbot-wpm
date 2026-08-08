@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { Building2, Save, CheckCircle2, X, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {

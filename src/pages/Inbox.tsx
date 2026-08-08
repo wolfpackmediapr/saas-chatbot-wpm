@@ -34,6 +34,7 @@ interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool' | 'human';
   content: string;
   created_at: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,8 +53,6 @@ function PlatformIcon({ type, className }: { type: ChannelType; className?: stri
   return <MessageCircle className={cn('text-secondary-foreground', className)} />;
 }
 
-/** Mirrors HANDOFF_IDLE_MINUTES in supabase/functions/_shared/wpm_handoff.ts. */
-const HANDOFF_IDLE_MINUTES = 30;
 
 /**
  * How long a handoff conversation has been waiting on a person.
@@ -83,6 +82,40 @@ function waitingSuffix(conv: Conversation): string {
   if (minutes < 1) return ' just now';
   if (minutes < 60) return ` for ${minutes}m`;
   return ` for ${Math.floor(minutes / 60)}h`;
+}
+
+/**
+ * Meta only allows a business to reply within 24 hours of the customer's last
+ * message. Past that, sends are rejected with "(#10) This message is sent
+ * outside of allowed window" — the reply is still stored, so without checking
+ * this the thread shows a message the customer never received.
+ */
+const REPLY_WINDOW_HOURS = 24;
+
+function hoursSinceLastInbound(messages: Message[]): number | null {
+  const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+  if (!lastInbound) return null;
+  return (Date.now() - new Date(lastInbound.created_at).getTime()) / 3_600_000;
+}
+
+/** True when a human reply would be rejected by Meta's 24-hour policy. */
+function replyWindowClosed(messages: Message[]): boolean {
+  const hours = hoursSinceLastInbound(messages);
+  return hours !== null && hours >= REPLY_WINDOW_HOURS;
+}
+
+/** A stored reply Meta refused to deliver. */
+function failedToSend(message: Message): boolean {
+  return message.metadata?.sent_via_graph_api === false;
+}
+
+/** Meta's error text is accurate but tells nobody what to do about it. */
+function friendlySendError(raw: string | undefined): string {
+  if (!raw) return 'Could not send that reply.';
+  if (raw.includes('(#10)') || raw.toLowerCase().includes('outside of allowed window')) {
+    return `Meta only allows replies within ${REPLY_WINDOW_HOURS} hours of the customer's last message. This one is outside that window, so it was not delivered — the customer has to message again before you can reply.`;
+  }
+  return raw;
 }
 
 /** Handoffs opened before source tracking, and all AI escalations, are 'auto'. */
@@ -200,7 +233,8 @@ export default function Inbox() {
         loadConversations();
       })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const db = supabase;
+    return () => { db.removeChannel(ch); };
   }, [loadConversations]);
 
   // Global inbound alerts now live in NotificationsContext so they work on
@@ -212,7 +246,7 @@ export default function Inbox() {
     setLoadingMsgs(true);
     supabase
       .from('wpm_messages')
-      .select('id, direction, role, content, created_at')
+      .select('id, direction, role, content, created_at, metadata')
       .eq('conversation_id', selectedId)
       .order('created_at', { ascending: true })
       .limit(200)
@@ -242,7 +276,8 @@ export default function Inbox() {
       )
       .subscribe();
     realtimeRef.current = ch;
-    return () => { supabase.removeChannel(ch); };
+    const db = supabase;
+    return () => { db.removeChannel(ch); };
   }, [selectedId]);
 
   // ── Auto-scroll to bottom ─────────────────────────────────────────────────
@@ -324,7 +359,7 @@ export default function Inbox() {
     setReplyText('');
     try {
       const result = await callInboxReply(accessToken, selectedId, text);
-      if (!result.ok) setError(result.error ?? 'Send failed');
+      if (!result.ok) setError(friendlySendError(result.error));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -630,14 +665,19 @@ export default function Inbox() {
                             : isHuman
                             ? 'bg-orange-500 text-white rounded-tr-sm'
                             : 'bg-primary text-primary-foreground rounded-tr-sm',
+                          failedToSend(msg) && 'opacity-50 ring-1 ring-orange-500/50',
                         )}>
                           {msg.content}
                         </div>
                         <p className={cn(
-                          'text-xs text-secondary-foreground px-1',
+                          'text-xs px-1',
+                          failedToSend(msg) ? 'text-orange-500' : 'text-secondary-foreground',
                           isInbound ? 'text-left' : 'text-right',
                         )}>
                           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {/* Stored but rejected by Meta — without this the thread
+                              shows a message the customer never received. */}
+                          {failedToSend(msg) && ' · not delivered'}
                         </p>
                       </div>
 
@@ -686,11 +726,19 @@ export default function Inbox() {
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-secondary-foreground mt-1.5 px-1">
-                  {handoffSource(selected) === 'manual'
-                    ? 'Replying as human — the bot is paused for this conversation'
-                    : 'Replying as human — the bot is still answering; sending takes over'}
-                </p>
+                {replyWindowClosed(messages) ? (
+                  <p className="mt-1.5 flex items-start gap-1.5 px-1 text-xs text-orange-500">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    Meta blocks replies more than {REPLY_WINDOW_HOURS} hours after the customer's
+                    last message. Anything sent now will not reach them until they message again.
+                  </p>
+                ) : (
+                  <p className="text-xs text-secondary-foreground mt-1.5 px-1">
+                    {handoffSource(selected) === 'manual'
+                      ? 'Replying as human — the bot is paused for this conversation'
+                      : 'Replying as human — the bot is still answering; sending takes over'}
+                  </p>
+                )}
               </div>
             )}
           </>

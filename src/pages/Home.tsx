@@ -1,18 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { 
   Bot, 
   Users, 
   ClipboardCheck, 
   Play, 
   ArrowRight, 
-  CheckCircle2, 
   AlertCircle 
 } from 'lucide-react';
 import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { listOwnedLeads } from '../lib/supabase/wpmLeads';
-import { buildLaunchChecklist, summarizeLaunchChecklist } from '../lib/wpm/launchChecklist';
+import {
+  buildLaunchChecklist,
+  getNextLaunchAction,
+  summarizeLaunchChecklist,
+} from '../lib/wpm/launchChecklist';
+import { fetchLaunchEvidence } from '../lib/supabase/launchStatus';
 
 interface DashboardStats {
   clientName: string;
@@ -42,26 +45,19 @@ export default function Home() {
           leadsCount = leads.length;
         }
 
-        // Readiness from launch checklist (basic local + profile completion)
+        // Readiness comes from the same evidence the Launch Checklist uses, so
+        // the two can never disagree. This used to build a local array of
+        // "completed" keys containing only the client profile, which reported
+        // 14% on an account that was actually fully set up.
         const items = buildLaunchChecklist();
-        const completedKeys: string[] = [];
-        if (client) completedKeys.push('client-profile');
-        
-        const summary = summarizeLaunchChecklist(items, completedKeys);
+        const evidence = await fetchLaunchEvidence();
+        const summary = summarizeLaunchChecklist(items, evidence);
         const readinessPercent = summary.percentComplete;
 
-        // Next suggested action
-        let nextAction = 'Complete Business Profile';
-        let nextActionPath = '/dashboard/business-profile';
-        
-        if (readinessPercent > 30) {
-          nextAction = 'Test your AI Agent';
-          nextActionPath = '/dashboard/agent-test';
-        }
-        if (readinessPercent > 60) {
-          nextAction = 'Review Launch Checklist';
-          nextActionPath = '/dashboard/launch-checklist';
-        }
+        // Next suggested action — the first unmet step, with its own route.
+        const next = getNextLaunchAction(items, evidence);
+        const nextAction = next ? next.title : 'You are all set';
+        const nextActionPath = next?.route ?? '/dashboard/launch-checklist';
 
         setStats({
           clientName,

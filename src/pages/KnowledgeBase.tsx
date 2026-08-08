@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BookOpenText, Plus, Trash2, AlertCircle, Loader2, Info } from 'lucide-react';
 import {
   getOwnedWpmClient,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Send, Bot, User, AlertCircle, RefreshCw, CheckCircle2, Zap } from 'lucide-react';
+import { Play, Send, Bot, User, AlertCircle, RefreshCw, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase/client';
 import {

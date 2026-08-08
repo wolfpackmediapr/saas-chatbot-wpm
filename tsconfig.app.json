@@ -20,6 +20,8 @@
        "Cannot find type definition file for 'minimatch'" error. A tsc run that
        always fails is a tsc run nobody reads. */
     "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
 
     /* Linting */
     "strict": true,

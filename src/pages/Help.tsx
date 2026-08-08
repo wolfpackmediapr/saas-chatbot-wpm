@@ -1,5 +1,4 @@
-import React from 'react';
-import { Search, MessageCircle, Mail, Ticket, ThumbsUp, ExternalLink } from 'lucide-react';
+
 import { motion } from 'framer-motion';
 import HelpSection from '../components/help/HelpSection';
 import SearchBar from '../components/help/SearchBar';

@@ -398,10 +398,11 @@ export async function ensureDefaultBotSetup(clientId: string, businessName?: str
       const name = businessName?.trim() ? `${businessName.trim()} AI Assistant` : 'AI Assistant';
       botProfileId = await upsertBotProfile(clientId, { name });
     }
+    if (!botProfileId) return;
     const instructions = await getBotInstructions(botProfileId);
     if (!instructions) {
       await upsertBotInstructions(botProfileId, {
-        system_prompt: buildDefaultSystemPrompt(businessName),
+        system_prompt: buildDefaultSystemPrompt(businessName ?? ''),
       });
     }
   } catch (err) {

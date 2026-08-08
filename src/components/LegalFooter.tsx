@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 const LEGAL_LINKS = [
   { label: 'Privacy Policy', href: 'https://wolfpackmediapr.com/privacy-policy' },

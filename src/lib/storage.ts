@@ -47,7 +47,7 @@ export function saveChat(chat: ChatHistory) {
 
 export function getChats(): ChatHistory[] {
   const chats = getFromLocalStorage('chats') || [];
-  return chats.map(chat => ({
+  return chats.map((chat: any) => ({
     ...chat,
     id: chat.id || generateUniqueId() // Ensure all chats have unique IDs
   }));
@@ -72,7 +72,7 @@ export function updateChat(updatedChat: ChatHistory) {
 
 export function deleteChat(chatId: string) {
   const chats = getChats();
-  const updatedChats = chats.filter(chat => chat.id !== chatId);
+  const updatedChats = chats.filter((chat: any) => chat.id !== chatId);
   saveToLocalStorage('chats', updatedChats);
 }
 

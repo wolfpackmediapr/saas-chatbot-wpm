@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Inbox,
   Settings,
-  Crown,
   Send,
   ClipboardCheck,
   Building2,
@@ -14,7 +13,6 @@ import {
   Play,
   Users,
   LogOut,
-  User,
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -44,7 +42,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, signOut } = useAuth();
+  const { signOut } = useAuth();
   const { unreadConversations, newLeads } = useNotifications();
 
   /** Only Inbox and Leads carry a count; everything else returns 0. */

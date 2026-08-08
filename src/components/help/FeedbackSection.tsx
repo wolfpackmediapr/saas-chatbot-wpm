@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
 
 export default function FeedbackSection() {
