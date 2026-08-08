@@ -60,7 +60,7 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
       toneGuidelines:
         "Confident, direct, and premium — like a top-tier agency rep who knows their worth. Warm but never desperate. Match the prospect's language and energy.",
       responseLength: 'short',
-      primaryGoal: 'Book a Calendly meeting',
+      primaryGoal: 'Book a meeting',
       responseLanguage: 'English + Latin American Spanish',
     },
   },
@@ -164,7 +164,7 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
       toneGuidelines:
         'Professional, trustworthy, and knowledgeable. Like a top-producing realtor who listens carefully before advising. Build rapport first, then guide. Avoid jargon unless the client uses it first.',
       responseLength: 'medium',
-      primaryGoal: 'Book a Calendly meeting',
+      primaryGoal: 'Book a meeting',
       responseLanguage: 'English only',
     },
   },
@@ -199,7 +199,7 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
       toneGuidelines:
         'Formal, precise, and authoritative. Clients expect expert-level communication that instills confidence. Avoid contractions and casual language. Every word should signal competence and professionalism.',
       responseLength: 'detailed',
-      primaryGoal: 'Book a Calendly meeting',
+      primaryGoal: 'Book a meeting',
       responseLanguage: 'English only',
     },
   },

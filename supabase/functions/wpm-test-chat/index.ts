@@ -304,7 +304,7 @@ Deno.serve(async (req: Request) => {
       businessName: client.name,
       tone: botProfile.tone,
       knowledgeItems: knowledge.length,
-      primaryGoal: instructions?.primary_goal ?? "Book a Calendly meeting",
+      primaryGoal: instructions?.primary_goal ?? "Book a meeting",
       responseLanguage: instructions?.response_language ?? "English + Latin American Spanish",
     },
   });

@@ -369,7 +369,7 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
     lead_qualification_instructions: updates.lead_qualification_instructions || null,
     handoff_rules: updates.handoff_rules || null,
     never_say_rules: updates.never_say_rules || null,
-    primary_goal: updates.primary_goal || 'Book a Calendly meeting',
+    primary_goal: updates.primary_goal || 'Book a meeting',
     response_language: updates.response_language || 'English + Latin American Spanish',
     emergency_keywords: updates.emergency_keywords ?? [],
     lead_fields: updates.lead_fields ?? [],

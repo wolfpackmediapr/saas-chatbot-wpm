@@ -16,12 +16,32 @@ import {
 import { BUSINESS_TEMPLATES } from '../lib/businessTemplates';
 
 const PRIMARY_GOALS = [
-  'Book a Calendly meeting',
+  'Book a meeting',
   'Collect contact info / lead capture',
   'Answer FAQs',
   'Qualify leads',
   'Drive to website / purchase',
 ] as const;
+
+/** Chosen in the dropdown to reveal a free-text goal field. */
+const CUSTOM_GOAL = 'Something else…';
+
+/**
+ * Goals that are meaningless without a link, and what to call it.
+ * Mirrors GOALS_NEEDING_LINK in supabase/functions/_shared/wpm_prompt.ts.
+ */
+const GOAL_LINK_LABEL: Record<string, { label: string; help: string; placeholder: string }> = {
+  'Book a meeting': {
+    label: 'Meeting link',
+    help: 'Shared when someone is ready to talk — Calendly, Cal.com, Google Calendar, whatever you use. Without it your agent collects their details instead, and will never invent a link.',
+    placeholder: 'https://cal.com/your-team/intro',
+  },
+  'Drive to website / purchase': {
+    label: 'Website or purchase link',
+    help: 'Where you want people to end up. Without it your agent describes the next step in words rather than inventing a URL.',
+    placeholder: 'https://yourbusiness.com/shop',
+  },
+};
 
 const RESPONSE_LANGUAGES = [
   'English + Latin American Spanish',
@@ -63,7 +83,7 @@ const defaultSettings: AgentSettings = {
   toneGuidelines:
     "Professional yet warm. Use Puerto Rico-friendly language when appropriate. Match the customer's energy level.",
   responseLength: 'medium',
-  primaryGoal: 'Book a Calendly meeting',
+  primaryGoal: 'Book a meeting',
   responseLanguage: 'English + Latin American Spanish',
   bookingUrl: '',
   handoffContact: '',
@@ -323,6 +343,17 @@ export default function AgentSetup() {
     }
   };
 
+  // A goal that isn't one of the presets is a custom one the business typed.
+  const isCustomGoal = !PRIMARY_GOALS.includes(settings.primaryGoal as typeof PRIMARY_GOALS[number]);
+  // Presets say whether they need a link; a custom goal may optionally use one.
+  const goalLink = GOAL_LINK_LABEL[settings.primaryGoal] ?? (isCustomGoal
+    ? {
+        label: 'Link for this goal (optional)',
+        help: 'If reaching this goal involves sending someone somewhere — a booking page, a shop, a form — put it here. Your agent will never invent a URL without one.',
+        placeholder: 'https://yourbusiness.com/book',
+      }
+    : null);
+
   const set = <K extends keyof AgentSettings>(field: K, value: AgentSettings[K]) => {
     setSettings(prev => ({ ...prev, [field]: value }));
     setActiveTemplate(null);
@@ -446,13 +477,43 @@ export default function AgentSetup() {
           <div className="bg-secondary/30 border border-secondary rounded-2xl p-6">
             <label className="block text-sm font-medium mb-3">Primary Goal</label>
             <select
-              value={settings.primaryGoal}
-              onChange={e => set('primaryGoal', e.target.value)}
+              value={isCustomGoal ? CUSTOM_GOAL : settings.primaryGoal}
+              onChange={e => set('primaryGoal', e.target.value === CUSTOM_GOAL ? '' : e.target.value)}
               className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary"
             >
               {PRIMARY_GOALS.map(g => <option key={g} value={g}>{g}</option>)}
+              <option value={CUSTOM_GOAL}>{CUSTOM_GOAL}</option>
             </select>
-            <p className="text-xs text-secondary-foreground mt-2">What should the AI agent be optimized to accomplish?</p>
+
+            {isCustomGoal && (
+              <input
+                type="text"
+                value={settings.primaryGoal}
+                onChange={e => set('primaryGoal', e.target.value)}
+                placeholder="e.g. Get people to reserve a table for this weekend"
+                className="mt-3 w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+              />
+            )}
+
+            <p className="text-xs text-secondary-foreground mt-2">
+              {isCustomGoal
+                ? 'Describe it the way you would to a new employee. Your agent works toward it across the conversation.'
+                : 'What should the AI agent be optimized to accomplish?'}
+            </p>
+
+            {goalLink && (
+              <div className="mt-4 border-t border-secondary pt-4">
+                <label className="block text-sm font-medium mb-2">{goalLink.label}</label>
+                <input
+                  type="url"
+                  value={settings.bookingUrl}
+                  onChange={e => set('bookingUrl', e.target.value)}
+                  placeholder={goalLink.placeholder}
+                  className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+                />
+                <p className="text-xs text-secondary-foreground mt-2">{goalLink.help}</p>
+              </div>
+            )}
           </div>
 
           <div className="bg-secondary/30 border border-secondary rounded-2xl p-6">
@@ -522,36 +583,19 @@ export default function AgentSetup() {
         </div>
 
         {/* Where escalations go */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
-            <label className="block text-sm font-medium mb-3">Escalation email</label>
-            <input
-              type="email"
-              value={settings.handoffContact}
-              onChange={e => set('handoffContact', e.target.value)}
-              placeholder="you@yourbusiness.com"
-              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
-            />
-            <p className="text-xs text-secondary-foreground mt-2">
-              Emailed the moment a conversation is escalated, so you hear about it when the
-              dashboard is closed. Falls back to your business contact email.
-            </p>
-          </div>
-
-          <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
-            <label className="block text-sm font-medium mb-3">Booking link</label>
-            <input
-              type="url"
-              value={settings.bookingUrl}
-              onChange={e => set('bookingUrl', e.target.value)}
-              placeholder="https://calendly.com/your-team/discovery"
-              className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
-            />
-            <p className="text-xs text-secondary-foreground mt-2">
-              The link your agent shares when someone is ready to talk. Without it, a booking goal
-              has nothing to offer.
-            </p>
-          </div>
+        <div className="bg-secondary/30 border border-secondary rounded-2xl p-8">
+          <label className="block text-sm font-medium mb-3">Escalation email</label>
+          <input
+            type="email"
+            value={settings.handoffContact}
+            onChange={e => set('handoffContact', e.target.value)}
+            placeholder="you@yourbusiness.com"
+            className="w-full rounded-lg border border-secondary bg-background px-4 py-3 outline-none focus:border-primary text-sm"
+          />
+          <p className="text-xs text-secondary-foreground mt-2">
+            Emailed the moment a conversation is escalated, so you hear about it when the
+            dashboard is closed. Falls back to your business contact email.
+          </p>
         </div>
 
         {/* Lead capture */}

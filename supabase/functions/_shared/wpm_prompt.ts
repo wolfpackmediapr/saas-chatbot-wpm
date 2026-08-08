@@ -88,15 +88,40 @@ function buildLengthRule(rawLength: string): string {
   return 'Keep responses to 3-5 sentences. Provide helpful context without being verbose.';
 }
 
-function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): string | null {
-  const bookLink = bookingUrl || 'https://calendly.com/wolfpackmediapr/wpm-discovery-meeting';
+/** Goals that are meaningless without a link, and what that link is called. */
+export const GOALS_NEEDING_LINK: Record<string, string> = {
+  'Book a meeting': 'meeting link',
+  'Drive to website / purchase': 'website or purchase link',
+};
 
-  if (primaryGoal === 'Book a Calendly meeting') {
+/** Value used before the goal was made vendor-neutral. Still stored on older agents. */
+const LEGACY_BOOKING_GOAL = 'Book a Calendly meeting';
+
+/**
+ * Turns the chosen goal into concrete instructions for the agent.
+ *
+ * Unrecognised goals are treated as custom, free-text goals rather than
+ * producing nothing — the dropdown lets people write their own, and silently
+ * dropping the playbook would leave those agents with no direction at all.
+ */
+function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): string | null {
+  const link = bookingUrl?.trim() || null;
+
+  // No cross-tenant default. This previously fell back to one specific
+  // business's own scheduling link, so any customer without a booking URL sent
+  // their leads to another business's calendar.
+  const noLinkFallback =
+    'No booking link is configured, so never invent one. Instead, collect their ' +
+    'name and email and tell them the team will follow up to arrange a time.';
+
+  if (primaryGoal === 'Book a meeting' || primaryGoal === LEGACY_BOOKING_GOAL) {
     return (
-      `Your #1 goal is to guide interested leads to book a discovery call: ${bookLink}\n` +
-      'When someone shows genuine interest in services, asks for details, or wants to learn more — offer the booking link proactively.\n' +
+      (link
+        ? `Your #1 goal is to guide interested leads to book a discovery call: ${link}\n` +
+          'When someone shows genuine interest in services, asks for details, or wants to learn more — offer the booking link proactively.\n'
+        : `Your #1 goal is to get interested leads booked in for a call.\n${noLinkFallback}\n`) +
       "If they hesitate or seem unsure, offer to collect their name and email so the team can reach out directly.\n" +
-      'NEVER mention pricing. Instead, say "The best way to get exact details is through a quick discovery call — I can send you the link right now."'
+      'NEVER mention pricing. Instead, say "The best way to get exact details is through a quick discovery call."'
     );
   }
   if (primaryGoal === 'Collect contact info / lead capture') {
@@ -119,11 +144,23 @@ function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): stri
   }
   if (primaryGoal === 'Drive to website / purchase') {
     return (
-      `Your primary goal is to drive interest toward the business and${bookLink ? ` the booking/purchase page: ${bookLink}` : ' the website'}.\n` +
+      (link
+        ? `Your primary goal is to drive interest toward the business and the booking or purchase page: ${link}\n`
+        : 'Your primary goal is to drive interest toward the business and its website.\n' +
+          'No link is configured, so never invent a URL — describe the next step in words instead.\n') +
       'Share relevant service information and guide users toward taking the next step.'
     );
   }
-  return null;
+
+  // Custom goal written by the business.
+  const custom = primaryGoal?.trim();
+  if (!custom) return null;
+  return (
+    `Your primary goal is: ${custom}\n` +
+    (link ? `Use this link when it helps move someone toward that goal: ${link}\n` : '') +
+    'Work toward it naturally across the conversation rather than pushing on every message, ' +
+    'and collect the contact details listed above once genuine interest is established.'
+  );
 }
 
 function buildHardRules(
@@ -174,7 +211,7 @@ function buildHardRules(
 export function buildWpmSystemPrompt(context: WpmBotContext): string {
   const { client, botProfile, instructions, knowledge } = context;
 
-  const primaryGoal = instructions?.primary_goal ?? 'Book a Calendly meeting';
+  const primaryGoal = instructions?.primary_goal ?? 'Book a meeting';
   const responseLanguage = instructions?.response_language ?? 'English + Latin American Spanish';
   const rawLength = botProfile.response_length ?? 'balanced';
 
