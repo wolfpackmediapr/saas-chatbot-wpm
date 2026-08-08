@@ -4,6 +4,7 @@ import { persistInboundWoztellMessage } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { createWoztellTextResponse, normalizeWoztellPayload, type NormalizedWoztellPayload } from '../_shared/woztell.ts';
 import { sendWoztellTextResponse } from '../_shared/woztell_botapi.ts';
+import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -160,6 +161,59 @@ Deno.serve(async (request) => {
       normalized: normalized.data,
       response,
     }, 200);
+  }
+
+  // ── Plan usage cap: pause AI when monthly conversations run out ──
+  // The conversation stays in the Inbox so a human can still reply.
+  const allowance = await checkConversationAllowance(supabase, persistence.clientId);
+  if (!allowance.allowed) {
+    console.warn(`[woztell-webhook] Conversation cap reached (${allowance.used}/${allowance.max}) for client ${persistence.clientId} — AI reply skipped`);
+
+    // Tell the customer once per conversation so they aren't ignored.
+    const { data: priorNotice } = await supabase
+      .from('wpm_messages')
+      .select('id')
+      .eq('conversation_id', persistence.conversationId)
+      .eq('metadata->>generated_by', 'usage_cap_notice')
+      .limit(1)
+      .maybeSingle();
+
+    let noticeSend: Awaited<ReturnType<typeof sendWoztellReply>> | null = null;
+    if (!priorNotice) {
+      noticeSend = await sendWoztellReply(USAGE_CAP_NOTICE, normalized.data);
+      if (noticeSend.ok) {
+        await supabase.from('wpm_messages').insert({
+          conversation_id: persistence.conversationId,
+          client_id: persistence.clientId,
+          direction: 'outbound',
+          role: 'assistant',
+          content: USAGE_CAP_NOTICE,
+          metadata: { generated_by: 'usage_cap_notice' },
+        });
+      }
+    }
+
+    if (eventId) {
+      await supabase
+        .from('wpm_webhook_events')
+        .update({
+          status: 'ignored',
+          error_message: `Monthly conversation cap reached (${allowance.used}/${allowance.max})`,
+          response_payload: noticeSend ? { usage_cap_notice: noticeSend } : { usage_cap_notice: 'already_sent' },
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', eventId);
+    }
+
+    return jsonResponse({
+      ok: true,
+      eventId,
+      insertError,
+      persistence,
+      ai: { ok: false, error: 'Monthly conversation cap reached; AI reply skipped' },
+      normalized: normalized.data,
+      response: { ok: true, delivery: noticeSend?.ok ? 'usage_cap_notice_sent' : 'usage_cap_no_reply' },
+    });
   }
 
   const openAIKey = Deno.env.get('OPENAI_API_KEY');

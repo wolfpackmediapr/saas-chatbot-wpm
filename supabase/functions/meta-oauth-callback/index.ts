@@ -45,17 +45,36 @@ Deno.serve(async (request: Request) => {
     const body = await request.json();
     // Support both old (user_token) and new (long_lived_token) callers
     const token: string = body.long_lived_token || body.user_token;
-    const supabase_user_id: string = body.supabase_user_id;
     const selected_page_ids: string[] | null = body.selected_page_ids ?? null;
 
     if (!token) return jsonResponse({ error: "long_lived_token required" }, 400);
-    if (!supabase_user_id) return jsonResponse({ error: "supabase_user_id required" }, 400);
 
     const appId = Deno.env.get("META_APP_ID");
     const appSecret = Deno.env.get("META_APP_SECRET");
 
     if (!appId || !appSecret) {
       return jsonResponse({ error: "META_APP_ID or META_APP_SECRET not configured" }, 500);
+    }
+
+    // Derive the user from the JWT — never trust a user ID from the body,
+    // or any authenticated user could overwrite another user's channels.
+    const jwt = request.headers.get("Authorization")?.replace("Bearer ", "");
+    if (!jwt) return jsonResponse({ error: "No authorization token" }, 401);
+
+    const supabaseUrlForAuth = Deno.env.get("SUPABASE_URL");
+    const serviceKeyForAuth = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrlForAuth || !serviceKeyForAuth) {
+      return jsonResponse({ error: "Supabase not configured" }, 500);
+    }
+    const authClient = createClient(supabaseUrlForAuth, serviceKeyForAuth, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: { user }, error: authError } = await authClient.auth.getUser(jwt);
+    if (authError || !user) return jsonResponse({ error: "Invalid token" }, 401);
+
+    const supabase_user_id = user.id;
+    if (body.supabase_user_id && body.supabase_user_id !== user.id) {
+      return jsonResponse({ error: "supabase_user_id does not match the authenticated user" }, 403);
     }
 
     // If we received a short-lived token (old caller), exchange it first.
@@ -119,6 +138,8 @@ Deno.serve(async (request: Request) => {
       .from("wpm_clients")
       .select("id")
       .eq("owner_user_id", supabase_user_id)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
 
     if (clientError || !clientRow) {

@@ -1,5 +1,13 @@
 {
   "version": "5",
+  "specifiers": {
+    "jsr:@supabase/functions-js@*": "2.110.1"
+  },
+  "jsr": {
+    "@supabase/functions-js@2.110.1": {
+      "integrity": "df6b230ff9a3e89f2fad21ac335a0cfffdcb641c477cf09f70b5500cca6804ee"
+    }
+  },
   "redirects": {
     "https://esm.sh/@supabase/node-fetch@^2.6.14?target=denonext": "https://esm.sh/@supabase/node-fetch@2.6.15?target=denonext",
     "https://esm.sh/bufferutil@^4.0.1?target=denonext": "https://esm.sh/bufferutil@4.1.0?target=denonext",
