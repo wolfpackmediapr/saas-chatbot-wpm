@@ -32,7 +32,7 @@ export async function listOwnedLeads(clientId: string, limit: number = 50): Prom
         service_interest: 'AI DM Agent - Professional',
         intent: 'pricing',
         qualification_data: { budget: 'monthly', timeline: 'this month' },
-        source_channel: 'whatsapp',
+        source_channel: 'instagram',
         status: 'qualified',
         assigned_to: null,
         last_contact_at: new Date().toISOString(),

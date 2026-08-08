@@ -37,7 +37,7 @@ export default function Landing() {
     {
       icon: MessageCircle,
       title: "24/7 Intelligent Replies",
-      desc: "AI responds instantly to DMs on WhatsApp, Instagram & Facebook using your exact brand voice and knowledge."
+      desc: "AI responds instantly to DMs on Instagram & Facebook using your exact brand voice and knowledge."
     },
     {
       icon: Target,
@@ -70,7 +70,7 @@ export default function Landing() {
     {
       step: "1",
       title: "Connect Channels",
-      desc: "Link your WhatsApp Business or Instagram via official Woztell in minutes."
+      desc: "Link your Instagram or Facebook Page through Meta's official login in minutes."
     },
     {
       step: "2",
@@ -156,7 +156,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary/60 border border-secondary mb-6 text-sm">
             <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            Official Woztell + OpenAI powered
+            Instagram &amp; Facebook · OpenAI powered
           </div>
 
           <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[0.95] mb-6">
@@ -166,7 +166,7 @@ export default function Landing() {
 
           <p className="max-w-2xl mx-auto text-xl md:text-2xl text-secondary-foreground mb-10">
             Deploy your own AI DM Agent in under 15 minutes.<br />
-            Never miss another lead in WhatsApp or Instagram again.
+            Never miss another lead in Instagram or Facebook DMs again.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
