@@ -451,7 +451,7 @@ export default function Inbox() {
 
       {/* ── Right panel: conversation detail ── */}
       <div className={cn(
-        'flex-1 flex flex-col min-w-0',
+        'flex-1 flex flex-col min-w-0 min-h-0',
         'lg:flex', showDetail ? 'flex' : 'hidden lg:flex',
       )}>
         {!selected ? (
