@@ -41,8 +41,10 @@ export default function Layout() {
           <div className="w-10" />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto">
-          <Outlet />
+        <div className="flex-1 min-h-0 overflow-auto flex flex-col">
+          <div className="flex-1">
+            <Outlet />
+          </div>
           <LegalFooter variant="compact" className="border-t border-secondary py-4 px-6" />
         </div>
       </main>
