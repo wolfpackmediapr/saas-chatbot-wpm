@@ -59,14 +59,34 @@ const HANDOFF_IDLE_MINUTES = 30;
  * The customer is sitting unanswered for this whole time, so the badge shows
  * it rather than a static "Human" label.
  */
-function waitingLabel(conv: Conversation): string | null {
+function waitingMinutes(conv: Conversation): number | null {
   const handoffAt = conv.metadata?.handoff_at;
   if (typeof handoffAt !== 'string') return null;
   const minutes = Math.floor((Date.now() - new Date(handoffAt).getTime()) / 60000);
   if (Number.isNaN(minutes) || minutes < 0) return null;
+  return minutes;
+}
+
+function waitingLabel(conv: Conversation): string | null {
+  const minutes = waitingMinutes(conv);
+  if (minutes === null) return null;
   if (minutes < 1) return 'You · now';
   if (minutes < 60) return `You · ${minutes}m`;
   return `You · ${Math.floor(minutes / 60)}h`;
+}
+
+/** " for 12m" — omitted entirely when we have no handoff timestamp. */
+function waitingSuffix(conv: Conversation): string {
+  const minutes = waitingMinutes(conv);
+  if (minutes === null) return '';
+  if (minutes < 1) return ' just now';
+  if (minutes < 60) return ` for ${minutes}m`;
+  return ` for ${Math.floor(minutes / 60)}h`;
+}
+
+/** Handoffs opened before source tracking, and all AI escalations, are 'auto'. */
+function handoffSource(conv: Conversation): 'manual' | 'auto' {
+  return conv.metadata?.handoff_source === 'manual' ? 'manual' : 'auto';
 }
 
 function displayName(conv: Conversation) {
@@ -475,6 +495,17 @@ export default function Inbox() {
                         <Clock className="h-3 w-3" />
                         First contact {new Date(selected.created_at).toLocaleDateString()}
                       </div>
+
+                      {/* Handoff state — the customer is waiting on a person, so
+                          say so here rather than only in the list. */}
+                      {selected.status === 'handoff' && (
+                        <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-orange-500">
+                          <UserCheck className="h-3 w-3" />
+                          {handoffSource(selected) === 'manual'
+                            ? `You took over${waitingSuffix(selected)} — the bot is paused`
+                            : `Escalated to you${waitingSuffix(selected)} — the bot keeps replying until you answer`}
+                        </div>
+                      )}
                     </div>
 
                     {/* Bot / Human toggle */}
