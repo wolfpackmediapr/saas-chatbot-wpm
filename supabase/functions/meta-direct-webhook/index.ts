@@ -528,6 +528,22 @@ Deno.serve(async (request: Request) => {
         continue;
       }
 
+      // ── Attribute the webhook event now that the tenant is known ─────
+      // The row is inserted before channel lookup so unmatched deliveries are
+      // still recorded, but nothing used to backfill these — every row had a
+      // NULL client_id, which also meant the "view owned webhook events" RLS
+      // policy could never match and owners saw none of their own events.
+      if (event.messageId) {
+        await supabase
+          .from('wpm_webhook_events')
+          .update({
+            client_id: channel.client_id,
+            channel_id: channel.id,
+            conversation_id: conversationId,
+          })
+          .eq('external_event_id', event.messageId);
+      }
+
       // ── Store inbound message ────────────────────────────────────────
       await supabase.from('wpm_messages').insert({
         conversation_id: conversationId,
