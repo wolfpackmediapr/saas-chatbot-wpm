@@ -393,8 +393,59 @@ Deno.serve(async (request: Request) => {
   for (const entry of entries) {
     const events = normalizeMetaEvents(entry, platform);
 
+    // A delivery that produces no usable event used to vanish: 200 returned,
+    // nothing written, no way to tell whether Meta sent nothing of interest or
+    // we dropped something we should have handled. Record it instead.
+    if (events.length === 0 && supabase) {
+      const raw = entry as { messaging?: Array<Record<string, unknown>> };
+      const kinds = (raw.messaging ?? []).map((m) =>
+        m.message
+          ? ((m.message as { is_echo?: boolean }).is_echo ? 'echo' : 'message')
+          : m.delivery
+            ? 'delivery'
+            : m.read
+              ? 'read'
+              : m.postback
+                ? 'postback'
+                : m.reaction
+                  ? 'reaction'
+                  : 'other',
+      );
+      // Echoes and receipts are normal chatter from our own replies — the
+      // interesting case is anything else arriving and going nowhere.
+      const onlyNoise = kinds.length > 0 && kinds.every((k) => k === 'echo' || k === 'delivery' || k === 'read');
+      if (!onlyNoise) {
+        console.warn(`[meta-direct] ${platform} delivery produced no events: ${kinds.join(', ') || 'empty'}`);
+        await supabase.from('wpm_webhook_events').insert({
+          provider: `meta_${platform}`,
+          event_type: 'unhandled',
+          external_event_id: null,
+          raw_payload: rawPayload,
+          normalized_payload: { entry_kinds: kinds },
+          status: 'ignored',
+          error_message: `Delivery produced no usable event (${kinds.join(', ') || 'empty messaging array'})`,
+        });
+      }
+    }
+
     for (const event of events) {
-      if (!event.text || event.rawEventType === 'unknown') continue;
+      if (!event.text || event.rawEventType === 'unknown') {
+        console.warn(
+          `[meta-direct] ${platform} event skipped — text=${event.text ? 'yes' : 'no'} type=${event.rawEventType}`,
+        );
+        if (supabase) {
+          await supabase.from('wpm_webhook_events').insert({
+            provider: `meta_${platform}`,
+            event_type: event.rawEventType,
+            external_event_id: event.messageId,
+            raw_payload: rawPayload,
+            normalized_payload: event,
+            status: 'ignored',
+            error_message: `Skipped: no text (type ${event.rawEventType})`,
+          });
+        }
+        continue;
+      }
 
       console.log(`[meta-direct] ${event.platform} from ${event.senderId}: "${event.text.substring(0, 80)}"`);
 
