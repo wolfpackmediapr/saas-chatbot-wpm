@@ -155,6 +155,18 @@ function buildHardRules(
     parts.push('', `Escalate IMMEDIATELY and offer human connection if user mentions: ${emergencyKeywords.join(', ')}`);
   }
 
+  if (handoffRules?.trim() || emergencyKeywords?.length) {
+    parts.push(
+      '',
+      'HOW TO ESCALATE: when the escalation policy applies, reply normally to',
+      'reassure the customer a person will follow up, then append the exact tag',
+      '[[HANDOFF]] at the very end of your message. The tag is removed before the',
+      'customer sees it and is what actually alerts the team — telling the customer',
+      'a human is coming without the tag means nobody is ever notified. Never use',
+      'the tag for ordinary questions you can answer yourself.',
+    );
+  }
+
   return parts.join('\n');
 }
 

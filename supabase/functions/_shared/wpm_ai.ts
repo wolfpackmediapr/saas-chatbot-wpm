@@ -1,4 +1,5 @@
 import { buildWpmAssistantMessages, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
+import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
   from(table: string): any;
@@ -196,7 +197,18 @@ export async function generateAndStoreAssistantReply(args: {
   /** Public image URLs attached to the inbound message (sent to vision-capable models). */
   imageUrls?: string[];
 }): Promise<
-  | { ok: true; content: string; messageId: string; modelProvider: string; modelName: string; tokenUsage: unknown }
+  | {
+      ok: true;
+      content: string;
+      /** Escalation fired — via emergency keyword or the AI's own signal. */
+      handoffRequested: boolean;
+      /** Why it fired, for the handoff event log. Null when no handoff. */
+      handoffReason: string | null;
+      messageId: string;
+      modelProvider: string;
+      modelName: string;
+      tokenUsage: unknown;
+    }
   | { ok: false; error: string }
 > {
   const loaded = await loadWpmBotContext(args.supabase, args.conversationId);
@@ -261,8 +273,23 @@ export async function generateAndStoreAssistantReply(args: {
     });
   }
 
-  const content = completion.content.trim();
+  // Strip the handoff sentinel before the reply is stored or sent — it is an
+  // internal signal, never customer-facing.
+  const { content, requested: sentinelRequested } = stripHandoffSignal(completion.content.trim());
   if (!content) return { ok: false, error: 'OpenAI returned an empty assistant response' };
+
+  // Deterministic escalation runs regardless of what the model decided: an
+  // emergency keyword must never depend on the model following instructions.
+  const keywordHit = matchEmergencyKeyword(
+    args.inboundMessage,
+    loaded.context.instructions?.emergency_keywords,
+  );
+  const handoffRequested = sentinelRequested || keywordHit !== null;
+  const handoffReason = keywordHit
+    ? `Emergency keyword: "${keywordHit}"`
+    : sentinelRequested
+      ? 'AI escalated per the escalation policy'
+      : null;
 
   const outboundPayload = buildOutboundAssistantMessageInsertPayload({
     conversationId: loaded.conversation.id,
@@ -287,6 +314,8 @@ export async function generateAndStoreAssistantReply(args: {
   return {
     ok: true,
     content,
+    handoffRequested,
+    handoffReason,
     messageId: (message as { id: string }).id,
     modelProvider,
     modelName,

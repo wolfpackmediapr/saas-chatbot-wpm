@@ -51,6 +51,24 @@ function PlatformIcon({ type, className }: { type: ChannelType; className?: stri
   return <MessageCircle className={cn('text-secondary-foreground', className)} />;
 }
 
+/** Mirrors HANDOFF_IDLE_MINUTES in supabase/functions/_shared/wpm_handoff.ts. */
+const HANDOFF_IDLE_MINUTES = 30;
+
+/**
+ * How long a handoff conversation has been waiting on a person.
+ * The customer is sitting unanswered for this whole time, so the badge shows
+ * it rather than a static "Human" label.
+ */
+function waitingLabel(conv: Conversation): string | null {
+  const handoffAt = conv.metadata?.handoff_at;
+  if (typeof handoffAt !== 'string') return null;
+  const minutes = Math.floor((Date.now() - new Date(handoffAt).getTime()) / 60000);
+  if (Number.isNaN(minutes) || minutes < 0) return null;
+  if (minutes < 1) return 'You · now';
+  if (minutes < 60) return `You · ${minutes}m`;
+  return `You · ${Math.floor(minutes / 60)}h`;
+}
+
 function displayName(conv: Conversation) {
   if (conv.external_user_name) return conv.external_user_name;
   if (conv.external_user_id) return conv.external_user_id.slice(0, 14) + '…';
@@ -247,18 +265,55 @@ export default function Inbox() {
     if (!selected || !supabase) return;
     setTogglingHandoff(true);
     setError(null);
-    const newStatus: ConvStatus = selected.status === 'handoff' ? 'active' : 'handoff';
+    const takingOver = selected.status !== 'handoff';
+    const newStatus: ConvStatus = takingOver ? 'handoff' : 'active';
+    const now = new Date().toISOString();
+
+    // handoff_at drives both the waiting badge and the 30-minute auto-return in
+    // the webhook. Without it a manual takeover is invisible and unmeasurable.
+    // handoff_source 'manual' means you meant "stop replying" — the bot goes
+    // quiet at once, unlike an AI escalation where it keeps helping until you
+    // actually step in. See decideHandoffAction in _shared/wpm_handoff.ts.
+    const nextMetadata = { ...(selected.metadata ?? {}) };
+    if (takingOver) {
+      nextMetadata.handoff_at = now;
+      nextMetadata.handoff_source = 'manual';
+    } else {
+      delete nextMetadata.handoff_at;
+      delete nextMetadata.handoff_source;
+    }
+
     const { error: err } = await supabase
       .from('wpm_conversations')
-      .update({ status: newStatus })
+      .update({ status: newStatus, metadata: nextMetadata })
       .eq('id', selected.id);
+
     if (err) {
       setError(`Failed to update status: ${err.message}`);
-    } else {
-      setConversations((prev) =>
-        prev.map((c) => c.id === selected.id ? { ...c, status: newStatus } : c),
-      );
+      setTogglingHandoff(false);
+      return;
     }
+
+    // Record the transition so handoffs are auditable instead of silent.
+    if (takingOver) {
+      await supabase.from('wpm_handoff_events').insert({
+        client_id: selected.client_id,
+        conversation_id: selected.id,
+        reason: 'Taken over manually from the Inbox',
+        priority: 'normal',
+        status: 'open',
+      });
+    } else {
+      await supabase
+        .from('wpm_handoff_events')
+        .update({ status: 'resolved', updated_at: now })
+        .eq('conversation_id', selected.id)
+        .eq('status', 'open');
+    }
+
+    setConversations((prev) =>
+      prev.map((c) => c.id === selected.id ? { ...c, status: newStatus, metadata: nextMetadata } : c),
+    );
     setTogglingHandoff(false);
   };
 
@@ -361,7 +416,7 @@ export default function Inbox() {
                             : 'bg-green-500/10 text-green-600 dark:text-green-400',
                         )}>
                           {conv.status === 'handoff'
-                            ? 'Human'
+                            ? waitingLabel(conv) ?? 'Human'
                             : (conv.bot_profile_id && agentNames[conv.bot_profile_id]) || 'Bot'}
                         </span>
                       </div>

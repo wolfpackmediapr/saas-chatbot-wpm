@@ -14,6 +14,7 @@ import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shar
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
+import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -544,7 +545,25 @@ Deno.serve(async (request: Request) => {
       });
 
       // ── Skip AI if a human has taken over this conversation ──────────
-      if (convData?.status === 'handoff') {
+      // Unless the human has gone quiet: without this, one takeover silenced
+      // the bot for that customer permanently and ghosted them.
+      let inHandoff = convData?.status === 'handoff';
+      if (inHandoff) {
+        const decision = await decideHandoffAction(supabase, conversationId);
+        if (decision.action === 'reply') {
+          console.log(`[meta-direct] Handoff on ${conversationId} — AI replying (${decision.reason})`);
+          if (decision.returnToBot) {
+            await closeHandoff(supabase, {
+              clientId: channel.client_id,
+              conversationId,
+              reason: decision.reason ?? 'Returned to bot',
+            });
+          }
+          inHandoff = false;
+        }
+      }
+
+      if (inHandoff) {
         console.log(`[meta-direct] Conversation ${conversationId} is in handoff mode — AI response skipped`);
         if (event.messageId) {
           await supabase
@@ -661,6 +680,21 @@ Deno.serve(async (request: Request) => {
 
       const sendResult = await sendGraphApiReply(event.senderId, replyText, pageAccessToken);
       console.log(`[meta-direct] Send: ${sendResult.ok ? 'OK' : sendResult.error}`);
+
+      // ── Escalate to a human ──────────────────────────────────────────
+      // After the reply goes out, so the customer gets the acknowledgement the
+      // AI just promised them and only then does the thread move to a human.
+      if (aiResult.handoffRequested) {
+        console.log(`[meta-direct] Handoff opened for ${conversationId}: ${aiResult.handoffReason}`);
+        await openHandoff(supabase, {
+          clientId: channel.client_id,
+          conversationId,
+          reason: aiResult.handoffReason ?? 'Escalation requested',
+          priority: aiResult.handoffReason?.startsWith('Emergency keyword') ? 'urgent' : 'normal',
+          source: 'auto',
+          metadata: { platform: event.platform, triggered_by_message_id: event.messageId ?? null },
+        });
+      }
 
       // Update webhook event status ('failed' — 'send_failed' violates the
       // status CHECK constraint, so those updates were silently rejected)
