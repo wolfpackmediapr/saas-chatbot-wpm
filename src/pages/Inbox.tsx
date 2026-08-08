@@ -137,12 +137,16 @@ export default function Inbox() {
   const selectedIdRef = useRef<string | null>(null);
   const conversationsRef = useRef<Conversation[]>([]);
 
+  const [filter, setFilter] = useState<'all' | 'needs_you'>('all');
+  const { markInboxSeen } = useNotifications();
+
+  // Derived values must come after the state they read — `visibleConversations`
+  // referenced `filter` above its declaration, which threw a temporal dead zone
+  // error ("Cannot access 'T' before initialization") and took out the page.
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
   const needsYouCount = conversations.filter((c) => c.status === 'handoff').length;
   const visibleConversations =
     filter === 'needs_you' ? conversations.filter((c) => c.status === 'handoff') : conversations;
-  const { markInboxSeen } = useNotifications();
-  const [filter, setFilter] = useState<'all' | 'needs_you'>('all');
 
   // Opening the Inbox clears its badge.
   useEffect(() => { markInboxSeen(); }, [markInboxSeen]);
