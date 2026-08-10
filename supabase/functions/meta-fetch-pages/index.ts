@@ -14,6 +14,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { GRAPH_API_BASE } from "../_shared/wpm_meta_api.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,7 +77,7 @@ Deno.serve(async (request: Request) => {
 
     if (body.code && body.redirect_uri) {
       // Exchange authorization code → short-lived user token
-      const codeExchangeUrl = new URL("https://graph.facebook.com/v20.0/oauth/access_token");
+      const codeExchangeUrl = new URL(`${GRAPH_API_BASE}/oauth/access_token`);
       codeExchangeUrl.searchParams.set("client_id", appId);
       codeExchangeUrl.searchParams.set("client_secret", appSecret);
       codeExchangeUrl.searchParams.set("redirect_uri", body.redirect_uri);
@@ -104,7 +105,7 @@ Deno.serve(async (request: Request) => {
     }
 
     // ── Step 2: Exchange short-lived token → 60-day long-lived token ─────────
-    const longLivedUrl = new URL("https://graph.facebook.com/v20.0/oauth/access_token");
+    const longLivedUrl = new URL(`${GRAPH_API_BASE}/oauth/access_token`);
     longLivedUrl.searchParams.set("grant_type", "fb_exchange_token");
     longLivedUrl.searchParams.set("client_id", appId);
     longLivedUrl.searchParams.set("client_secret", appSecret);
@@ -127,7 +128,7 @@ Deno.serve(async (request: Request) => {
     const longLivedToken: string = longLivedData.access_token;
 
     // ── Step 3: Fetch pages the user manages ─────────────────────────────────
-    const pagesUrl = new URL("https://graph.facebook.com/v20.0/me/accounts");
+    const pagesUrl = new URL(`${GRAPH_API_BASE}/me/accounts`);
     pagesUrl.searchParams.set(
       "fields",
       "id,name,access_token,category,tasks,instagram_business_account{id,username}",

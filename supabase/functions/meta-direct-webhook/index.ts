@@ -16,6 +16,7 @@ import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } 
 import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
+import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -183,7 +184,7 @@ async function fetchMetaUserProfile(
   try {
     const fields = platform === 'instagram' ? 'name,username' : 'name';
     const resp = await fetch(
-      `https://graph.facebook.com/v20.0/${encodeURIComponent(senderId)}?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`,
+      `${GRAPH_API_BASE}/${encodeURIComponent(senderId)}?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`,
     );
     if (!resp.ok) return null;
     const data = await resp.json() as { name?: string; username?: string };
@@ -298,7 +299,7 @@ async function sendGraphApiReply(
 ): Promise<{ ok: boolean; response?: unknown; error?: string }> {
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v20.0/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
+      `${GRAPH_API_BASE}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -427,8 +428,14 @@ Deno.serve(async (request: Request) => {
       // can see the moment Meta sends anything at all for the page object.
       // Scoped to messenger on purpose — Instagram's read/echo chatter is
       // constant and would bloat wpm_webhook_events with full raw payloads for
-      // no diagnostic value. Delete this flag once the bug is resolved.
-      const forceRecordForOutage = platform === 'messenger';
+      // no diagnostic value.
+      //
+      // Gated on META_FORCE_RECORD_MESSENGER=1 so this can live on main without
+      // being on by default: unsetting the secret retires the tripwire without a
+      // deploy. Once Meta's bug is resolved, delete the flag and this block's
+      // `|| forceRecordForOutage` — the standby detection above stays.
+      const forceRecordForOutage = platform === 'messenger' &&
+        Deno.env.get('META_FORCE_RECORD_MESSENGER') === '1';
       if (!onlyNoise || forceRecordForOutage) {
         const allKinds = [...kinds, ...standbyKinds];
         console.warn(`[meta-direct] ${platform} delivery produced no events: ${allKinds.join(', ') || 'empty'}`);

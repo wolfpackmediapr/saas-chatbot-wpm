@@ -1,6 +1,13 @@
 // Facebook JavaScript SDK loader and type declarations.
 // FB.login() manages the OAuth popup internally — no redirect URI needed.
 
+// Graph API version for the browser SDK. Must be kept in step with
+// GRAPH_API_VERSION in supabase/functions/_shared/wpm_meta_api.ts — the edge
+// functions and this SDK talk to the same app, and a login issued against one
+// version feeding calls made on another is a needless source of drift. They
+// can't share a module: this is bundled by Vite, that one runs under Deno.
+const FB_SDK_VERSION = 'v26.0';
+
 interface FBAuthResponse {
   accessToken: string;
   userID: string;
@@ -58,7 +65,7 @@ export function loadFacebookSDK(appId: string): Promise<void> {
       //                across page reloads (needed for redirect-mode fallback).
       // status:false — skip the automatic login-status XHR on init; prevents a
       //                race-condition that causes FB.login() to use redirect mode.
-      window.FB.init({ appId, cookie: true, xfbml: false, version: 'v20.0', status: false });
+      window.FB.init({ appId, cookie: true, xfbml: false, version: FB_SDK_VERSION, status: false });
       _loaded = true;
       _waiters.forEach(cb => cb());
       _waiters.length = 0;

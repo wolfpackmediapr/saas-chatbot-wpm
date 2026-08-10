@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { GRAPH_API_BASE } from "../_shared/wpm_meta_api.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,7 +83,7 @@ Deno.serve(async (request: Request) => {
     let longLivedToken = token;
     if (!body.long_lived_token && body.user_token) {
       const resp = await fetch(
-        `https://graph.facebook.com/v20.0/oauth/access_token` +
+        `${GRAPH_API_BASE}/oauth/access_token` +
           `?grant_type=fb_exchange_token` +
           `&client_id=${appId}` +
           `&client_secret=${appSecret}` +
@@ -97,7 +98,7 @@ Deno.serve(async (request: Request) => {
 
     // Fetch pages
     const pagesResp = await fetch(
-      `https://graph.facebook.com/v20.0/me/accounts` +
+      `${GRAPH_API_BASE}/me/accounts` +
         `?fields=id,name,access_token,category,tasks,instagram_business_account{id,username}`,
       { headers: { Authorization: `Bearer ${longLivedToken}` } }
     );
@@ -159,7 +160,7 @@ Deno.serve(async (request: Request) => {
       let webhookSubscribed = false;
       try {
         const subResp = await fetch(
-          `https://graph.facebook.com/v20.0/${page.id}/subscribed_apps` +
+          `${GRAPH_API_BASE}/${page.id}/subscribed_apps` +
             `?subscribed_fields=messages,messaging_postbacks`,
           { method: "POST", headers: { Authorization: `Bearer ${page.access_token}` } }
         );

@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,7 +29,7 @@ async function sendGraphApiReply(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v20.0/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
+      `${GRAPH_API_BASE}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

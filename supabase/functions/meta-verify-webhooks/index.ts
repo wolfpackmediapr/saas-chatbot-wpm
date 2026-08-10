@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { GRAPH_API_BASE } from "../_shared/wpm_meta_api.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,7 +71,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const subResp = await fetch(
-      `https://graph.facebook.com/v20.0/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks`,
+      `${GRAPH_API_BASE}/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks`,
       { method: "POST", headers: { Authorization: `Bearer ${channel.page_access_token}` } }
     );
     const subData = await subResp.json();
