@@ -397,8 +397,11 @@ Deno.serve(async (request: Request) => {
     // nothing written, no way to tell whether Meta sent nothing of interest or
     // we dropped something we should have handled. Record it instead.
     if (events.length === 0 && supabase) {
-      const raw = entry as { messaging?: Array<Record<string, unknown>> };
-      const kinds = (raw.messaging ?? []).map((m) =>
+      const raw = entry as {
+        messaging?: Array<Record<string, unknown>>;
+        standby?: Array<Record<string, unknown>>;
+      };
+      const kindOf = (m: Record<string, unknown>) =>
         m.message
           ? ((m.message as { is_echo?: boolean }).is_echo ? 'echo' : 'message')
           : m.delivery
@@ -409,21 +412,34 @@ Deno.serve(async (request: Request) => {
                 ? 'postback'
                 : m.reaction
                   ? 'reaction'
-                  : 'other',
-      );
+                  : 'other';
+      const kinds = (raw.messaging ?? []).map(kindOf);
+      // Handover protocol: when another app is the page's primary receiver,
+      // real customer messages arrive under `standby`, not `messaging`. That
+      // is never noise — it means we are silently losing messages.
+      const standbyKinds = (raw.standby ?? []).map((m) => `standby:${kindOf(m)}`);
       // Echoes and receipts are normal chatter from our own replies — the
       // interesting case is anything else arriving and going nowhere.
-      const onlyNoise = kinds.length > 0 && kinds.every((k) => k === 'echo' || k === 'delivery' || k === 'read');
-      if (!onlyNoise) {
-        console.warn(`[meta-direct] ${platform} delivery produced no events: ${kinds.join(', ') || 'empty'}`);
+      const onlyNoise = standbyKinds.length === 0 && kinds.length > 0 &&
+        kinds.every((k) => k === 'echo' || k === 'delivery' || k === 'read');
+      // TEMP DIAGNOSTIC (2026-08-09, Meta bug 3243304265853478): while Page
+      // deliveries are dead, record even noise-only messenger deliveries so we
+      // can see the moment Meta sends anything at all for the page object.
+      // Scoped to messenger on purpose — Instagram's read/echo chatter is
+      // constant and would bloat wpm_webhook_events with full raw payloads for
+      // no diagnostic value. Delete this flag once the bug is resolved.
+      const forceRecordForOutage = platform === 'messenger';
+      if (!onlyNoise || forceRecordForOutage) {
+        const allKinds = [...kinds, ...standbyKinds];
+        console.warn(`[meta-direct] ${platform} delivery produced no events: ${allKinds.join(', ') || 'empty'}`);
         await supabase.from('wpm_webhook_events').insert({
           provider: `meta_${platform}`,
-          event_type: 'unhandled',
+          event_type: onlyNoise ? 'noise' : 'unhandled',
           external_event_id: null,
           raw_payload: rawPayload,
-          normalized_payload: { entry_kinds: kinds },
+          normalized_payload: { entry_kinds: allKinds },
           status: 'ignored',
-          error_message: `Delivery produced no usable event (${kinds.join(', ') || 'empty messaging array'})`,
+          error_message: `Delivery produced no usable event (${allKinds.join(', ') || 'empty messaging array'})`,
         });
       }
     }
