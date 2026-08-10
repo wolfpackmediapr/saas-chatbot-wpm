@@ -363,6 +363,51 @@ Deno.serve(async (request: Request) => {
     const valid = await verifyMetaSignature(rawBodyBytes, sig, appSecret);
     if (!valid) {
       console.warn('[meta-direct] Signature verification failed');
+      // Opt-in forensic capture for Meta bug 3243304265853478 (page webhooks
+      // are not being dispatched at all). Records that an unverifiable request
+      // arrived, so a delivery with a bad or missing signature is visible
+      // rather than vanishing behind a 403.
+      //
+      // This does NOT weaken verification — the request is still rejected
+      // below. Enable with `META_CAPTURE_UNSIGNED=1` in Edge Function secrets;
+      // unset it to switch off without redeploying. Leave OFF by default: the
+      // endpoint is public, so anyone could otherwise write rows at will.
+      if (Deno.env.get('META_CAPTURE_UNSIGNED') === '1') {
+        try {
+          const supabase = getSupabaseAdmin();
+          if (supabase) {
+            // Allow-list headers. Never record Authorization or Cookie.
+            const safeHeaders: Record<string, string> = {};
+            for (const name of ['user-agent', 'content-type', 'content-length', 'x-forwarded-for']) {
+              const v = request.headers.get(name);
+              if (v) safeHeaders[name] = v;
+            }
+            const body = new TextDecoder().decode(rawBodyBytes);
+            await supabase.from('wpm_webhook_events').insert({
+              provider: 'meta_unverified',
+              event_type: 'unsigned_capture',
+              external_event_id: null,
+              raw_payload: {
+                method: request.method,
+                path: new URL(request.url).pathname,
+                signature_header_present: sig !== null,
+                // The signature itself is a MAC, not a secret, and seeing it
+                // is the point — a malformed one implicates the sender.
+                signature_header: sig,
+                headers: safeHeaders,
+                body_preview: body.slice(0, 4000),
+                body_bytes: rawBodyBytes.length,
+              },
+              normalized_payload: { captured_at: new Date().toISOString() },
+              status: 'ignored',
+              error_message: 'Signature verification failed — captured for Meta bug 3243304265853478',
+            });
+          }
+        } catch (err) {
+          // Never let diagnostics change the response we give Meta.
+          console.error('[meta-direct] unsigned capture failed', err);
+        }
+      }
       return jsonResponse({ error: 'Invalid signature' }, 403);
     }
   } else {
