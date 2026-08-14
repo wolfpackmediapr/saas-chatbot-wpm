@@ -116,10 +116,20 @@ console.log(`Comparing ${OLD} → ${NEW}\n${'─'.repeat(60)}\n`);
 const checks = [
   // Page identity via page token — the token itself must stay valid at the new version.
   await callBoth('1. Page identity', '/me?fields=id,name'),
-  // The exact field list meta-oauth-callback and meta-fetch-pages request.
+  // The field list meta-oauth-callback and meta-fetch-pages request, minus `tasks`.
+  //
+  // Those two call GET /me/accounts?fields=...,tasks,... with a long-lived USER
+  // token, where `tasks` describes what that user may do on the page. `tasks`
+  // does not exist on the page node itself, so asking for it here with a PAGE
+  // token returns "(#100) nonexisting field (tasks)" at EVERY version — it looks
+  // like a migration failure but is purely an artifact of the canary's own
+  // credentials. Reproducing /me/accounts would need an interactive OAuth flow
+  // to mint a user token, which this script deliberately does not do; `tasks`
+  // is therefore out of scope here. Verify it after deploying by connecting a
+  // page through the real OAuth flow.
   await callBoth(
-    '2. Page fields used by OAuth/page-fetch',
-    `/${PAGE_ID}?fields=id,name,category,tasks,instagram_business_account{id,username}`,
+    '2. Page fields used by OAuth/page-fetch (minus `tasks`, see note)',
+    `/${PAGE_ID}?fields=id,name,category,instagram_business_account{id,username}`,
   ),
   // Webhook subscription shape, read-only counterpart to meta-verify-webhooks.
   await callBoth('3. Webhook subscriptions', `/${PAGE_ID}/subscribed_apps`),
