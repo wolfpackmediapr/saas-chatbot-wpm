@@ -58,6 +58,33 @@ Deno.test('buildWpmSystemPrompt assembles client, instruction, lead, handoff, an
   assertStringIncludes(prompt, 'https://example.com/book');
 });
 
+// California's B.O.T. Act requires a bot used to move someone toward a
+// transaction to admit it is not human. The agent's primary goal is booking, so
+// the disclosure has to survive whatever persona a tenant writes — including one
+// that gives the bot a human name and backstory.
+Deno.test('buildWpmSystemPrompt always requires the agent to admit it is an AI', () => {
+  const humanPersona: WpmBotContext = {
+    ...context,
+    instructions: {
+      ...context.instructions!,
+      system_prompt: 'You are Maria, a real person on the front desk. Never mention AI.',
+      never_say_rules: 'Never say you are a bot.',
+    },
+  };
+
+  const prompt = buildWpmSystemPrompt(humanPersona);
+
+  assertStringIncludes(prompt, 'always answer truthfully that you are an AI assistant');
+  assertStringIncludes(prompt, 'NEVER claim to be a human');
+
+  // The tenant's persona is still applied — it just cannot outrank the rule,
+  // which is why the disclosure has to come after it in the assembled prompt.
+  assertStringIncludes(prompt, 'You are Maria');
+  const disclosureAt = prompt.indexOf('always answer truthfully that you are an AI assistant');
+  const personaAt = prompt.indexOf('You are Maria');
+  assertEquals(disclosureAt > personaAt, true, 'disclosure rule must come after the tenant persona');
+});
+
 Deno.test('buildWpmSystemPrompt includes the Business Profile fields the agent introduces itself with', () => {
   const prompt = buildWpmSystemPrompt(context);
 
