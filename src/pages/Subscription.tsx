@@ -230,38 +230,49 @@ export default function Subscription({ embedded = false }: { embedded?: boolean 
         {/* Usage this month */}
         {usage && (
           <div className="mb-6 p-4 md:p-5 bg-secondary/30 border border-secondary rounded-xl">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 font-medium">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                Usage this month
-              </div>
-              <span className="text-sm text-secondary-foreground">
-                since {new Date(usage.period_start).toLocaleDateString()}
-              </span>
-            </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-2xl font-bold">{usage.conversations_used.toLocaleString()}</span>
-              <span className="text-sm text-secondary-foreground">
-                / {usage.max_conversations === null ? 'Unlimited' : usage.max_conversations.toLocaleString()} conversations
-              </span>
-            </div>
-            {usage.max_conversations !== null && (
-              <div className="h-2 rounded-full bg-secondary overflow-hidden mb-3">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all',
-                    usage.conversations_used / usage.max_conversations >= 0.9
-                      ? 'bg-red-500'
-                      : usage.conversations_used / usage.max_conversations >= 0.7
-                      ? 'bg-yellow-500'
-                      : 'bg-primary',
+            {/* Free accounts are metered by a one-time 1,000-message grant, paid
+                accounts by monthly conversations. Showing the conversation meter
+                to a free account would read "N / Unlimited", which is both wrong
+                and the opposite of the truth. */}
+            {(() => {
+              const onFreeGrant = usage.free_messages_limit !== null;
+              const used = onFreeGrant ? usage.messages_lifetime : usage.conversations_used;
+              const limit = onFreeGrant ? usage.free_messages_limit : usage.max_conversations;
+              const unit = onFreeGrant ? 'free messages' : 'conversations';
+              const ratio = limit ? used / limit : 0;
+              return (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 font-medium">
+                      <MessageSquare className="h-4 w-4 text-primary" />
+                      {onFreeGrant ? 'Free messages used' : 'Usage this month'}
+                    </div>
+                    <span className="text-sm text-secondary-foreground">
+                      {onFreeGrant
+                        ? "doesn't expire"
+                        : `since ${new Date(usage.period_start).toLocaleDateString()}`}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-2xl font-bold">{used.toLocaleString()}</span>
+                    <span className="text-sm text-secondary-foreground">
+                      / {limit === null ? 'Unlimited' : limit.toLocaleString()} {unit}
+                    </span>
+                  </div>
+                  {limit !== null && (
+                    <div className="h-2 rounded-full bg-secondary overflow-hidden mb-3">
+                      <div
+                        className={cn(
+                          'h-full rounded-full transition-all',
+                          ratio >= 0.9 ? 'bg-red-500' : ratio >= 0.7 ? 'bg-yellow-500' : 'bg-primary',
+                        )}
+                        style={{ width: `${Math.min(100, ratio * 100)}%` }}
+                      />
+                    </div>
                   )}
-                  style={{
-                    width: `${Math.min(100, (usage.conversations_used / usage.max_conversations) * 100)}%`,
-                  }}
-                />
-              </div>
-            )}
+                </>
+              );
+            })()}
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-secondary-foreground">
               <span>{usage.messages_in.toLocaleString()} messages received</span>
               <span>{usage.messages_out.toLocaleString()} AI replies</span>

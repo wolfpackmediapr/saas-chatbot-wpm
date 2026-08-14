@@ -34,9 +34,9 @@ const tiers: Tier[] = [
       "Human handoff inbox included",
       "Basic automations & email support",
       "Launch Checklist & Test Agent",
-      "7-day free trial"
+      "1,000 free messages to start"
     ],
-    cta: "Start 7-day free trial",
+    cta: "Start free — 1,000 messages",
     ctaLink: "/signup",
     overage: "Fair overages apply after limit"
   },
@@ -57,7 +57,7 @@ const tiers: Tier[] = [
       "Advanced lead capture",
       "Unlimited history & Test Agent"
     ],
-    cta: "Start 7-day free trial",
+    cta: "Start free — 1,000 messages",
     ctaLink: "/signup",
     overage: "Fair overages apply after limit"
   },
@@ -79,7 +79,7 @@ const tiers: Tier[] = [
       "White-label ready",
       "Unlimited history & Launch Checklist"
     ],
-    cta: "Start 7-day free trial",
+    cta: "Start free — 1,000 messages",
     ctaLink: "/signup",
     overage: "Fair overages apply after limit"
   },
@@ -151,7 +151,7 @@ export default function Pricing() {
               to="/signup" 
               className="px-5 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              Start 7-day free trial
+              Start free — 1,000 messages
             </Link>
           </div>
         </div>
@@ -249,7 +249,7 @@ export default function Pricing() {
                     {tier.cta} <ArrowRight className="inline h-4 w-4 ml-1" />
                   </Link>
                   <div className="text-center text-xs text-secondary-foreground mt-3">
-                    7-day free trial • {tier.overage}
+                    1,000 free messages to start • {tier.overage}
                   </div>
                 </div>
               </div>

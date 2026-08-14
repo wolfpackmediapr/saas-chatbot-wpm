@@ -13,7 +13,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
-import { checkConversationAllowance, USAGE_CAP_NOTICE } from '../_shared/wpm_usage.ts';
+import { checkConversationAllowance, noticeForBlock } from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
@@ -669,31 +669,36 @@ Deno.serve(async (request: Request) => {
         continue;
       }
 
-      // ── Plan usage cap: pause AI when monthly conversations run out ──
-      // The conversation stays in the Inbox so a human can still reply.
-      const allowance = await checkConversationAllowance(supabase, channel.client_id);
+      // ── Usage caps: pause AI when the account allowance or this single
+      // conversation's reply cap runs out. Either way the conversation stays in
+      // the Inbox so a human can still reply.
+      const allowance = await checkConversationAllowance(supabase, channel.client_id, conversationId);
       if (!allowance.allowed) {
-        console.warn(`[meta-direct] Conversation cap reached (${allowance.used}/${allowance.max}) for client ${channel.client_id} — AI reply skipped`);
+        const notice = noticeForBlock(allowance.reason);
+        const noticeKey = allowance.reason === 'conversation_cap'
+          ? 'conversation_cap_notice'
+          : 'usage_cap_notice';
+        console.warn(`[meta-direct] ${allowance.reason} reached (${allowance.used}/${allowance.max}) for client ${channel.client_id} — AI reply skipped`);
 
         // Tell the customer once per conversation so they aren't ignored.
         const { data: priorNotice } = await supabase
           .from('wpm_messages')
           .select('id')
           .eq('conversation_id', conversationId)
-          .eq('metadata->>generated_by', 'usage_cap_notice')
+          .eq('metadata->>generated_by', noticeKey)
           .limit(1)
           .maybeSingle();
 
         if (!priorNotice && pageAccessToken) {
-          const noticeSend = await sendGraphApiReply(event.senderId, USAGE_CAP_NOTICE, pageAccessToken);
+          const noticeSend = await sendGraphApiReply(event.senderId, notice, pageAccessToken);
           if (noticeSend.ok) {
             await supabase.from('wpm_messages').insert({
               conversation_id: conversationId,
               client_id: channel.client_id,
               direction: 'outbound',
               role: 'assistant',
-              content: USAGE_CAP_NOTICE,
-              metadata: { generated_by: 'usage_cap_notice' },
+              content: notice,
+              metadata: { generated_by: noticeKey },
             });
           }
         }

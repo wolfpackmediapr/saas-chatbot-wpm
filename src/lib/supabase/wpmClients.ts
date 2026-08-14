@@ -261,11 +261,17 @@ export async function getPlanLimits(): Promise<{ max_channels: number | null; ma
 
 export interface UsageSummary {
   conversations_used: number;
-  max_conversations: number | null; // null = unlimited
+  /** null = not metered by conversations (free accounts, agency, admins). */
+  max_conversations: number | null;
   messages_in: number;
   messages_out: number;
   tokens_used: number;
   period_start: string;
+  /** Messages across all time — what the free grant is spent against. */
+  messages_lifetime: number;
+  /** 1000 on the free plan; null once paid (then max_conversations applies). */
+  free_messages_limit: number | null;
+  within_allowance: boolean;
 }
 
 /** Current-month usage across the signed-in user's clients (null if unavailable). */

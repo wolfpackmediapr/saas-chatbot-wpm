@@ -1,11 +1,21 @@
 /**
  * Plan usage allowance checks for the webhook pipeline.
  *
- * "Conversations used" = distinct conversations with an inbound message this
- * calendar month (same definition as the get_wpm_usage RPC / pricing unit).
- * A conversation that already counted this month may continue at the cap;
- * only conversations beyond the cap are blocked. Fails open: any lookup
- * error allows the reply rather than silencing a paying customer's bot.
+ * Two independent limits, both of which pause the bot:
+ *
+ *  1. Account allowance — free accounts get a one-time 1,000-message lifetime
+ *     grant; paid accounts get their monthly conversation cap. The
+ *     get_wpm_usage RPC collapses both into `within_allowance`.
+ *
+ *  2. Per-conversation reply cap — at most MAX_REPLIES_PER_CONVERSATION model
+ *     replies in a single thread. Real traffic showed conversations averaging
+ *     18,264 tokens with a median of 6,142 and a worst case of 175,854: a 29x
+ *     spread driven entirely by a few threads that never ended. Without this
+ *     cap, any allowance has an unbounded tail attached, because one runaway
+ *     conversation can cost what 29 normal ones do.
+ *
+ * Both fail open: any lookup error allows the reply rather than silencing a
+ * paying customer's bot.
  */
 
 interface SupabaseLike {
@@ -15,17 +25,53 @@ interface SupabaseLike {
   rpc(fn: string, args: Record<string, unknown>): any;
 }
 
+/** Most model replies allowed in one conversation before a human takes over. */
+export const MAX_REPLIES_PER_CONVERSATION = 30;
+
+export type AllowanceBlockReason = 'account_allowance' | 'conversation_cap';
+
 export interface ConversationAllowance {
   allowed: boolean;
   used: number | null;
   max: number | null;
+  /** Set only when `allowed` is false — decides which notice to send. */
+  reason?: AllowanceBlockReason;
 }
 
+/**
+ * Check both limits. `conversationId` is optional so callers that do not have
+ * one yet (a brand new thread) still get the account-level check.
+ */
 export async function checkConversationAllowance(
   supabase: SupabaseLike,
   clientId: string,
+  conversationId?: string | null,
 ): Promise<ConversationAllowance> {
   try {
+    // ── 2. Per-conversation reply cap ────────────────────────────────────────
+    // Checked first: it is a single indexed count, and a thread that has run
+    // away should stop regardless of how much account allowance is left.
+    if (conversationId) {
+      // The pipeline writes 'outbound'. An earlier version of get_wpm_usage
+      // filtered on 'out' and silently counted zero for every account, so match
+      // both spellings rather than trusting either one.
+      const { count, error: countError } = await supabase
+        .from('wpm_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .in('direction', ['out', 'outbound']);
+
+      if (!countError && typeof count === 'number' && count >= MAX_REPLIES_PER_CONVERSATION) {
+        return {
+          allowed: false,
+          used: count,
+          max: MAX_REPLIES_PER_CONVERSATION,
+          reason: 'conversation_cap',
+        };
+      }
+    }
+
+    // ── 1. Account allowance ─────────────────────────────────────────────────
     const { data: client } = await supabase
       .from('wpm_clients')
       .select('owner_user_id')
@@ -38,15 +84,23 @@ export async function checkConversationAllowance(
     const { data, error } = await supabase.rpc('get_wpm_usage', { p_user_id: ownerUserId });
     if (error || !data?.length) return { allowed: true, used: null, max: null };
 
-    const row = data[0] as { conversations_used: number; max_conversations: number | null };
-    if (row.max_conversations === null) {
-      return { allowed: true, used: row.conversations_used, max: null };
-    }
-    return {
-      allowed: row.conversations_used <= row.max_conversations,
-      used: row.conversations_used,
-      max: row.max_conversations,
+    const row = data[0] as {
+      conversations_used: number;
+      max_conversations: number | null;
+      messages_lifetime: number;
+      free_messages_limit: number | null;
+      within_allowance: boolean;
     };
+
+    // Report against whichever meter actually applies to this account, so the
+    // logged "used/max" matches the limit that blocked it.
+    const onFreeGrant = row.free_messages_limit !== null;
+    const used = onFreeGrant ? row.messages_lifetime : row.conversations_used;
+    const max = onFreeGrant ? row.free_messages_limit : row.max_conversations;
+
+    return row.within_allowance
+      ? { allowed: true, used, max }
+      : { allowed: false, used, max, reason: 'account_allowance' };
   } catch {
     return { allowed: true, used: null, max: null };
   }
@@ -55,3 +109,16 @@ export async function checkConversationAllowance(
 /** Customer-facing notice when the business's plan cap pauses the bot. */
 export const USAGE_CAP_NOTICE =
   'Thanks for your message! Our automated assistant is temporarily unavailable — a member of our team will get back to you as soon as possible.';
+
+/**
+ * Customer-facing notice when a single conversation has run long. Worded as a
+ * handoff rather than an outage, because from the customer's side that is
+ * exactly what it is — the thread continues, just with a person.
+ */
+export const CONVERSATION_CAP_NOTICE =
+  "Thanks for all the detail! I'm bringing someone from our team into this conversation so they can help you properly from here.";
+
+/** The right notice for a blocked reply. */
+export function noticeForBlock(reason: AllowanceBlockReason | undefined): string {
+  return reason === 'conversation_cap' ? CONVERSATION_CAP_NOTICE : USAGE_CAP_NOTICE;
+}
