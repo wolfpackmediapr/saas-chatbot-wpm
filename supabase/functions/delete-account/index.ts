@@ -20,6 +20,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno';
+import { sendAccountDeletionConfirmation } from '../_shared/wpm_email.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -153,6 +154,16 @@ Deno.serve(async (request) => {
     );
   }
 
+  // ── 4. Confirm, last ───────────────────────────────────────────────────────
+  // The published page promises a confirmation email "once deletion is
+  // complete", so it is sent after the fact, from the address held in memory —
+  // the identity row it belonged to no longer exists. Best-effort: the account
+  // is already gone, so a mail failure must not fail the request.
+  const confirmation = await sendAccountDeletionConfirmation(user.email ?? '');
+  if (!confirmation.sent) {
+    console.warn(`[delete-account] Confirmation email not sent: ${confirmation.reason}`);
+  }
+
   console.log(`[delete-account] Deleted account ${user.id}`);
-  return jsonResponse({ ok: true, deletion, billing });
+  return jsonResponse({ ok: true, deletion, billing, confirmationEmailSent: confirmation.sent });
 });

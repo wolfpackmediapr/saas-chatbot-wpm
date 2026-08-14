@@ -169,3 +169,50 @@ export async function sendEscalationEmail(
 
   return sendViaResend({ to, subject, html });
 }
+
+/**
+ * Confirms an account deletion to the address that owned it.
+ *
+ * The published page at wolfpackmediapr.com/data-deletion promises a
+ * confirmation email "once deletion is complete". Before this existed, the
+ * email route honoured that by hand while the in-app button honoured nothing —
+ * the page made a promise the product did not keep, which is the exact defect
+ * the deletion work was undertaken to fix.
+ *
+ * It doubles as a security notice: if someone else deleted the account, this is
+ * the only signal the real owner would ever get. That is also why it is sent
+ * after the deletion rather than before — it reports what happened, and the
+ * address is held in memory since the identity row is already gone.
+ *
+ * Best-effort. The account is already deleted by the time this runs, so a
+ * failure here is logged and never fails the request.
+ */
+export async function sendAccountDeletionConfirmation(to: string): Promise<EmailResult> {
+  if (!to) return { sent: false, reason: 'no address' };
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:520px">
+      <h2 style="margin:0 0 12px;font-size:18px">Your account has been deleted</h2>
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.6">
+        Your WolfPack Media Chat account for <strong>${escapeHtml(to)}</strong> has been
+        permanently deleted, along with your business profile, agent settings,
+        conversations, messages, saved leads, knowledge base, and connected
+        Facebook and Instagram access tokens.
+      </p>
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.6">
+        Any active subscription has been cancelled, so you will not be billed again.
+        Billing and tax records are retained for 7 years as required by law.
+      </p>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#666">
+        If you did not request this, reply to this email immediately — this is the
+        only notice you will receive.
+      </p>
+    </div>
+  `;
+
+  return sendViaResend({
+    to,
+    subject: 'Your WolfPack Media Chat account has been deleted',
+    html,
+  });
+}
