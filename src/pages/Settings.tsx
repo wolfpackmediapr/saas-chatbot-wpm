@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
+  Trash2,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import LogoUpload from '../components/LogoUpload';
@@ -24,7 +25,7 @@ import {
   updateProfileName,
   UserSettings,
 } from '../lib/supabase/settings';
-import { updatePassword } from '../lib/supabase/auth';
+import { updatePassword, deleteAccount } from '../lib/supabase/auth';
 import { getOwnedWpmClient } from '../lib/supabase/wpmClients';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
@@ -396,7 +397,94 @@ function AccountSettings() {
           />
         </div>
       </SectionCard>
+
+      <DeleteAccountSection email={user?.email ?? ''} onDeleted={signOut} />
     </div>
+  );
+}
+
+// ─── Delete account ──────────────────────────────────────────────────────────
+
+/**
+ * The in-app half of the deletion promise published at
+ * wolfpackmediapr.com/data-deletion. Deletion is immediate and total, so the
+ * confirmation is deliberately awkward: the account's own email has to be typed
+ * exactly. The edge function re-checks it — this is a speed bump, not the guard.
+ */
+function DeleteAccountSection({ email, onDeleted }: { email: string; onDeleted: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const matches = confirm.trim().toLowerCase() === email.toLowerCase() && email.length > 0;
+
+  const handleDelete = async () => {
+    if (!matches) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteAccount(confirm.trim());
+      // Data and identity are gone; the session left behind is meaningless.
+      onDeleted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Deletion failed. Please contact support.');
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      icon={Trash2}
+      title="Delete account"
+      description="Permanently erase your account and everything in it."
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          This removes your business profile, agent settings, every conversation and
+          message, all saved leads, your knowledge base, and your connected Facebook and
+          Instagram access tokens. Any active subscription is cancelled.
+        </p>
+
+        <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-4">
+          <p className="text-sm font-medium text-red-500 mb-1">This is permanent.</p>
+          <p className="text-sm text-muted-foreground">
+            It cannot be undone and we cannot recover the data afterwards. Type{' '}
+            <span className="font-mono text-foreground">{email}</span> below to confirm.
+          </p>
+        </div>
+
+        <input
+          type="email"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder={email}
+          autoComplete="off"
+          disabled={deleting}
+          aria-label="Type your email address to confirm account deletion"
+          className="w-full px-3 py-2.5 rounded-lg bg-background border border-secondary focus:border-primary outline-none text-sm"
+        />
+
+        {error && <Banner kind="error" message={error} />}
+
+        {/* Label fixed by the published instructions at /data-deletion, which
+            say to type your email and then click "Delete my account". The page
+            describing a control that does not exist is the exact failure this
+            section was built to fix, so the wording tracks the page. */}
+        <button
+          onClick={handleDelete}
+          disabled={!matches || deleting}
+          className={cn(
+            'px-4 py-2.5 rounded-lg text-sm font-medium transition-colors touch-manipulation inline-flex items-center gap-2',
+            matches && !deleting
+              ? 'bg-red-500 text-white hover:bg-red-600'
+              : 'bg-secondary text-muted-foreground cursor-not-allowed',
+          )}
+        >
+          {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
+          {deleting ? 'Deleting…' : 'Delete my account'}
+        </button>
+      </div>
+    </SectionCard>
   );
 }
 

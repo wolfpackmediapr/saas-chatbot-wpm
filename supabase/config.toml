@@ -321,3 +321,8 @@ verify_jwt = false
 
 [functions.woztell-webhook]
 verify_jwt = false
+
+# Deletes the caller's own account. JWT verification stays ON — the caller's
+# token is the only thing that decides whose data is erased.
+[functions.delete-account]
+verify_jwt = true
