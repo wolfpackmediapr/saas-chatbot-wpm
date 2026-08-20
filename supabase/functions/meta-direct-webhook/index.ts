@@ -13,7 +13,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
-import { checkConversationAllowance, noticeForBlock } from '../_shared/wpm_usage.ts';
+import {
+  checkConversationAllowance,
+  conversationCapWindowStart,
+  describeBlock,
+  noticeForBlock,
+} from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
@@ -680,14 +685,19 @@ Deno.serve(async (request: Request) => {
           : 'usage_cap_notice';
         console.warn(`[meta-direct] ${allowance.reason} reached (${allowance.used}/${allowance.max}) for client ${channel.client_id} — AI reply skipped`);
 
-        // Tell the customer once per conversation so they aren't ignored.
-        const { data: priorNotice } = await supabase
+        // Tell the customer once so they aren't ignored. For the reply cap that
+        // means once per window, not once per conversation: the cap now recurs
+        // each window, and a once-ever notice would leave the customer in
+        // total silence every window after the first.
+        let noticeQuery = supabase
           .from('wpm_messages')
           .select('id')
           .eq('conversation_id', conversationId)
-          .eq('metadata->>generated_by', noticeKey)
-          .limit(1)
-          .maybeSingle();
+          .eq('metadata->>generated_by', noticeKey);
+        if (allowance.reason === 'conversation_cap') {
+          noticeQuery = noticeQuery.gt('created_at', conversationCapWindowStart());
+        }
+        const { data: priorNotice } = await noticeQuery.limit(1).maybeSingle();
 
         if (!priorNotice && pageAccessToken) {
           const noticeSend = await sendGraphApiReply(event.senderId, notice, pageAccessToken);
@@ -708,7 +718,7 @@ Deno.serve(async (request: Request) => {
             .from('wpm_webhook_events')
             .update({
               status: 'ignored',
-              error_message: `Monthly conversation cap reached (${allowance.used}/${allowance.max})`,
+              error_message: describeBlock(allowance),
               processed_at: new Date().toISOString(),
             })
             .eq('external_event_id', event.messageId);

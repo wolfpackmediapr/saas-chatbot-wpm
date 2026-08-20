@@ -1,6 +1,8 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   checkConversationAllowance,
+  CONVERSATION_CAP_WINDOW_HOURS,
+  describeBlock,
   MAX_REPLIES_PER_CONVERSATION,
   noticeForBlock,
   CONVERSATION_CAP_NOTICE,
@@ -18,6 +20,7 @@ function makeSupabase(opts: {
   usageRow?: Record<string, unknown> | null;
   rpcError?: boolean;
   onCountFilter?: (column: string, values: unknown[]) => void;
+  onCountWindow?: (column: string, value: unknown) => void;
 }) {
   return {
     from(table: string) {
@@ -32,6 +35,10 @@ function makeSupabase(opts: {
         },
         in(column: string, values: unknown[]) {
           opts.onCountFilter?.(column, values);
+          return this;
+        },
+        gt(column: string, value: unknown) {
+          opts.onCountWindow?.(column, value);
           return this;
         },
         maybeSingle() {
@@ -168,4 +175,67 @@ Deno.test('each block reason gets its own customer-facing notice', () => {
   assertEquals(noticeForBlock('conversation_cap'), CONVERSATION_CAP_NOTICE);
   assertEquals(noticeForBlock('account_allowance'), USAGE_CAP_NOTICE);
   assertEquals(noticeForBlock(undefined), USAGE_CAP_NOTICE);
+});
+
+// Regression guard for the 2026-08-20 production incident. The reply cap
+// counted outbound messages for ALL TIME, which made it permanent: an IG/FB DM
+// thread is one continuous thread per person for life, so a live thread sat at
+// 98 replies with its last bot reply six days earlier and stayed blocked. The
+// count MUST be bounded to the rolling window or the bot never recovers.
+Deno.test('the reply cap counts only the current window, never all time', async () => {
+  let column: string | null = null;
+  let bound: unknown = null;
+  const supabase = makeSupabase({
+    outboundCount: 0,
+    ownerUserId: 'user-1',
+    usageRow: freeWithinGrant,
+    onCountWindow: (c, v) => {
+      column = c;
+      bound = v;
+    },
+  });
+  await checkConversationAllowance(supabase, 'client-1', 'conv-1');
+
+  assertEquals(column, 'created_at');
+
+  // The bound must sit CONVERSATION_CAP_WINDOW_HOURS back, not at the epoch.
+  const ageHours = (Date.now() - new Date(bound as string).getTime()) / 3_600_000;
+  assertEquals(Math.round(ageHours), CONVERSATION_CAP_WINDOW_HOURS);
+});
+
+// A thread that has run long inside the window is still blocked — the fix
+// scopes the cap, it does not remove the runaway-thread guard.
+Deno.test('a thread over the cap within the window is still blocked', async () => {
+  const supabase = makeSupabase({
+    outboundCount: MAX_REPLIES_PER_CONVERSATION + 68, // the live IG thread's 98
+    ownerUserId: 'user-1',
+    usageRow: freeWithinGrant,
+  });
+  const result = await checkConversationAllowance(supabase, 'client-1', 'conv-1');
+
+  assertEquals(result.allowed, false);
+  assertEquals(result.reason, 'conversation_cap');
+});
+
+// The operator-facing string named the wrong limit for both reasons, which sent
+// a live debugging session after Meta and plan usage instead of the reply cap.
+Deno.test('describeBlock names the limit that actually fired', () => {
+  const capped = describeBlock({
+    allowed: false,
+    used: 98,
+    max: 30,
+    reason: 'conversation_cap',
+  });
+  assertEquals(capped.includes('Per-conversation reply cap'), true);
+  assertEquals(capped.includes('98/30'), true);
+  assertEquals(capped.includes('Monthly'), false);
+
+  const allowance = describeBlock({
+    allowed: false,
+    used: 1000,
+    max: 1000,
+    reason: 'account_allowance',
+  });
+  assertEquals(allowance.includes('Account allowance'), true);
+  assertEquals(allowance.includes('reply cap'), false);
 });
