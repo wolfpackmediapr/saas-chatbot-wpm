@@ -34,7 +34,7 @@ const tiers: Tier[] = [
       "Human handoff inbox included",
       "Basic automations & email support",
       "Launch Checklist & Test Agent",
-      "1,000 free messages to start"
+      "1,000 free messages to start — sent and received"
     ],
     cta: "Start free — 1,000 messages",
     ctaLink: "/signup",
@@ -249,7 +249,7 @@ export default function Pricing() {
                     {tier.cta} <ArrowRight className="inline h-4 w-4 ml-1" />
                   </Link>
                   <div className="text-center text-xs text-secondary-foreground mt-3">
-                    1,000 free messages to start • {tier.overage}
+                    1,000 free messages to start, counting messages sent and received • {tier.overage}
                   </div>
                 </div>
               </div>

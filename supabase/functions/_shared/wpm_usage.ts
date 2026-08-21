@@ -39,6 +39,28 @@ interface SupabaseLike {
  * Most model replies allowed in one conversation, per rolling window, before a
  * human takes over.
  */
+/**
+ * Whose messages count, decided by Wilf on 2026-08-21.
+ *
+ * FREE accounts are metered on `messages_lifetime`, which counts every row in
+ * wpm_messages for the owner's clients — inbound, AI replies, and replies a
+ * human typed in the Inbox alike. That is deliberate: a free account is using
+ * the platform, and human replies use it too.
+ *
+ * PAID accounts are metered on `conversations_used`, so a human reply cannot
+ * consume a paid allowance — it does not create a conversation. That already
+ * matches the policy and is why `get_wpm_usage` was not changed for it.
+ *
+ * The trap is for whoever implements overage. The pricing page advertises
+ * "fair overages apply after limit" and nothing charges them yet; the moment
+ * something does, billing per message would start charging paying customers
+ * for their own staff's typing. Bill paid overage on conversations, or filter
+ * `role = 'human'` out of the count first.
+ *
+ * Revisit the whole policy if Meta's API limits ever become the binding
+ * constraint rather than our costs.
+ */
+
 export const MAX_REPLIES_PER_CONVERSATION = 30;
 
 /**
@@ -131,9 +153,17 @@ export async function checkConversationAllowance(
   }
 }
 
-/** Customer-facing notice when the business's plan cap pauses the bot. */
+/**
+ * Customer-facing notice when the business's plan cap pauses the bot.
+ *
+ * Deliberately does not say "temporarily". The free grant is a lifetime count
+ * that never resets, so for a free account that has spent it this state is
+ * permanent until the business subscribes — telling the customer to wait for
+ * something that is not coming is worse than saying nothing. What is actually
+ * true, and all the customer needs, is that a person will pick this up.
+ */
 export const USAGE_CAP_NOTICE =
-  'Thanks for your message! Our automated assistant is temporarily unavailable — a member of our team will get back to you as soon as possible.';
+  "Thanks for your message! I'm handing this to a member of our team — they'll get back to you shortly.";
 
 /**
  * Customer-facing notice when a single conversation has run long. Worded as a

@@ -258,7 +258,7 @@ export default function Landing() {
         <div className="text-center mb-12">
           <div className="text-primary text-sm font-medium tracking-[2px] mb-3">TRANSPARENT PRICING</div>
           <h2 className="text-4xl font-bold tracking-tight mb-3">Simple plans. Real results.</h2>
-          <p className="text-xl text-secondary-foreground">Start free — your first 1,000 messages are on us. No credit card, no timer, and they don't expire.</p>
+          <p className="text-xl text-secondary-foreground">Start free — your first 1,000 messages are on us, counting messages sent and received. No credit card, no timer, and they don't expire.</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">

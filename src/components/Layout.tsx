@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 import LegalFooter from './LegalFooter';
+import UsageBanner from './UsageBanner';
 
 /**
  * Chat-style pages own the full viewport and scroll internally, so their
@@ -52,6 +53,8 @@ export default function Layout() {
           </div>
           <div className="w-10" />
         </div>
+
+        <UsageBanner />
 
         {isFullHeight ? (
           // min-h-0 lets this flex child be shorter than its content, which is
