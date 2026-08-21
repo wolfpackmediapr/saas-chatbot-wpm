@@ -8,11 +8,21 @@
  *     get_wpm_usage RPC collapses both into `within_allowance`.
  *
  *  2. Per-conversation reply cap — at most MAX_REPLIES_PER_CONVERSATION model
- *     replies in a single thread. Real traffic showed conversations averaging
- *     18,264 tokens with a median of 6,142 and a worst case of 175,854: a 29x
- *     spread driven entirely by a few threads that never ended. Without this
- *     cap, any allowance has an unbounded tail attached, because one runaway
- *     conversation can cost what 29 normal ones do.
+ *     replies in a single thread within CONVERSATION_CAP_WINDOW_HOURS. Real
+ *     traffic showed conversations averaging 18,264 tokens with a median of
+ *     6,142 and a worst case of 175,854: a 29x spread driven entirely by a few
+ *     threads that never ended. Without this cap, any allowance has an
+ *     unbounded tail attached, because one runaway conversation can cost what
+ *     29 normal ones do.
+ *
+ *     The window is load-bearing. This counter was originally all-time, which
+ *     silently made the cap permanent: an Instagram or Messenger DM thread is
+ *     one continuous thread per person for life, so every returning customer
+ *     eventually crossed 30 lifetime replies and the bot went mute in that
+ *     thread forever, with no path back. Observed in production on 2026-08-20 —
+ *     a live IG thread sat at 98 replies with its last bot reply six days
+ *     earlier, still blocked. A rolling window keeps the runaway-thread guard
+ *     (the actual goal) while letting a healthy thread heal on its own.
  *
  * Both fail open: any lookup error allows the reply rather than silencing a
  * paying customer's bot.
@@ -25,8 +35,22 @@ interface SupabaseLike {
   rpc(fn: string, args: Record<string, unknown>): any;
 }
 
-/** Most model replies allowed in one conversation before a human takes over. */
+/**
+ * Most model replies allowed in one conversation, per rolling window, before a
+ * human takes over.
+ */
 export const MAX_REPLIES_PER_CONVERSATION = 30;
+
+/**
+ * How far back the per-conversation reply cap counts. Never remove this window
+ * — an unwindowed count silences a DM thread permanently. See the note above.
+ */
+export const CONVERSATION_CAP_WINDOW_HOURS = 24;
+
+/** Start of the current reply-cap window. */
+export function conversationCapWindowStart(now: Date = new Date()): string {
+  return new Date(now.getTime() - CONVERSATION_CAP_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+}
 
 export type AllowanceBlockReason = 'account_allowance' | 'conversation_cap';
 
@@ -59,7 +83,8 @@ export async function checkConversationAllowance(
         .from('wpm_messages')
         .select('id', { count: 'exact', head: true })
         .eq('conversation_id', conversationId)
-        .in('direction', ['out', 'outbound']);
+        .in('direction', ['out', 'outbound'])
+        .gt('created_at', conversationCapWindowStart());
 
       if (!countError && typeof count === 'number' && count >= MAX_REPLIES_PER_CONVERSATION) {
         return {
@@ -121,4 +146,21 @@ export const CONVERSATION_CAP_NOTICE =
 /** The right notice for a blocked reply. */
 export function noticeForBlock(reason: AllowanceBlockReason | undefined): string {
   return reason === 'conversation_cap' ? CONVERSATION_CAP_NOTICE : USAGE_CAP_NOTICE;
+}
+
+/**
+ * Operator-facing description of why a reply was blocked, written to
+ * `wpm_webhook_events.error_message`.
+ *
+ * This used to be hardcoded to "Monthly conversation cap reached" for BOTH
+ * reasons, so a thread stopped by the per-conversation reply cap reported a
+ * billing limit it had not hit. On 2026-08-20 that cost a live debugging
+ * session: the logs pointed at plan usage and at Meta while the real cause was
+ * the reply cap. Keep this keyed to `reason`.
+ */
+export function describeBlock(allowance: ConversationAllowance): string {
+  const counts = `${allowance.used}/${allowance.max}`;
+  return allowance.reason === 'conversation_cap'
+    ? `Per-conversation reply cap reached (${counts} in the last ${CONVERSATION_CAP_WINDOW_HOURS}h)`
+    : `Account allowance exhausted (${counts})`;
 }
