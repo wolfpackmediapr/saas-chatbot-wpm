@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Bot, Save, CheckCircle2, AlertCircle, Sparkles, Plus, Crown } from 'lucide-react';
+import { Bot, Save, CheckCircle2, AlertCircle, Sparkles, Plus, Crown, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   getOwnedWpmClient,
   listBotProfiles,
   createBotProfile,
+  deleteBotProfile,
   updateBotProfile,
   getBotInstructions,
   upsertBotInstructions,
@@ -143,13 +144,22 @@ interface AgentListProps {
   maxBots: number | null;
   channels: WpmClientChannel[];
   creating: boolean;
+  deletingId: string | null;
   onSelect: (id: string) => void;
   onCreate: (name: string) => void;
+  onDelete: (id: string) => void;
 }
 
-function AgentList({ agents, selectedId, maxBots, channels, creating, onSelect, onCreate }: AgentListProps) {
+function AgentList({
+  agents, selectedId, maxBots, channels, creating, deletingId, onSelect, onCreate, onDelete,
+}: AgentListProps) {
   const [newName, setNewName] = useState<string | null>(null);
+  // Two-step inline confirm rather than window.confirm: retiring an agent
+  // changes who answers live DMs, so it should not be one stray click away.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const atLimit = maxBots !== null && agents.length >= maxBots;
+  // The last agent cannot be retired — see deleteBotProfile.
+  const canDelete = agents.length > 1;
 
   const channelsFor = (agentId: string) => {
     const assigned = channels.filter((c) => c.bot_profile_id === agentId);
@@ -165,27 +175,72 @@ function AgentList({ agents, selectedId, maxBots, channels, creating, onSelect, 
         </span>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-        {agents.map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            onClick={() => onSelect(agent.id)}
-            className={cn(
-              'flex-shrink-0 flex flex-col items-start gap-1 rounded-xl border px-4 py-3 min-w-[140px] transition-all text-left',
-              selectedId === agent.id
-                ? 'border-primary bg-primary/10 shadow-sm'
-                : 'border-secondary bg-secondary/20 hover:border-primary/50'
-            )}
-          >
-            <span className="flex items-center gap-1.5 text-sm font-medium">
-              <Bot className="h-3.5 w-3.5 text-primary" />
-              {agent.name || 'AI Assistant'}
-            </span>
-            <span className="text-xs text-secondary-foreground">
-              {channelsFor(agent.id) ?? 'No channels assigned'}
-            </span>
-          </button>
-        ))}
+        {agents.map((agent) => {
+          const assigned = channelsFor(agent.id);
+          const confirming = confirmingId === agent.id;
+          return (
+            <div
+              key={agent.id}
+              className={cn(
+                'group relative flex-shrink-0 rounded-xl border transition-all',
+                selectedId === agent.id
+                  ? 'border-primary bg-primary/10 shadow-sm'
+                  : 'border-secondary bg-secondary/20 hover:border-primary/50'
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => onSelect(agent.id)}
+                className="flex flex-col items-start gap-1 px-4 py-3 min-w-[140px] text-left w-full"
+              >
+                <span className="flex items-center gap-1.5 text-sm font-medium pr-5">
+                  <Bot className="h-3.5 w-3.5 text-primary" />
+                  {agent.name || 'AI Assistant'}
+                </span>
+                <span className="text-xs text-secondary-foreground">
+                  {assigned ?? 'No channels assigned'}
+                </span>
+              </button>
+
+              {canDelete && !confirming && (
+                <button
+                  type="button"
+                  aria-label={`Retire ${agent.name || 'this agent'}`}
+                  title="Retire this agent"
+                  onClick={() => setConfirmingId(agent.id)}
+                  className="absolute top-2 right-2 p-1 rounded-md text-secondary-foreground/50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+
+              {confirming && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-background/95 px-3 text-center">
+                  <span className="text-xs text-secondary-foreground leading-tight">
+                    {assigned ? 'Its channels move to your default agent.' : 'Retire this agent?'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={deletingId === agent.id}
+                      onClick={() => { onDelete(agent.id); setConfirmingId(null); }}
+                      className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
+                    >
+                      {deletingId === agent.id ? 'Retiring…' : 'Retire'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(null)}
+                      className="text-xs text-secondary-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         {newName !== null ? (
           <form
@@ -239,6 +294,7 @@ export default function AgentSetup() {
   const [error, setError] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [agents, setAgents] = useState<WpmBotProfileRecord[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [botProfileId, setBotProfileId] = useState<string | null>(null);
   const [maxBots, setMaxBots] = useState<number | null>(1);
   const [channels, setChannels] = useState<WpmClientChannel[]>([]);
@@ -340,6 +396,28 @@ export default function AgentSetup() {
       setError(msg.includes('Bot limit') ? msg : 'Failed to create agent. Please try again.');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteAgent = async (id: string) => {
+    if (!clientId) return;
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteBotProfile(clientId, id);
+      const profiles = await listBotProfiles(clientId);
+      setAgents(profiles);
+      // Retiring the agent currently open would leave the form editing something
+      // that no longer answers, so fall back to the first remaining agent.
+      if (id === botProfileId) {
+        const next = profiles[0] ?? null;
+        setBotProfileId(next?.id ?? null);
+        if (next) await loadAgent(next);
+      }
+    } catch (err: any) {
+      setError(String(err?.message ?? 'Failed to retire agent. Please try again.'));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -457,8 +535,10 @@ export default function AgentSetup() {
           maxBots={maxBots}
           channels={channels}
           creating={creating}
+          deletingId={deletingId}
           onSelect={handleSelectAgent}
           onCreate={handleCreateAgent}
+          onDelete={handleDeleteAgent}
         />
       )}
 

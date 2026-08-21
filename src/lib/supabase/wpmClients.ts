@@ -245,6 +245,51 @@ export async function updateBotProfile(botProfileId: string, updates: {
   if (error) throw error;
 }
 
+/**
+ * Retire an agent.
+ *
+ * Deactivates rather than deletes. `is_active` is already the switch every
+ * read path respects — listBotProfiles, getActiveBotProfile, the webhook's
+ * loadBotProfilesForChannel, and the enforce_bot_limit plan cap all filter on
+ * it — so flipping it retires the agent everywhere at once and frees a slot
+ * against the plan limit.
+ *
+ * A hard DELETE would orphan history: wpm_conversations.bot_profile_id records
+ * which agent answered each thread, and the Inbox reads it. Past conversations
+ * must keep showing who replied.
+ *
+ * Channels pointed at this agent are released to the client default. Routing
+ * already survives an assignment to a deactivated agent — loadBotProfilesForChannel
+ * falls back to the oldest active one — but leaving the stale assignment in place
+ * makes the Channel Connections dropdown name an agent that no longer answers.
+ *
+ * Refuses to retire the last active agent: the client would have no agent at
+ * all, and inbound DMs would go unanswered with nothing in the UI to explain why.
+ */
+export async function deleteBotProfile(clientId: string, botProfileId: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const remaining = await listBotProfiles(clientId);
+  if (remaining.length <= 1) {
+    throw new Error(
+      'This is your only agent. Create another one first — without an active agent, incoming messages go unanswered.',
+    );
+  }
+
+  const { error: unassignError } = await (supabase as any)
+    .from('wpm_client_channels')
+    .update({ bot_profile_id: null })
+    .eq('client_id', clientId)
+    .eq('bot_profile_id', botProfileId);
+  if (unassignError) throw unassignError;
+
+  const { error } = await (supabase as any)
+    .from('wpm_bot_profiles')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', botProfileId);
+  if (error) throw error;
+}
+
 /** Tier limits for the signed-in user (null max = unlimited). */
 export async function getPlanLimits(): Promise<{ max_channels: number | null; max_bots: number | null }> {
   const fallback = { max_channels: 2, max_bots: 1 };
