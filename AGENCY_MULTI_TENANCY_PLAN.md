@@ -1,16 +1,19 @@
-# Agency multi-tenancy — deferred plan
+# Agency multi-tenancy
 
-> **STATUS: BLOCKED ON META APP REVIEW. DO NOT START THIS YET.**
+> **STATUS: UNBLOCKED — READY TO START.**
 >
-> **Trigger to begin:** Meta grants **Advanced Access** on `pages_messaging` and
-> `instagram_manage_messages` (App Review approved). Until then this document is
-> a plan only — no schema, no UI, no OAuth changes.
+> **The gate opened.** Meta App Review was **approved on 2026-08-20**, granting
+> **Advanced Access** on `pages_messaging`, `instagram_manage_messages` and
+> `pages_manage_metadata`, with `public_profile` renewed and App Mode set to
+> Live. The OAuth-scope freeze this plan waited on is lifted.
 >
-> **Why the gate:** the work below changes how Pages are attached to accounts and
-> how OAuth resolves its target. Meta's review evaluates the live app and its
-> permission usage; reshaping the connect flow mid-review risks a rejection that
-> costs far more time than the feature saves. Nothing here is urgent — the
-> current single-client model works, it just mixes businesses together.
+> The other precondition — `main` clean with every branch merged and deployed —
+> was met on 2026-08-21.
+>
+> **Do this before WhatsApp** (`WHATSAPP_CLOUD_API_PLAN.md`). This work reshapes
+> how channels attach to clients; doing it after a third channel type exists
+> means migrating three kinds of channel instead of two. WhatsApp also re-opens
+> App Review, which this plan explicitly avoids.
 
 Written 2026-08-15. Owner: Wilf.
 
@@ -83,8 +86,14 @@ pick which one they're looking at, and scope the UI to it.*
    select provider, max(created_at), now() - max(created_at) as age
    from wpm_webhook_events group by provider order by 2 desc;
    ```
-2. `main` clean, all three pending branches merged and deployed first.
+2. ~~`main` clean, all pending branches merged and deployed first.~~ Done
+   2026-08-21.
 3. Snapshot `wpm_clients`, `wpm_client_channels`, `wpm_bot_profiles`.
+4. **Resolve the orphan client first.** `wpm_clients` row `91de347d`
+   ("WolfPack Media Internal Test") has `owner_user_id IS NULL`, so it matches
+   no ownership policy and is invisible to every authenticated user. Phase 1
+   starts enumerating clients per user; an unowned row is a puzzle you do not
+   want to debug mid-migration. Assign it or delete it.
 
 ### Phase 1 — active-client selection
 - Add `user_settings.active_client_id uuid REFERENCES wpm_clients(id) ON DELETE SET NULL`.
@@ -154,33 +163,13 @@ reviewed migration — not a generic "split tenant" feature.
 
 ---
 
-## Unrelated bug found while auditing this (2026-08-15)
+## Unrelated bug found while auditing this — FIXED
 
-**The pricing page and `get_plan_limits` disagree on AI bot counts.**
+The pricing page and `get_plan_limits` disagreed on AI bot counts: the
+`max_bots` CASE was a verbatim copy of the `max_channels` CASE and had never
+been adjusted, leaving Growth, Pro and Agency more generous in code than on the
+page.
 
-| Plan | Pricing page | `get_plan_limits` |
-|---|---|---|
-| Starter | 1 AI bot | 1 ✅ |
-| Growth | 2 AI bots | **3** ❌ |
-| Pro | 3 AI bots | **10** ❌ |
-| Agency | 10 AI bots | **NULL (unlimited)** ❌ |
-
-Channel counts all match. The `max_bots` CASE is a verbatim copy of the
-`max_channels` CASE — same `10 / 3 / 1 / NULL` arms — so the bot numbers were
-never adjusted after the copy.
-
-Direction matters: unlike the Delete-Account button, the confirmation email and
-the 7-day trial, here the **code is more generous than the page**. So this is
-not a false-advertising exposure — it is revenue leakage, and it means the
-Agency tier's "10 AI bots" is not actually a differentiator over Pro.
-
-Fix is a one-line-per-arm edit to `get_plan_limits`, but it **reduces** limits
-for anyone already on Growth or Pro, so check current usage before applying:
-
-```sql
-select c.owner_user_id, count(*) filter (where bp.is_active) as active_bots
-from wpm_bot_profiles bp join wpm_clients c on c.id = bp.client_id
-group by c.owner_user_id having count(*) filter (where bp.is_active) > 3;
-```
-
-Independent of Meta approval — can be done any time.
+**Fixed in `fa8c8c4`** (migration `20260821052320`), verified per tier against
+the live function: starter 1, growth 2, pro 3, agency 10, super admin unlimited.
+Nothing further to do here.
