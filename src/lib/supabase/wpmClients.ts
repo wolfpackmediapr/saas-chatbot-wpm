@@ -574,7 +574,11 @@ export async function deactivateClientChannel(clientId: string, channelType: str
   if (!supabase) throw new Error('Supabase not configured');
   const { error } = await (supabase as any)
     .from('wpm_client_channels')
-    .update({ is_active: false })
+    // The privacy policy promises the stored access token is deleted
+    // immediately on disconnect, so clear it rather than only flipping the
+    // flag. Reversible: reconnecting runs meta-oauth-callback, which upserts a
+    // fresh page_access_token and sets is_active back to true.
+    .update({ is_active: false, page_access_token: null })
     .eq('client_id', clientId)
     .eq('channel_type', channelType);
   if (error) throw error;
