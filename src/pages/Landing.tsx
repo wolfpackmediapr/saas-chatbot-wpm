@@ -68,7 +68,7 @@ export default function Landing() {
     {
       step: "1",
       title: "Connect Channels",
-      desc: "Link your Instagram or Facebook Page through Meta's official login in minutes."
+      desc: "Link your Facebook Page and Instagram Professional account through Meta's official login in minutes."
     },
     {
       step: "2",
@@ -104,6 +104,10 @@ export default function Landing() {
     {
       q: "Can I cancel anytime?",
       a: "Yes. Cancel from your dashboard. You'll keep access until the end of the billing period."
+    },
+    {
+      q: "Do I need a business account?",
+      a: "You need a Facebook Page, and an Instagram Professional (Business or Creator) account linked to it \u2014 Meta only allows messaging apps to connect to Pages, never to personal profiles. Both are free and take a few minutes to set up. Your customers need nothing special: they message you from ordinary Instagram and Facebook accounts."
     },
     {
       q: "Do I need technical skills?",

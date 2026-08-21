@@ -518,6 +518,15 @@ export default function ChannelConnections() {
               <span>
                 Clicking "Connect via Meta" opens a Facebook login popup. After authorizing, you'll
                 choose which Pages and Instagram accounts to connect.
+                {/* Without this, an empty Page list reads as a broken product rather
+                    than a missing prerequisite. Meta has no messaging API for personal
+                    profiles, so this requirement is permanent. */}
+                <br /><br />
+                You need a <strong className="text-foreground">Facebook Page</strong> you administer.
+                Instagram must be a <strong className="text-foreground">Professional</strong> account
+                (Business or Creator) linked to that Page &mdash; personal accounts can't be
+                connected, and won't appear in the list. Both are free to set up in a few minutes.
+                Your customers don't need anything special.
               </span>
             </div>
           )}
