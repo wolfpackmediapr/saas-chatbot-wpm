@@ -7,6 +7,7 @@ import {
 import { cn } from '../lib/utils';
 import { useNotifications } from '../contexts/NotificationsContext';
 import { supabase } from '../lib/supabase/client';
+import type { Json } from '../lib/supabase/types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
@@ -333,7 +334,10 @@ export default function Inbox() {
 
     const { error: err } = await supabase
       .from('wpm_conversations')
-      .update({ status: newStatus, metadata: nextMetadata })
+      // nextMetadata is assembled from spreads, so it lands as
+      // { [x: string]: unknown }. The column is jsonb and every value we put in
+      // it is JSON-safe.
+      .update({ status: newStatus, metadata: nextMetadata as Json })
       .eq('id', selected.id);
 
     if (err) {

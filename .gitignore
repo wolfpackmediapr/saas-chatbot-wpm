@@ -21,3 +21,5 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# Vite writes these while resolving the config; they are not source.
+vite.config.ts.timestamp-*

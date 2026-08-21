@@ -208,9 +208,15 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     async (column: 'inbox_last_seen_at' | 'leads_last_seen_at') => {
       if (!supabase || !user) return;
       const now = new Date().toISOString();
+      // A computed key widens this to { [x: string]: string }, which the
+      // generated Insert type rejects. Name both columns explicitly instead.
       await supabase
         .from('user_settings')
-        .upsert({ user_id: user.id, [column]: now, updated_at: now });
+        .upsert(
+          column === 'inbox_last_seen_at'
+            ? { user_id: user.id, inbox_last_seen_at: now, updated_at: now }
+            : { user_id: user.id, leads_last_seen_at: now, updated_at: now },
+        );
       if (column === 'inbox_last_seen_at') {
         seenRef.current.inbox = now;
         setUnreadConversations(0);

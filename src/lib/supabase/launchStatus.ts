@@ -2,6 +2,14 @@ import { supabase } from './client';
 import { getOwnedWpmClient } from './wpmClients';
 import { EMPTY_EVIDENCE, type LaunchEvidence } from '../wpm/launchChecklist';
 
+/** The tables this checklist counts. Keeps `.from()` on the typed client. */
+type TableName =
+  | 'wpm_knowledge_sources'
+  | 'wpm_conversations'
+  | 'wpm_messages'
+  | 'wpm_integrations'
+  | 'wpm_bot_instructions';
+
 /**
  * Gather everything the launch checklist needs, in one pass.
  *
@@ -22,7 +30,7 @@ export async function fetchLaunchEvidence(): Promise<LaunchEvidence> {
 
   /** head+count query, logging rather than silently folding an error into 0. */
   async function countWhere(
-    table: string,
+    table: TableName,
     apply: (query: any) => any,
   ): Promise<number> {
     const { count, error } = await apply(
