@@ -123,10 +123,25 @@ function handoffSource(conv: Conversation): 'manual' | 'auto' {
   return conv.metadata?.handoff_source === 'manual' ? 'manual' : 'auto';
 }
 
+const CHANNEL_PERSON_LABEL: Record<string, string> = {
+  facebook: 'Facebook user',
+  instagram: 'Instagram user',
+  whatsapp: 'WhatsApp user',
+  web_chat: 'Web visitor',
+  test: 'Test user',
+};
+
+/**
+ * A name when we have one. When we don't, say who this is in words rather than
+ * showing a truncated 17-digit ID — the last four digits are enough to tell two
+ * unnamed threads apart, and they are the only part a person can actually hold
+ * in their head.
+ */
 function displayName(conv: Conversation) {
   if (conv.external_user_name) return conv.external_user_name;
-  if (conv.external_user_id) return conv.external_user_id.slice(0, 14) + '…';
-  return 'Unknown';
+  const label = CHANNEL_PERSON_LABEL[conv.channel_type ?? ''] ?? 'Visitor';
+  if (conv.external_user_id) return `${label} ·${conv.external_user_id.slice(-4)}`;
+  return label;
 }
 
 function relativeTime(iso: string | null) {

@@ -21,7 +21,7 @@ import {
 } from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
-import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
+import { fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -178,29 +178,6 @@ function normalizeMetaEvents(
 }
 
 // ---------------------------------------------------------------------------
-// Fetch sender display name from Meta Graph API (best-effort)
-// ---------------------------------------------------------------------------
-
-async function fetchMetaUserProfile(
-  senderId: string,
-  pageAccessToken: string,
-  platform: 'messenger' | 'instagram',
-): Promise<string | null> {
-  try {
-    const fields = platform === 'instagram' ? 'name,username' : 'name';
-    const resp = await fetch(
-      `${GRAPH_API_BASE}/${encodeURIComponent(senderId)}?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`,
-    );
-    if (!resp.ok) return null;
-    const data = await resp.json() as { name?: string; username?: string };
-    if (platform === 'instagram' && data.username) return `@${data.username}`;
-    return data.name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Voice note transcription (best-effort, never blocks the pipeline)
 // ---------------------------------------------------------------------------
 
@@ -294,7 +271,7 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Send reply via Facebook Graph API (direct, no Woztell)
+// Send reply via Facebook Graph API
 // ---------------------------------------------------------------------------
 
 async function sendGraphApiReply(

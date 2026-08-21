@@ -114,8 +114,8 @@ export function buildWpmSeedConfig(overrides: Partial<WpmSeedConfig>): WpmSeedCo
     contactPhone: null,
     timezone: 'America/Puerto_Rico',
     channelType: 'test',
-    provider: 'woztell',
-    providerChannelId: 'woztell-channel-placeholder',
+    provider: 'meta',
+    providerChannelId: 'meta-channel-placeholder',
     providerBotId: null,
     externalPageId: null,
     externalPhoneNumber: null,
@@ -160,8 +160,8 @@ export function buildSeedChannelPayload(clientId: string, config: WpmSeedConfig)
     is_active: true,
     metadata: {
       seeded_by: 'scripts/seed-wpm-test-client.ts',
-      purpose: 'live_woztell_bridge_validation',
-      requires_real_woztell_channel_id: config.providerChannelId === 'woztell-channel-placeholder',
+      purpose: 'live_bridge_validation',
+      requires_real_provider_channel_id: config.providerChannelId === 'meta-channel-placeholder',
     },
   };
 }

@@ -55,8 +55,8 @@ function buildConfigFromArgs(args: Args): WpmSeedConfig {
     clientSlug: stringArg(args, 'client-slug') ?? undefined,
     clientName: stringArg(args, 'client-name') ?? undefined,
     channelType: stringArg(args, 'channel-type') as WpmSeedConfig['channelType'] | undefined,
-    providerChannelId: stringArg(args, 'provider-channel-id') ?? stringArg(args, 'woztell-channel-id') ?? undefined,
-    providerBotId: stringArg(args, 'provider-bot-id') ?? stringArg(args, 'woztell-bot-id') ?? undefined,
+    providerChannelId: stringArg(args, 'provider-channel-id') ?? undefined,
+    providerBotId: stringArg(args, 'provider-bot-id') ?? undefined,
     externalPageId: stringArg(args, 'external-page-id') ?? undefined,
     externalPhoneNumber: stringArg(args, 'external-phone-number') ?? undefined,
     bookingUrl: stringArg(args, 'booking-url') ?? undefined,
@@ -291,9 +291,9 @@ async function main() {
     integration_id: integration.id,
     provider_channel_id: config.providerChannelId,
     channel_type: config.channelType,
-    next: config.providerChannelId === 'woztell-channel-placeholder'
-      ? 'Re-run with --woztell-channel-id <real channel._id> before live Woztell testing.'
-      : 'Point Woztell webhook/action to the deployed Supabase function and send a live test message.',
+    next: config.providerChannelId === 'meta-channel-placeholder'
+      ? 'Re-run with --provider-channel-id <real Page id> before live testing.'
+      : 'Connect the Page in Channel Connections and send a live test message.',
   }, null, 2));
 }
 

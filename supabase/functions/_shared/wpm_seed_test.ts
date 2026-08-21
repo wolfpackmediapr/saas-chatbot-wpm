@@ -15,8 +15,8 @@ Deno.test('buildWpmSeedConfig defaults to WPM internal test client and test chan
   assertEquals(config.clientSlug, 'wpm-internal-test');
   assertEquals(config.clientName, 'WolfPack Media Internal Test');
   assertEquals(config.channelType, 'test');
-  assertEquals(config.provider, 'woztell');
-  assertEquals(config.providerChannelId, 'woztell-channel-placeholder');
+  assertEquals(config.provider, 'meta');
+  assertEquals(config.providerChannelId, 'meta-channel-placeholder');
   assertEquals(config.botTemplateKey, 'wpm-ai-receptionist');
 });
 
@@ -35,19 +35,19 @@ Deno.test('buildSeedClientPayload creates productized WPM test client row', () =
   });
 });
 
-Deno.test('buildSeedChannelPayload maps Woztell channel identifiers for routing', () => {
+Deno.test('buildSeedChannelPayload maps provider channel identifiers for routing', () => {
   const payload = buildSeedChannelPayload('client-uuid', buildWpmSeedConfig({
     channelType: 'instagram',
-    providerChannelId: 'woztell-channel-123',
-    providerBotId: 'woztell-bot-999',
+    providerChannelId: 'meta-channel-123',
+    providerBotId: 'meta-bot-999',
     externalPageId: 'ig-page-123',
   }));
 
   assertEquals(payload.client_id, 'client-uuid');
   assertEquals(payload.channel_type, 'instagram');
-  assertEquals(payload.provider, 'woztell');
-  assertEquals(payload.provider_channel_id, 'woztell-channel-123');
-  assertEquals(payload.provider_bot_id, 'woztell-bot-999');
+  assertEquals(payload.provider, 'meta');
+  assertEquals(payload.provider_channel_id, 'meta-channel-123');
+  assertEquals(payload.provider_bot_id, 'meta-bot-999');
   assertEquals(payload.external_page_id, 'ig-page-123');
   assertEquals(payload.is_active, true);
 });

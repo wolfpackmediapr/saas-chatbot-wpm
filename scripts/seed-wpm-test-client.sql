@@ -2,8 +2,8 @@
 -- Run against the live linked project after migrations:
 -- supabase db query --linked -f scripts/seed-wpm-test-client.sql
 --
--- This creates/updates the minimum rows required for a live Woztell bridge test.
--- Replace the placeholder provider_channel_id after you get the real Woztell channel._id.
+-- This creates/updates the minimum rows required for a live bridge test.
+-- Replace the placeholder provider_channel_id after you get the real Page id.
 
 DO $$
 DECLARE
@@ -62,17 +62,17 @@ BEGIN
   ) VALUES (
     v_client_id,
     'test',
-    'woztell',
-    'woztell-channel-placeholder',
+    'meta',
+    'meta-channel-placeholder',
     NULL,
     NULL,
     NULL,
-    'WolfPack Media Internal Test test via woztell',
+    'WolfPack Media Internal Test test via meta',
     TRUE,
     jsonb_build_object(
       'seeded_by', 'scripts/seed-wpm-test-client.sql',
-      'purpose', 'live_woztell_bridge_validation',
-      'requires_real_woztell_channel_id', TRUE
+      'purpose', 'live_bridge_validation',
+      'requires_real_provider_channel_id', TRUE
     )
   )
   ON CONFLICT (provider, provider_channel_id, channel_type) DO UPDATE SET
@@ -278,12 +278,12 @@ SELECT
   i.id AS integration_id,
   ch.provider_channel_id,
   ch.channel_type,
-  ch.metadata->>'requires_real_woztell_channel_id' AS requires_real_woztell_channel_id
+  ch.metadata->>'requires_real_provider_channel_id' AS requires_real_provider_channel_id
 FROM public.wpm_clients c
 JOIN public.wpm_client_channels ch ON ch.client_id = c.id
 JOIN public.wpm_bot_profiles bp ON bp.client_id = c.id AND bp.template_key = 'wpm-ai-receptionist'
 JOIN public.wpm_bot_instructions bi ON bi.bot_profile_id = bp.id AND bi.version = 1
 LEFT JOIN public.wpm_integrations i ON i.client_id = c.id AND i.secret_reference = 'WPM_ZAPIER_QUALIFIED_LEAD_URL'
 WHERE c.slug = 'wpm-internal-test'
-  AND ch.provider = 'woztell'
-  AND ch.provider_channel_id = 'woztell-channel-placeholder';
+  AND ch.provider = 'meta'
+  AND ch.provider_channel_id = 'meta-channel-placeholder';
