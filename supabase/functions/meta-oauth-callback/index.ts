@@ -217,6 +217,34 @@ Deno.serve(async (request: Request) => {
       }
     }
 
+    // Pin newly connected channels to a concrete agent.
+    //
+    // The upserts above deliberately omit bot_profile_id so that re-running
+    // OAuth (adding a second Meta account, or re-granting) never clobbers an
+    // assignment made in Channel Connections. That leaves brand-new rows NULL,
+    // which falls through to the router's "first active agent for the client"
+    // path — fine with one agent, ambiguous with several. Resolving it here
+    // makes routing explicit and visible in the UI instead of implicit.
+    //
+    // Scoped to bot_profile_id IS NULL, so it only ever fills a blank.
+    const { data: defaultAgent } = await supabase
+      .from("wpm_bot_profiles")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (defaultAgent?.id) {
+      const { error: pinError } = await supabase
+        .from("wpm_client_channels")
+        .update({ bot_profile_id: defaultAgent.id })
+        .eq("client_id", clientId)
+        .is("bot_profile_id", null);
+      if (pinError) console.error("[meta-oauth] Failed to pin default agent:", pinError);
+    }
+
     return jsonResponse({
       success: true,
       pagesConnected: connectedChannels.length,

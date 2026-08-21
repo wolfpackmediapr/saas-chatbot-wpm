@@ -75,11 +75,19 @@ export async function loadBotProfilesForChannel(
       return;
     }
   }
+  // Fallback for channels with no explicit assignment. The ORDER BY is
+  // load-bearing: without it Postgres may return any active agent, and heap
+  // order shifts as rows are updated, so a client with two agents could have
+  // DMs answered by a different one from request to request. Oldest-first
+  // matches what the Channel Connections dropdown labels "Default (<name>)",
+  // which lists agents by created_at ascending — the UI must not name an agent
+  // the router doesn't actually pick.
   const { data } = await supabase
     .from('wpm_bot_profiles')
     .select('id, is_active')
     .eq('client_id', channel.client_id)
     .eq('is_active', true)
+    .order('created_at', { ascending: true })
     .limit(1);
   channel.bot_profiles = data ?? [];
 }

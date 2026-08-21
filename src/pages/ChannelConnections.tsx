@@ -190,7 +190,12 @@ export default function ChannelConnections() {
   // A sessionStorage flag is set before the call so that if FB uses redirect
   // mode (navigating the main tab), we detect and recover on the next page load.
 
-  const handleMetaConnect = () => {
+  // switchAccount forces Facebook to re-prompt for credentials so a different
+  // Meta account can be chosen. Without it FB.login silently reuses whichever
+  // Facebook user is already signed in to the browser, so an agency connecting
+  // a second client's Page would just get the first account's Pages back.
+  // 'rerequest' does NOT do this — it only re-asks for declined permissions.
+  const handleMetaConnect = (options?: { switchAccount?: boolean }) => {
     if (!supabase) { setError('Supabase is not configured.'); return; }
     if (!sdkReady || !window.FB) {
       setError('Facebook SDK is still loading — please wait a moment and try again.');
@@ -228,7 +233,11 @@ export default function ChannelConnections() {
         setMetaUserId(user.id);
         fetchMetaPages({ userToken: accessToken, supabaseUserId: user.id });
       });
-    }, { scope: META_SCOPES, return_scopes: true, auth_type: 'rerequest' });
+    }, {
+      scope: META_SCOPES,
+      return_scopes: true,
+      auth_type: options?.switchAccount ? 'reauthenticate' : 'rerequest',
+    });
   };
 
   const fetchMetaPages = async (args: { userToken: string; supabaseUserId: string }) => {
@@ -472,24 +481,32 @@ export default function ChannelConnections() {
                   Disconnect
                 </button>
               )}
+              {/* Connecting more Pages must stay available after the first
+                  account is linked — an agency runs several businesses from one
+                  login. This button used to disable itself once Facebook and
+                  Instagram both showed "connected", which made a second Meta
+                  account impossible to add. */}
+              {anyMetaConnected && (
+                <button
+                  onClick={() => handleMetaConnect({ switchAccount: true })}
+                  disabled={metaPopupPending || !sdkReady}
+                  className="px-4 py-2 text-sm rounded-lg border border-secondary hover:bg-secondary disabled:opacity-60 whitespace-nowrap"
+                  title="Sign in with a different Facebook account to add its Pages"
+                >
+                  Add another Meta account
+                </button>
+              )}
               <button
-                onClick={handleMetaConnect}
-                disabled={metaPopupPending || allMetaConnected || !sdkReady}
-                className={cn(
-                  'px-5 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
-                  allMetaConnected
-                    ? 'bg-emerald-500/20 text-emerald-400 cursor-default'
-                    : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60'
-                )}
+                onClick={() => handleMetaConnect()}
+                disabled={metaPopupPending || !sdkReady}
+                className="px-5 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {metaPopupPending
                   ? 'Connecting...'
                   : !sdkReady
                   ? 'Loading...'
-                  : allMetaConnected
-                  ? 'Connected'
                   : anyMetaConnected
-                  ? 'Reconnect via Meta'
+                  ? 'Add more Pages'
                   : 'Connect via Meta'}
               </button>
             </div>
