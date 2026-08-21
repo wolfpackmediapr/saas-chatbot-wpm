@@ -530,6 +530,24 @@ export default function ChannelConnections() {
               </span>
             </div>
           )}
+
+          {/* Connecting an Instagram account succeeds and reports "connected"
+              while this per-account toggle is off, and then Meta silently
+              delivers nothing — no error, no failed webhook, no row anywhere.
+              It cost an hour of debugging on 2026-08-21 and every new client
+              would hit it, so it is called out even after a successful connect. */}
+          <div className="mt-3 text-xs bg-amber-500/5 border border-amber-500/25 rounded-lg p-3 text-secondary-foreground flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
+            <span>
+              <strong className="text-foreground">Instagram: turn on Connected tools.</strong> In the
+              Instagram app, signed in as the business account &mdash;{' '}
+              <span className="whitespace-nowrap">Settings and privacy</span> &rarr; Messages and
+              story replies &rarr; Connected tools &rarr;{' '}
+              <strong className="text-foreground">Allow access to messages</strong>.
+              It's off by default. Until it's on, Instagram sends us nothing and your agent
+              stays silent even though this page says connected.
+            </span>
+          </div>
         </div>
       </div>
 

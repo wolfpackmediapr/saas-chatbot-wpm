@@ -89,7 +89,7 @@ export function buildLaunchChecklist(): LaunchChecklistItem[] {
       key: 'meta-webhook',
       title: 'Meta is delivering messages',
       description:
-        'Meta has to be subscribed to your page before it will send us a single DM. This is set automatically when you connect.',
+        'Meta has to be subscribed to your page before it will send us a single DM. Connecting handles the Facebook side automatically. Instagram needs one more step you must do in the Instagram app: Settings and privacy \u2192 Messages and story replies \u2192 Connected tools \u2192 Allow access to messages. It is off by default, and until it is on, Instagram delivers nothing \u2014 with no error anywhere.',
       stage: 'channel',
       required: true,
       route: '/dashboard/channel-connections',
