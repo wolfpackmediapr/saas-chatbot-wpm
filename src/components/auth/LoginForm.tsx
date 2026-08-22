@@ -1,7 +1,8 @@
 import React from 'react';
-import { Mail, Lock, ArrowRight } from 'lucide-react';
+import { Mail, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import PasswordInput from '../ui/PasswordInput';
 
 interface LoginFormProps {
   onSubmit: (data: LoginFormData) => void;
@@ -68,23 +69,15 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
             Forgot password?
           </Link>
         </div>
-        <div className="relative">
-          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-secondary-foreground" />
-          <input
-            type="password"
-            id="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            className={cn(
-              "w-full pl-10 pr-4 py-2 bg-secondary/50 rounded-lg",
-              "focus:outline-none focus:ring-2 focus:ring-primary/50",
-              "placeholder:text-secondary-foreground"
-            )}
-            placeholder="••••••••"
-          />
-        </div>
+        <PasswordInput
+          id="password"
+          name="password"
+          value={formData.password}
+          onChange={handleChange}
+          required
+          autoComplete="current-password"
+          placeholder="Your password"
+        />
       </div>
 
       <button

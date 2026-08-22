@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { Loader2, Lock, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import { updatePassword } from '../lib/supabase/auth';
 import LegalFooter from '../components/LegalFooter';
+import PasswordInput from '../components/ui/PasswordInput';
 
 /**
  * Where a password-reset email actually lands.
@@ -151,37 +152,27 @@ export default function ResetPassword() {
                   <label htmlFor="new-password" className="block text-sm font-medium mb-1.5">
                     New password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-secondary-foreground" />
-                    <input
-                      id="new-password"
-                      type="password"
-                      autoComplete="new-password"
-                      autoFocus
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="At least 8 characters"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-background border border-secondary focus:border-primary outline-none text-sm"
-                    />
-                  </div>
+                  <PasswordInput
+                    id="new-password"
+                    autoComplete="new-password"
+                    autoFocus
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                  />
                 </div>
 
                 <div>
                   <label htmlFor="confirm-password" className="block text-sm font-medium mb-1.5">
                     Confirm new password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-secondary-foreground" />
-                    <input
-                      id="confirm-password"
-                      type="password"
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Type it again"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-background border border-secondary focus:border-primary outline-none text-sm"
-                    />
-                  </div>
+                  <PasswordInput
+                    id="confirm-password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Type it again"
+                  />
                 </div>
 
                 <button

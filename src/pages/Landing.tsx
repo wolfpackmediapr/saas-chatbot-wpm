@@ -158,7 +158,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary/60 border border-secondary mb-6 text-sm">
             <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            Instagram &amp; Facebook · OpenAI powered
+            Instagram &amp; Facebook · AI powered
           </div>
 
           <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[0.95] mb-6">

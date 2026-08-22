@@ -1,6 +1,7 @@
 import React from 'react';
-import { Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { Mail, User, ArrowRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import PasswordInput from '../ui/PasswordInput';
 
 interface SignupFormProps {
   onSubmit: (data: SignupFormData) => void;
@@ -84,24 +85,16 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
         <label htmlFor="password" className="block text-sm font-medium mb-1.5">
           Password
         </label>
-        <div className="relative">
-          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-secondary-foreground" />
-          <input
-            type="password"
-            id="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            minLength={8}
-            className={cn(
-              "w-full pl-10 pr-4 py-2 bg-secondary/50 rounded-lg",
-              "focus:outline-none focus:ring-2 focus:ring-primary/50",
-              "placeholder:text-secondary-foreground"
-            )}
-            placeholder="••••••••"
-          />
-        </div>
+        <PasswordInput
+          id="password"
+          name="password"
+          value={formData.password}
+          onChange={handleChange}
+          required
+          minLength={8}
+          autoComplete="new-password"
+          placeholder="At least 8 characters"
+        />
       </div>
 
       <button
