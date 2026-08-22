@@ -115,7 +115,16 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     if (!data) {
       // Lazy create: no client exists for this user, create one
       const userEmail = user.email ?? '';
-      const userName = user.user_metadata?.full_name ?? userEmail?.split('@')[0] ?? 'Your Business';
+      // signUp() stores the typed name under `name`; `full_name` is what OAuth
+      // providers use. Reading only `full_name` meant the name every user typed
+      // was silently discarded and the business was named after the email
+      // prefix instead — which is how a real account ended up called
+      // "inhousechef.pr" with an "inhousechef.pr AI Assistant" bot. Check both.
+      const userName =
+        user.user_metadata?.full_name ??
+        user.user_metadata?.name ??
+        (userEmail ? userEmail.split('@')[0] : null) ??
+        'Your Business';
       
       const { data: newClient, error: insertError } = await (supabase as any)
         .from('wpm_clients')
