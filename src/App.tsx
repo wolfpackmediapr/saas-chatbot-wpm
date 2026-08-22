@@ -54,6 +54,7 @@ import Inbox from './pages/Inbox';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Landing from './pages/Landing';
 import Pricing from './pages/Pricing';
 import AuthCallback from './pages/AuthCallback';
@@ -74,6 +75,9 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          {/* resetPassword() has always redirected here. Without this route the
+              catch-all sent every reset link to the marketing homepage. */}
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Protected App (now under /dashboard to free up root for marketing) */}

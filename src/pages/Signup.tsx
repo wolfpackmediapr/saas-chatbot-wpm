@@ -14,10 +14,22 @@ export default function Signup() {
     setIsLoading(true);
     setError(null);
     try {
-      await signUp(data.email, data.password, data.name);
-      navigate('/login', { 
-        state: { message: 'Please check your email to verify your account.' } 
-      });
+      const result = await signUp(data.email, data.password, data.name);
+      // Email confirmation is currently OFF in Supabase Auth, so signUp returns
+      // a live session and the account is already usable. Sending people to
+      // /login to wait for a verification email that is never sent stranded
+      // every new signup on the first screen.
+      //
+      // Branch on what actually came back rather than on the current setting,
+      // so turning confirmations on later restores the check-your-email path
+      // without another code change.
+      if (result?.session) {
+        navigate('/dashboard', { replace: true });
+      } else {
+        navigate('/login', {
+          state: { message: 'Almost there — check your email to confirm your account, then sign in.' },
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign up');
     } finally {
