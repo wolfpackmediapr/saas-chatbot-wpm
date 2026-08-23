@@ -371,3 +371,42 @@ Deno.test('prose without a details block still needs two words', () => {
     null,
   );
 });
+
+// ── Messengers flatten line breaks ────────────────────────────────────────
+//
+// Typed on Instagram as three lines, stored as one:
+//   "Ok Juan juachi@hotmail.com 7777347330"
+// The details-block rule needed 2+ lines, and the adjacency rule rejected the
+// lone "Juan" for being one word, so a real lead arrived with no name at all.
+
+Deno.test('a flattened details message still yields the first name', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Ok Juan juachi@hotmail.com 7777347330',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Juan',
+  );
+});
+
+Deno.test('a flattened details message still yields a full name', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Ok Williamson Smithweson Mindsethubpr@gmail.com 7875557332',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Williamson Smithweson',
+  );
+});
+
+Deno.test('an acknowledgement before contact details is not a name', () => {
+  // Accepting single words next to contact info means "Cool jane@..." must not
+  // produce a lead named "Cool".
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Cool juan@x.com 7875551234',
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});

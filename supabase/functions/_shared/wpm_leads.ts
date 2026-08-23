@@ -52,6 +52,10 @@ const NOT_A_NAME = new Set([
   // The agent answers in Spanish too, and so do customers.
   'hola', 'buenas', 'buenos', 'gracias', 'saludos', 'si', 'claro', 'bueno',
   'nombre', 'correo', 'telefono', 'teléfono',
+  // Acknowledgements that precede a details dump: "Cool jane@..." must not
+  // yield a lead named "Cool".
+  'cool', 'great', 'perfect', 'nice', 'awesome', 'yeah', 'yep', 'sure', 'sorry',
+  'well', 'right', 'fine', 'done', 'got', 'send', 'sent', 'give', 'take',
 ]);
 
 function bareWord(part: string): string {
@@ -104,7 +108,6 @@ function looksLikeName(candidate: string): boolean {
  */
 function nameFromDetailsBlock(text: string): string | null {
   const lines = text.split(/[\n\r]+/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length < 2) return null;
 
   const looksLikeContact = (line: string) =>
     line.includes('@') || line.replace(/\D/g, '').length >= 7;
@@ -113,13 +116,19 @@ function nameFromDetailsBlock(text: string): string | null {
   const firstContact = lines.findIndex(looksLikeContact);
   if (firstContact < 0) return null;
 
-  // Only lines ABOVE the contact details. People announce themselves and then
-  // give their details; anything after is trailing commentary, which is how
-  // "Hola / correo@… / reservation" produced a lead named "Reservation".
-  for (const line of lines.slice(0, firstContact)) {
-    if (/https?:\/\//i.test(line)) continue;
+  // Up to and INCLUDING the contact line, because messengers flatten line
+  // breaks: "Ok Juan\njuachi@hotmail.com\n7777347330" arrives from Instagram as
+  // one line, and stripping the contact tokens out of it leaves the name.
+  // Never past that point — trailing commentary is not a name, which is how
+  // "Hola / correo@… / reservation" produced a lead called "Reservation".
+  for (const line of lines.slice(0, firstContact + 1)) {
+    const remainder = line
+      .replace(/https?:\/\/\S+/gi, ' ')
+      .replace(/[\w.+-]+@[\w.-]+\.\w+/g, ' ')       // email
+      .replace(/(?:\+?\d[\d().\-\s]{6,}\d)/g, ' ')  // phone
+      .replace(/[.,;:!?]+/g, ' ');
 
-    const parts = trimFiller(line.replace(/[.,;:!?]+$/, ''));
+    const parts = trimFiller(remainder);
     if (parts.length < 1 || parts.length > 3) continue;
     if (!partsAreNamely(parts)) continue;
     // Letters, apostrophes and hyphens only — no stray punctuation or digits.
