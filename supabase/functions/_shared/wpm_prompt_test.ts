@@ -153,3 +153,37 @@ Deno.test('buildWpmAssistantMessages creates OpenAI-compatible chat messages wit
     { role: 'user', content: 'I need catering for 30 people this Friday.' },
   ]);
 });
+
+// ── Shared content vs unanswerable questions ──────────────────────────────
+//
+// 60 shared reels all drew the same canned line, because rule 6 tells the
+// model to say it verbatim for anything "not covered in the provided
+// context" -- and a shared reel is not covered by definition. The fallback
+// must survive for real questions while shared content gets a real reply.
+
+Deno.test('the default fallback is still required for unanswerable questions', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, "That's a great question");
+  assertStringIncludes(prompt, 'someone from our team follows up');
+});
+
+Deno.test('the fallback is scoped to questions, not to everything', () => {
+  // Without this scoping, sharing a reel counts as "not covered" and the
+  // canned line fires every time.
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, 'If asked a QUESTION about something not covered');
+});
+
+Deno.test('shared reels, posts and story mentions get their own instruction', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, 'When someone SHARES something rather than asking a question');
+  assertStringIncludes(prompt, 'Sharing is interest, not an unanswerable question');
+  assertStringIncludes(prompt, 'story mention');
+});
+
+Deno.test('engaging with shared content must not license inventing services', () => {
+  // Rule 4 is what stops "connect it to a service" becoming a fabrication.
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, 'never invent a service to make the connection');
+  assertStringIncludes(prompt, '4. NEVER invent, fabricate, or assume facts');
+});
