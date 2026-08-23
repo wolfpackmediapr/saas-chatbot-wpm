@@ -1,6 +1,15 @@
+import { sendQualifiedLeadEmail } from './wpm_email.ts';
+
 interface SupabaseLike {
   from(table: string): any;
 }
+
+/**
+ * Executions whose tool_name starts with this are delivered as email rather
+ * than as an outbound webhook. They carry no integration row: lead email is
+ * core product behaviour, not something a customer has to configure.
+ */
+const EMAIL_TOOL_PREFIX = 'email.';
 
 export interface ToolIntegrationRow {
   id: string;
@@ -329,12 +338,108 @@ export async function executeWebhookToolExecution(args: {
   }
 }
 
+/**
+ * Delivers a queued lead notification by email.
+ *
+ * Mirrors the webhook path's retry rules: a transport failure keeps the row
+ * queued, while "there is nobody to email" is permanent — retrying it forever
+ * would hide the fact that the account has no reachable address.
+ */
+export async function executeEmailToolExecution(args: {
+  supabase: SupabaseLike;
+  toolExecutionId: string;
+  now?: () => number;
+  send?: typeof sendQualifiedLeadEmail;
+}): Promise<
+  | { ok: true; status: 'success'; httpStatus: null; error: null }
+  | { ok: false; status: 'failed' | 'skipped' | 'pending'; httpStatus: null; error: string }
+> {
+  const now = args.now ?? (() => Date.now());
+  const send = args.send ?? sendQualifiedLeadEmail;
+  const startedAt = now();
+
+  const { data, error } = await args.supabase
+    .from('wpm_tool_executions')
+    .select('id, client_id, tool_name, input_payload, status, attempt_count')
+    .eq('id', args.toolExecutionId)
+    .maybeSingle();
+
+  if (error) return { ok: false, status: 'failed', httpStatus: null, error: error.message };
+  if (!data) return { ok: false, status: 'failed', httpStatus: null, error: 'Tool execution not found' };
+
+  const row = data as {
+    client_id: string;
+    status: string;
+    attempt_count: number | null;
+    input_payload: Record<string, any>;
+  };
+
+  if (row.status !== 'pending') {
+    return {
+      ok: false,
+      status: 'skipped',
+      httpStatus: null,
+      error: `Tool execution is not pending (status: ${row.status})`,
+    };
+  }
+
+  const attempt = (row.attempt_count ?? 0) + 1;
+  const lead = (row.input_payload?.lead ?? {}) as Record<string, string | null>;
+
+  const result = await send(args.supabase, {
+    clientId: row.client_id,
+    botProfileId: (row.input_payload?.bot_profile_id as string | null) ?? null,
+    overrideTo: (row.input_payload?.override_to as string | null) ?? null,
+    fullName: lead.full_name ?? null,
+    email: lead.email ?? null,
+    phone: lead.phone ?? null,
+    intent: lead.intent ?? null,
+    serviceInterest: lead.service_interest ?? null,
+    channelLabel: (row.input_payload?.channel_label as string | null) ?? 'your channels',
+  });
+
+  if (result.sent) {
+    await markToolExecution({
+      supabase: args.supabase,
+      toolExecutionId: args.toolExecutionId,
+      status: 'success',
+      outputPayload: { sent: true },
+      errorMessage: null,
+      latencyMs: now() - startedAt,
+      attemptCount: attempt,
+      nextAttemptAt: null,
+    });
+    return { ok: true, status: 'success', httpStatus: null, error: null };
+  }
+
+  // No address to send to is a configuration fact, not a transient fault.
+  const permanent = (result.reason ?? '').startsWith('no handoff contact');
+  const willRetry = !permanent && attempt < MAX_DELIVERY_ATTEMPTS;
+  const reason = result.reason ?? 'Email send failed';
+
+  await markToolExecution({
+    supabase: args.supabase,
+    toolExecutionId: args.toolExecutionId,
+    status: willRetry ? 'pending' : 'failed',
+    outputPayload: { sent: false, reason },
+    errorMessage: willRetry ? `${reason} (attempt ${attempt}, will retry)` : reason,
+    latencyMs: now() - startedAt,
+    attemptCount: attempt,
+    nextAttemptAt: willRetry
+      ? new Date(now() + backoffSeconds(attempt) * 1000).toISOString()
+      : null,
+  });
+
+  return { ok: false, status: willRetry ? 'pending' : 'failed', httpStatus: null, error: reason };
+}
+
 export async function processPendingWebhookToolExecutions(args: {
   supabase: SupabaseLike;
   getEnv: EnvResolver;
   fetcher?: Fetcher;
   now?: () => number;
   batchSize?: number;
+  sendEmail?: typeof sendQualifiedLeadEmail;
 }): Promise<{
   ok: boolean;
   processed: number;
@@ -359,7 +464,7 @@ export async function processPendingWebhookToolExecutions(args: {
 
   const { data, error } = await args.supabase
     .from('wpm_tool_executions')
-    .select('id')
+    .select('id, tool_name')
     .eq('status', 'pending')
     .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
     .order('created_at', { ascending: true })
@@ -377,7 +482,7 @@ export async function processPendingWebhookToolExecutions(args: {
     };
   }
 
-  const rows = (data ?? []) as Array<{ id: string }>;
+  const rows = (data ?? []) as Array<{ id: string; tool_name?: string | null }>;
   const results: Array<{
     id: string;
     ok: boolean;
@@ -387,13 +492,23 @@ export async function processPendingWebhookToolExecutions(args: {
   }> = [];
 
   for (const row of rows) {
-    const result = await executeWebhookToolExecution({
-      supabase: args.supabase,
-      toolExecutionId: row.id,
-      getEnv: args.getEnv,
-      fetcher: args.fetcher,
-      now: args.now,
-    });
+    // Email notifications share the queue and the retry machinery, but they
+    // have no integration row and no URL to POST to, so they take their own
+    // delivery path.
+    const result = (row.tool_name ?? '').startsWith(EMAIL_TOOL_PREFIX)
+      ? await executeEmailToolExecution({
+          supabase: args.supabase,
+          toolExecutionId: row.id,
+          now: args.now,
+          send: args.sendEmail,
+        })
+      : await executeWebhookToolExecution({
+          supabase: args.supabase,
+          toolExecutionId: row.id,
+          getEnv: args.getEnv,
+          fetcher: args.fetcher,
+          now: args.now,
+        });
 
     results.push({
       id: row.id,

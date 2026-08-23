@@ -1,6 +1,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   CONFIG_RETRY_SECONDS,
+  executeEmailToolExecution,
   executeWebhookToolExecution,
   MAX_DELIVERY_ATTEMPTS,
   processPendingWebhookToolExecutions,
@@ -437,4 +438,125 @@ Deno.test('processPendingWebhookToolExecutions runs a bounded batch of pending e
     'success',
     'success',
   ]);
+});
+
+const emailExecution = {
+  id: 'email-execution-uuid',
+  client_id: 'client-uuid',
+  tool_name: 'email.qualified_lead',
+  status: 'pending',
+  attempt_count: 0,
+  input_payload: {
+    lead_id: 'lead-uuid',
+    bot_profile_id: 'bot-uuid',
+    override_to: null,
+    channel_label: 'messenger',
+    lead: {
+      full_name: 'Jane Rivera',
+      email: 'jane@example.com',
+      phone: '7875550100',
+      intent: 'booking_request',
+      service_interest: 'private dining',
+    },
+  },
+};
+
+Deno.test('a queued lead email is sent and marked success', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': emailExecution,
+  });
+  let received: Record<string, unknown> | null = null;
+
+  const result = await executeEmailToolExecution({
+    supabase,
+    toolExecutionId: 'email-execution-uuid',
+    now: () => 1000,
+    send: async (_supabase: unknown, args: Record<string, unknown>) => {
+      received = args;
+      return { sent: true };
+    },
+  });
+
+  assertEquals(result.status, 'success');
+  assertEquals(received!.clientId, 'client-uuid');
+  assertEquals(received!.botProfileId, 'bot-uuid');
+  assertEquals(received!.email, 'jane@example.com');
+  assertEquals(received!.channelLabel, 'messenger');
+  const payload = (supabase.db.updates as Array<{ payload: Record<string, unknown> }>).at(-1)!.payload;
+  assertEquals(payload.status, 'success');
+  assertEquals(payload.attempt_count, 1);
+});
+
+Deno.test('an account with nobody to email fails permanently rather than retrying forever', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': emailExecution,
+  });
+
+  const result = await executeEmailToolExecution({
+    supabase,
+    toolExecutionId: 'email-execution-uuid',
+    now: () => 1000,
+    send: async () => ({ sent: false, reason: 'no handoff contact, business email, or account email' }),
+  });
+
+  assertEquals(result.status, 'failed');
+  const payload = (supabase.db.updates as Array<{ payload: Record<string, unknown> }>).at(-1)!.payload;
+  assertEquals(payload.next_attempt_at, null);
+});
+
+Deno.test('a transient mail failure keeps the notification queued', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': emailExecution,
+  });
+
+  const result = await executeEmailToolExecution({
+    supabase,
+    toolExecutionId: 'email-execution-uuid',
+    now: () => 1_000_000,
+    send: async () => ({ sent: false, reason: 'Resend 503' }),
+  });
+
+  assertEquals(result.status, 'pending');
+  const payload = (supabase.db.updates as Array<{ payload: Record<string, unknown> }>).at(-1)!.payload;
+  assertEquals(payload.attempt_count, 1);
+  assertEquals(payload.next_attempt_at, new Date(1_060_000).toISOString());
+});
+
+Deno.test('the batch router sends email rows by email and webhook rows by HTTP', async () => {
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:list': [
+      { id: 'tool-1', tool_name: 'zapier.qualified_lead' },
+      { id: 'tool-2', tool_name: 'email.qualified_lead' },
+    ],
+    'wpm_tool_executions:byId': {
+      'tool-1': { ...toolExecution, id: 'tool-1' },
+      'tool-2': { ...emailExecution, id: 'tool-2' },
+    },
+  });
+  const posted: string[] = [];
+  let emailsSent = 0;
+
+  const result = await processPendingWebhookToolExecutions({
+    supabase,
+    batchSize: 2,
+    getEnv: () => 'https://hooks.zapier.com/hooks/catch/demo',
+    fetcher: async (url: string | URL | Request) => {
+      posted.push(String(url));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+    sendEmail: async () => {
+      emailsSent += 1;
+      return { sent: true };
+    },
+    now: () => 1000,
+  });
+
+  assertEquals(result.processed, 2);
+  assertEquals(result.succeeded, 2);
+  assertEquals(posted.length, 1); // only the webhook row was POSTed
+  assertEquals(emailsSent, 1);    // only the email row was mailed
 });

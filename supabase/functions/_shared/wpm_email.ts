@@ -216,3 +216,78 @@ export async function sendAccountDeletionConfirmation(to: string): Promise<Email
     html,
   });
 }
+
+/**
+ * Tells the business a qualified lead just came in.
+ *
+ * Deliberately NOT an integration you have to switch on. Before this existed,
+ * a captured lead was silent until the owner happened to open the dashboard or
+ * had wired up a Zapier hook — so the one event the product exists to produce
+ * was the one event nobody was told about. It now behaves like the escalation
+ * email: on from the first signup, using the same recipient chain, and opt-out
+ * rather than opt-in.
+ *
+ * Best-effort, like everything else here. A mail failure must never affect the
+ * lead itself, which is already safely stored by the time this runs.
+ */
+export async function sendQualifiedLeadEmail(
+  supabase: SupabaseLike,
+  args: {
+    clientId: string;
+    botProfileId: string | null;
+    overrideTo?: string | null;
+    fullName: string | null;
+    email: string | null;
+    phone: string | null;
+    intent: string | null;
+    serviceInterest: string | null;
+    channelLabel: string;
+  },
+): Promise<EmailResult> {
+  const to = args.overrideTo?.trim()
+    || await resolveHandoffRecipient(supabase, args.clientId, args.botProfileId);
+  if (!to) return { sent: false, reason: 'no handoff contact, business email, or account email' };
+
+  // The extractor does not always get a name, and a subject reading
+  // "New lead: " with nothing after it looks broken. Fall back to whatever
+  // contact detail we do have, because that is what you would act on anyway.
+  const who = args.fullName?.trim()
+    || args.email?.trim()
+    || args.phone?.trim()
+    || 'Someone';
+
+  const rows: Array<[string, string | null]> = [
+    ['Email', args.email],
+    ['Phone', args.phone],
+    ['Interested in', args.serviceInterest],
+    ['Intent', args.intent],
+    ['Channel', args.channelLabel],
+  ];
+
+  const details = rows
+    .filter(([, value]) => value && value.trim())
+    .map(([label, value]) => `
+      <tr>
+        <td style="padding:6px 12px 6px 0;color:#45585b;font-size:14px;white-space:nowrap">${escapeHtml(label)}</td>
+        <td style="padding:6px 0;font-size:14px;color:#10191b"><strong>${escapeHtml(String(value))}</strong></td>
+      </tr>`)
+    .join('');
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      <p style="font-size:15px;margin:0 0 16px">
+        Your AI agent just qualified a new lead on <strong>${escapeHtml(args.channelLabel)}</strong>.
+      </p>
+      <table style="border-collapse:collapse;margin:0 0 20px">${details}</table>
+      <a href="https://ai.wolfpackmediapr.com/dashboard/leads"
+         style="display:inline-block;background:#0e8f9e;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:14px;font-weight:600">
+        Open your leads
+      </a>
+      <p style="font-size:12px;color:#8a9a9c;margin:20px 0 0">
+        You are getting this because a lead was captured. You can turn these off on the Leads page.
+      </p>
+    </div>
+  `;
+
+  return sendViaResend({ to, subject: `New lead: ${who}`, html });
+}
