@@ -38,17 +38,134 @@ function titleCase(value: string): string {
 const NOT_A_NAME = new Set([
   'i', 'im', 'hi', 'hey', 'hello', 'thanks', 'thank', 'you', 'the', 'and', 'my',
   'am', 'is', 'are', 'a', 'an', 'to', 'for', 'me', 'we', 'us', 'it', 'yes', 'no',
-  'ok', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
+  'ok', 'oka', 'okey', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
   'every', 'day', 'today', 'tomorrow', 'am/pm', 'best', 'time', 'email', 'name',
+  // Words that show up where a name should be, especially once single-word
+  // names are accepted. "Chatbot" on its own line above an email address is a
+  // subject, not a person.
+  'chatbot', 'chatbots', 'chat', 'bot', 'bots', 'marketing', 'branding', 'brand',
+  'video', 'website', 'web', 'app', 'apps', 'automation', 'social', 'media',
+  'content', 'seo', 'ads', 'design', 'development', 'agency', 'business',
+  'company', 'info', 'information', 'service', 'services', 'price', 'pricing',
+  'quote', 'booking', 'appointment', 'consultation', 'interested', 'interest',
+  'number', 'phone', 'contact', 'call', 'meeting', 'discovery', 'sure', 'here',
+  // The agent answers in Spanish too, and so do customers.
+  'hola', 'buenas', 'buenos', 'gracias', 'saludos', 'si', 'claro', 'bueno',
+  'nombre', 'correo', 'telefono', 'contacto', 'informacion', 'socio',
+  'numero', 'tambien', 'coge', 'para', 'con', 'del', 'las', 'los', 'que',
+  // Acknowledgements that precede a details dump: "Cool jane@..." must not
+  // yield a lead named "Cool".
+  'cool', 'great', 'perfect', 'nice', 'awesome', 'yeah', 'yep', 'sure', 'sorry',
+  'well', 'right', 'fine', 'done', 'got', 'send', 'sent', 'give', 'take',
 ]);
 
-function looksLikeName(candidate: string): boolean {
+/**
+ * Fold accents so one spelling matches them all.
+ *
+ * "vídeo" and "video", "automatización" and "automatizacion" -- customers type
+ * both, and a list that only holds one silently misses the other. Folding is
+ * far more reliable than trying to enumerate every spelling.
+ */
+function foldAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function bareWord(part: string): string {
+  return foldAccents(part.replace(/[^\p{L}'\-]/gu, '').toLowerCase());
+}
+
+/**
+ * Drop filler sitting either side of a name.
+ *
+ * People answer "Ok Williamson Smithweson" or "Thanks, Jane Rivera". Rejecting
+ * the whole candidate because one edge word is a stopword threw away an
+ * otherwise perfect match, and sent extraction to a fallback that picked the
+ * agent's own text instead.
+ */
+function trimFiller(candidate: string): string[] {
   const parts = candidate.trim().split(/\s+/);
-  if (parts.length < 2 || parts.length > 4) return false;
-  return parts.every((part) => {
-    const bare = part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
+  let start = 0;
+  let end = parts.length;
+  while (start < end && NOT_A_NAME.has(bareWord(parts[start]))) start += 1;
+  while (end > start && NOT_A_NAME.has(bareWord(parts[end - 1]))) end -= 1;
+  return parts.slice(start, end);
+}
+
+/** Every word reads like part of a person's name. */
+function partsAreNamely(parts: string[]): boolean {
+  return parts.length > 0 && parts.every((part) => {
+    const bare = bareWord(part);
     return bare.length >= 2 && !NOT_A_NAME.has(bare);
   });
+}
+
+function looksLikeName(candidate: string): boolean {
+  const parts = trimFiller(candidate);
+  if (parts.length < 2 || parts.length > 4) return false;
+  return partsAreNamely(parts);
+}
+
+/**
+ * A "here are my details" message, one value per line:
+ *
+ *     Wilfre
+ *     8598147330
+ *     goldenpinepplerecs@gmail.com
+ *
+ * The line that is neither an email, a phone number nor a link is the name.
+ * This is the only reliable way to accept someone who gives just a first name,
+ * which plenty of people do — elsewhere a lone capitalised word is far more
+ * likely to be a subject ("Chatbot") than a person, so single words are only
+ * trusted inside this shape.
+ */
+function nameFromDetailsBlock(text: string): string | null {
+  const lines = text.split(/[\n\r]+/).map((line) => line.trim()).filter(Boolean);
+
+  const looksLikeContact = (line: string) =>
+    line.includes('@') || line.replace(/\D/g, '').length >= 7;
+
+  // Only trust this shape when the message really is a list of details.
+  const firstContact = lines.findIndex(looksLikeContact);
+  if (firstContact < 0) return null;
+
+  // Up to and INCLUDING the contact line, because messengers flatten line
+  // breaks: "Ok Juan\njuachi@hotmail.com\n7777347330" arrives from Instagram as
+  // one line, and stripping the contact tokens out of it leaves the name.
+  // Never past that point — trailing commentary is not a name, which is how
+  // "Hola / correo@… / reservation" produced a lead called "Reservation".
+  for (const line of lines.slice(0, firstContact + 1)) {
+    const remainder = line
+      .replace(/https?:\/\/\S+/gi, ' ')
+      .replace(/[\w.+-]+@[\w.-]+\.\w+/g, ' ')       // email
+      .replace(/(?:\+?\d[\d().\-\s]{6,}\d)/g, ' ')  // phone
+      .replace(/[.,;:!?]+/g, ' ');
+
+    const parts = trimFiller(remainder);
+    if (parts.length < 1 || parts.length > 3) continue;
+    if (!partsAreNamely(parts)) continue;
+    // Letters, apostrophes and hyphens only — no stray punctuation or digits.
+    if (!/^[\p{L}][\p{L}'\-]*(?:\s+[\p{L}][\p{L}'\-]*)*$/u.test(parts.join(' '))) continue;
+
+    return titleCase(parts.join(' '));
+  }
+
+  return null;
+}
+
+/** The trimmed form of a candidate that `looksLikeName` accepted. */
+function nameFrom(candidate: string): string {
+  return trimFiller(candidate).join(' ');
+}
+
+/**
+ * Markdown links are the agent's, never the customer's.
+ *
+ * The agent offers "[Discovery Call](https://calendly.com/...)", and a bare
+ * scan reads "Discovery Call" as two capitalised words — which is exactly how
+ * a real lead was stored under that name twice.
+ */
+function stripMarkdownLinks(text: string): string {
+  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, ' ');
 }
 
 /**
@@ -65,50 +182,95 @@ function extractName(text: string): string | null {
   const introduced = text.match(
     /(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i,
   );
-  if (introduced) return titleCase(introduced[1]);
+  // "I'm interested in a chat bot" matches this pattern just as well as
+  // "I'm Wilfre" does, and used to be stored as a lead named "Interested In".
+  // The introduction form is a strong signal, not a guarantee.
+  // Take words only until the first one that is not namely, rather than
+  // trimming the edges: a name follows "I'm" immediately, so "I'm interested
+  // in a chat" must yield nothing rather than salvaging "In" from the middle.
+  if (introduced) {
+    const parts: string[] = [];
+    for (const part of introduced[1].trim().split(/\s+/)) {
+      const bare = bareWord(part);
+      if (bare.length < 2 || NOT_A_NAME.has(bare)) break;
+      parts.push(part);
+    }
+    if (parts.length >= 1 && parts.length <= 4) return titleCase(parts.join(' '));
+  }
+
+  // A details block is more reliable than any regex over prose, and it is the
+  // only place a single-word name can be trusted.
+  const fromBlock = nameFromDetailsBlock(text);
+  if (fromBlock) return fromBlock;
 
   // Bare answer: capitalised words immediately before or after an email.
+  // The lookahead stops the greedy capture from swallowing the start of the
+  // email itself: "Smithweson\nMindsethubpr@gmail.com" otherwise yields the
+  // name "Williamson Smithweson Mindsethubp", with the stray "r@" left to match
+  // the address.
   const beside = text.match(
-    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
+    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})(?![\w.+-]*@)\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
   ) ?? text.match(
     /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})/u,
   );
-  if (beside && looksLikeName(beside[1])) return titleCase(beside[1]);
+  if (beside && looksLikeName(beside[1])) return titleCase(nameFrom(beside[1]));
+
+  // A single capitalised word immediately before an email or phone number.
+  //
+  // "...la info de el Carlos carlito@hotmail.com" is a name sitting in the
+  // middle of Spanish prose: the details-block rule sees too many words and the
+  // pair rule needs two capitalised words, so both miss it. Adjacency to
+  // contact details is the signal, exactly as it is inside a details block.
+  // The lookahead keeps the capture out of the address itself.
+  const adjacent = text.match(
+    /([A-Z][\p{L}'\-]+)(?![\w.+-]*@)\s*[,;:]?\s*(?:[\w.+-]+@[\w.-]+\.\w+|\+?\d[\d().\-\s]{6,}\d)/u,
+  );
+  if (adjacent) {
+    const parts = trimFiller(adjacent[1]);
+    if (parts.length === 1 && partsAreNamely(parts)) return titleCase(parts.join(' '));
+  }
 
   // Otherwise the first run of capitalised words that reads like a full name.
   for (const candidate of text.match(/[A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3}/gu) ?? []) {
-    if (looksLikeName(candidate)) return titleCase(candidate);
+    if (looksLikeName(candidate)) return titleCase(nameFrom(candidate));
   }
 
   return null;
 }
 
 function extractServiceInterest(text: string): string | null {
-  const lowered = text.toLowerCase();
+  const lowered = foldAccents(text.toLowerCase());
+  // English first, then Spanish. The agent answers in the customer's language,
+  // and in Puerto Rico that is very often Spanish -- an English-only list threw
+  // away a lead that had a name, an email AND a phone number.
   const services = [
-    'private dining',
-    'catering',
-    'appointment',
-    'reservation',
-    'consultation',
-    'booking',
-    'event',
-    'dinner',
-    'brunch',
+    'private dining', 'catering', 'appointment', 'reservation', 'consultation',
+    'booking', 'event', 'dinner', 'brunch',
+    'video production', 'content creation', 'social media', 'web development',
+    'app development', 'chatbot', 'automation', 'branding', 'marketing', 'seo',
+    // Spanish
+    'produccion de video', 'producción de video', 'creacion de contenido',
+    'creación de contenido', 'contenido de video', 'redes sociales',
+    'pagina web', 'página web', 'sitio web', 'desarrollo web', 'aplicacion',
+    'aplicación', 'automatizacion', 'automatización', 'mercadeo', 'publicidad',
+    'diseno', 'diseño', 'consulta', 'cita', 'reserva', 'reservacion',
+    'reservación', 'evento', 'cena', 'presupuesto', 'cotizacion', 'cotización',
   ];
 
   return services.find((service) => lowered.includes(service)) ?? null;
 }
 
 function extractIntent(text: string, serviceInterest: string | null, qualificationData: Record<string, unknown>): string | null {
-  const lowered = text.toLowerCase();
-  if (/\b(book|booking|reserve|reservation|appointment|available|availability|schedule)\b/.test(lowered)) {
+  const lowered = foldAccents(text.toLowerCase());
+  if (/\b(book|booking|reserve|reservation|appointment|available|availability|schedule)\b/.test(lowered)
+    || /\b(agendar|programar|reservar|reserva|cita|llamada|llamar|contactar|contacte|disponible|disponibilidad)\b/.test(lowered)) {
     return 'booking_request';
   }
   if (serviceInterest && (qualificationData.party_size || qualificationData.requested_date)) {
     return 'booking_request';
   }
-  if (/\b(price|pricing|cost|quote|estimate|package)\b/.test(lowered)) {
+  if (/\b(price|pricing|cost|quote|estimate|package)\b/.test(lowered)
+    || /\b(precio|precios|costo|costos|cuesta|cuestan|cotizacion|presupuesto|tarifa|tarifas|vale|valor)\b/.test(lowered)) {
     return 'pricing_request';
   }
   if (serviceInterest) return 'service_inquiry';
@@ -134,15 +296,36 @@ export function extractLeadFromConversationText(args: {
   assistantText?: string;
   sourceChannel: string | null;
 }): ExtractedLead {
+  // Who the lead IS can only come from what the customer wrote. Scanning our
+  // own reply for their identity is how a lead was stored as "Discovery Call":
+  // the agent offers a Calendly link, and the name fallback picked the markdown
+  // label out of the agent's own words. Twice, on real leads.
+  //
+  // What the lead WANTS is different — the agent legitimately confirms the
+  // service and the timing, so context still reads both sides.
+  const identityText = stripMarkdownLinks(args.inboundText);
   const combinedText = `${args.inboundText}\n${args.assistantText ?? ''}`;
-  const email = clean(combinedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
-  const phone = clean(combinedText.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
-  const fullName = extractName(combinedText);
+  const email = clean(identityText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
+  const phone = clean(identityText.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
+  const fullName = extractName(identityText);
   const serviceInterest = extractServiceInterest(combinedText);
   const qualificationData = extractQualificationData(combinedText);
   const intent = extractIntent(combinedText, serviceInterest, qualificationData);
   const hasContact = Boolean(email || phone);
-  const hasCommercialIntent = Boolean(serviceInterest || intent);
+
+  // Handing over your details is itself the intent, in any language.
+  //
+  // Vocabulary lists will always trail the languages customers actually use --
+  // a Spanish lead with a name, an email AND a phone number was dropped
+  // outright because the agent replied in Spanish and no English keyword
+  // matched. Nobody types their name, email and phone into a business DM by
+  // accident; they do it because they were asked and they want a call back.
+  //
+  // Deliberately narrow: it needs a name plus contact, or both an email and a
+  // phone. A bare address mentioned in passing still does not qualify.
+  const handedOverDetails = Boolean((fullName && hasContact) || (email && phone));
+
+  const hasCommercialIntent = Boolean(serviceInterest || intent || handedOverDetails);
 
   return {
     isQualified: hasContact && hasCommercialIntent,
