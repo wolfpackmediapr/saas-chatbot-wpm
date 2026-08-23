@@ -471,3 +471,39 @@ Deno.test('an address mentioned in passing still does not qualify', () => {
   });
   assertEquals(lead.isQualified, false);
 });
+
+Deno.test('a single name mid-sentence, next to contact details, is captured', () => {
+  // Live Spanish lead: the name sits inside prose with one capitalised word
+  // before the email, so the details-block rule saw too many words and the
+  // pair rule wanted two capitalised words. Adjacency is the signal.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'También coge el número de mi socio y la info de el Carlos carlito@hotmail.com 5553337777',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Carlos');
+  assertEquals(lead.email, 'carlito@hotmail.com');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('a name before a phone number is captured too', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'mi socio es Carlos 5553337777',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Carlos',
+  );
+});
+
+Deno.test('a stopword adjacent to contact details is still not a name', () => {
+  // The adjacency rule accepts single words, so the stopword list is what
+  // stops "correo ana@x.com" or "contacto ana@x.com" becoming a person.
+  for (const text of ['correo ana@x.com booking', 'Contacto ana@x.com booking', 'Info ana@x.com booking']) {
+    assertEquals(
+      extractLeadFromConversationText({ inboundText: text, sourceChannel: 'instagram' }).fullName,
+      null,
+      `expected no name for: ${text}`,
+    );
+  }
+});

@@ -51,7 +51,8 @@ const NOT_A_NAME = new Set([
   'number', 'phone', 'contact', 'call', 'meeting', 'discovery', 'sure', 'here',
   // The agent answers in Spanish too, and so do customers.
   'hola', 'buenas', 'buenos', 'gracias', 'saludos', 'si', 'claro', 'bueno',
-  'nombre', 'correo', 'telefono', 'teléfono',
+  'nombre', 'correo', 'telefono', 'contacto', 'informacion', 'socio',
+  'numero', 'tambien', 'coge', 'para', 'con', 'del', 'las', 'los', 'que',
   // Acknowledgements that precede a details dump: "Cool jane@..." must not
   // yield a lead named "Cool".
   'cool', 'great', 'perfect', 'nice', 'awesome', 'yeah', 'yep', 'sure', 'sorry',
@@ -70,7 +71,7 @@ function foldAccents(value: string): string {
 }
 
 function bareWord(part: string): string {
-  return part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
+  return foldAccents(part.replace(/[^\p{L}'\-]/gu, '').toLowerCase());
 }
 
 /**
@@ -213,6 +214,21 @@ function extractName(text: string): string | null {
     /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})/u,
   );
   if (beside && looksLikeName(beside[1])) return titleCase(nameFrom(beside[1]));
+
+  // A single capitalised word immediately before an email or phone number.
+  //
+  // "...la info de el Carlos carlito@hotmail.com" is a name sitting in the
+  // middle of Spanish prose: the details-block rule sees too many words and the
+  // pair rule needs two capitalised words, so both miss it. Adjacency to
+  // contact details is the signal, exactly as it is inside a details block.
+  // The lookahead keeps the capture out of the address itself.
+  const adjacent = text.match(
+    /([A-Z][\p{L}'\-]+)(?![\w.+-]*@)\s*[,;:]?\s*(?:[\w.+-]+@[\w.-]+\.\w+|\+?\d[\d().\-\s]{6,}\d)/u,
+  );
+  if (adjacent) {
+    const parts = trimFiller(adjacent[1]);
+    if (parts.length === 1 && partsAreNamely(parts)) return titleCase(parts.join(' '));
+  }
 
   // Otherwise the first run of capitalised words that reads like a full name.
   for (const candidate of text.match(/[A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3}/gu) ?? []) {
