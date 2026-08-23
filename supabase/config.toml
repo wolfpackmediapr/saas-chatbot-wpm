@@ -323,3 +323,12 @@ verify_jwt = false
 # token is the only thing that decides whose data is erased.
 [functions.delete-account]
 verify_jwt = true
+
+# Called by the scheduled drain (public.drain_lead_webhooks) over pg_net, which
+# has no Supabase session to present. Authorisation is the shared secret checked
+# inside the function, whose missing-config branch correctly returns false —
+# unlike the woztell gate that failed open and got this class of endpoint
+# deleted. Declared explicitly because the deploy default is `true`, and an
+# unstated default silently changed this once already.
+[functions.wpm-actions-processor]
+verify_jwt = false
