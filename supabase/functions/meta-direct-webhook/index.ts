@@ -13,6 +13,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
+import { describeAttachments } from '../_shared/wpm_meta_attachments.ts';
 import {
   checkConversationAllowance,
   conversationCapWindowStart,
@@ -34,7 +35,19 @@ interface MetaMessageEvent {
   message?: {
     mid: string;
     text?: string;
-    attachments?: Array<{ type: string; payload?: { url?: string } }>;
+    attachments?: Array<{
+      type: string;
+      payload?: {
+        url?: string;
+        // Shared reels and posts carry the whole caption here. It is the only
+        // real content in the delivery, and reading `type` alone throws it away.
+        title?: string;
+        // Instagram's phone/WhatsApp/Call card arrives as a generic template
+        // with an EMPTY elements array — rendered client-side, nothing in the
+        // payload to read.
+        generic?: { elements?: unknown[] };
+      };
+    }>;
     is_echo?: boolean;
   };
   postback?: {
@@ -153,8 +166,7 @@ function normalizeMetaEvents(
       // Attachment-only messages (images, audio, shares, story replies) must
       // still reach the pipeline so the conversation is logged and answered.
       if (!text && attachments.length > 0) {
-        const kinds = [...new Set(attachments.map((a) => a.type))].join(', ');
-        text = `[User sent: ${kinds}]`;
+        text = describeAttachments(event.message.attachments ?? []);
       }
     } else if (event.postback) {
       text = event.postback.payload ?? event.postback.title;
@@ -446,7 +458,14 @@ Deno.serve(async (request: Request) => {
             raw_payload: rawPayload,
             normalized_payload: event,
             status: 'ignored',
-            error_message: `Skipped: no text (type ${event.rawEventType})`,
+            // Name the attachment types. A delivery carrying only an empty
+            // Instagram phone-card template is normal and expected; "no text"
+            // alone made it look like a defect and told nobody which kind.
+            error_message: event.attachments.length > 0
+              ? `Skipped: attachment carried no readable content (${
+                [...new Set(event.attachments.map((a) => a.type))].join(', ')
+              })`
+              : `Skipped: no text (type ${event.rawEventType})`,
           });
         }
         continue;
