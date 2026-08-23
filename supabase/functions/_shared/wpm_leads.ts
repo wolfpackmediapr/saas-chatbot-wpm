@@ -42,13 +42,50 @@ const NOT_A_NAME = new Set([
   'every', 'day', 'today', 'tomorrow', 'am/pm', 'best', 'time', 'email', 'name',
 ]);
 
-function looksLikeName(candidate: string): boolean {
+function bareWord(part: string): string {
+  return part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
+}
+
+/**
+ * Drop filler sitting either side of a name.
+ *
+ * People answer "Ok Williamson Smithweson" or "Thanks, Jane Rivera". Rejecting
+ * the whole candidate because one edge word is a stopword threw away an
+ * otherwise perfect match, and sent extraction to a fallback that picked the
+ * agent's own text instead.
+ */
+function trimFiller(candidate: string): string[] {
   const parts = candidate.trim().split(/\s+/);
+  let start = 0;
+  let end = parts.length;
+  while (start < end && NOT_A_NAME.has(bareWord(parts[start]))) start += 1;
+  while (end > start && NOT_A_NAME.has(bareWord(parts[end - 1]))) end -= 1;
+  return parts.slice(start, end);
+}
+
+function looksLikeName(candidate: string): boolean {
+  const parts = trimFiller(candidate);
   if (parts.length < 2 || parts.length > 4) return false;
   return parts.every((part) => {
-    const bare = part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
+    const bare = bareWord(part);
     return bare.length >= 2 && !NOT_A_NAME.has(bare);
   });
+}
+
+/** The trimmed form of a candidate that `looksLikeName` accepted. */
+function nameFrom(candidate: string): string {
+  return trimFiller(candidate).join(' ');
+}
+
+/**
+ * Markdown links are the agent's, never the customer's.
+ *
+ * The agent offers "[Discovery Call](https://calendly.com/...)", and a bare
+ * scan reads "Discovery Call" as two capitalised words — which is exactly how
+ * a real lead was stored under that name twice.
+ */
+function stripMarkdownLinks(text: string): string {
+  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, ' ');
 }
 
 /**
@@ -65,19 +102,23 @@ function extractName(text: string): string | null {
   const introduced = text.match(
     /(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i,
   );
-  if (introduced) return titleCase(introduced[1]);
+  if (introduced) return titleCase(nameFrom(introduced[1]));
 
   // Bare answer: capitalised words immediately before or after an email.
+  // The lookahead stops the greedy capture from swallowing the start of the
+  // email itself: "Smithweson\nMindsethubpr@gmail.com" otherwise yields the
+  // name "Williamson Smithweson Mindsethubp", with the stray "r@" left to match
+  // the address.
   const beside = text.match(
-    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
+    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})(?![\w.+-]*@)\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
   ) ?? text.match(
     /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})/u,
   );
-  if (beside && looksLikeName(beside[1])) return titleCase(beside[1]);
+  if (beside && looksLikeName(beside[1])) return titleCase(nameFrom(beside[1]));
 
   // Otherwise the first run of capitalised words that reads like a full name.
   for (const candidate of text.match(/[A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3}/gu) ?? []) {
-    if (looksLikeName(candidate)) return titleCase(candidate);
+    if (looksLikeName(candidate)) return titleCase(nameFrom(candidate));
   }
 
   return null;
@@ -134,10 +175,18 @@ export function extractLeadFromConversationText(args: {
   assistantText?: string;
   sourceChannel: string | null;
 }): ExtractedLead {
+  // Who the lead IS can only come from what the customer wrote. Scanning our
+  // own reply for their identity is how a lead was stored as "Discovery Call":
+  // the agent offers a Calendly link, and the name fallback picked the markdown
+  // label out of the agent's own words. Twice, on real leads.
+  //
+  // What the lead WANTS is different — the agent legitimately confirms the
+  // service and the timing, so context still reads both sides.
+  const identityText = stripMarkdownLinks(args.inboundText);
   const combinedText = `${args.inboundText}\n${args.assistantText ?? ''}`;
-  const email = clean(combinedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
-  const phone = clean(combinedText.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
-  const fullName = extractName(combinedText);
+  const email = clean(identityText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
+  const phone = clean(identityText.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
+  const fullName = extractName(identityText);
   const serviceInterest = extractServiceInterest(combinedText);
   const qualificationData = extractQualificationData(combinedText);
   const intent = extractIntent(combinedText, serviceInterest, qualificationData);

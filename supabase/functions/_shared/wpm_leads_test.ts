@@ -221,3 +221,73 @@ Deno.test('persistQualifiedLeadAndQueueActions skips unqualified leads without d
   assertEquals(supabase.db.upserts, []);
   assertEquals(supabase.db.inserts, []);
 });
+
+// ── Regression: the agent's own words are not the customer's identity ──────
+//
+// Two real leads were stored as "Discovery Meeting" (08-21) and "Discovery
+// Call" (08-23) because extraction scanned the agent's reply, which offers
+// "[Discovery Call](https://calendly.com/...)". The customer's actual name was
+// sitting in their own message both times.
+
+Deno.test('the agent offering a Discovery Call never becomes the lead name', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Ok Williamson Smithweson\nMindsethubpr@gmail.com\n\n7875557332',
+    assistantText:
+      'Thanks, Williamson! The best way to get exact details is through a quick discovery call. ' +
+      'You can book a time that works for you here: [Discovery Call](https://calendly.com/wolfpackmediapr/wpm-discovery-meeting).',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Williamson Smithweson');
+  assertEquals(lead.email, 'Mindsethubpr@gmail.com');
+  assertEquals(lead.phone, '7875557332');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('leading filler does not throw away an otherwise good name', () => {
+  // "Ok" is a stopword; rejecting the whole candidate for it is what sent
+  // extraction to the fallback that read the agent's text.
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Ok Williamson Smithweson someone@example.com booking',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Williamson Smithweson',
+  );
+});
+
+Deno.test('a markdown link in the customer message is not a name either', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: '[Discovery Call](https://calendly.com/x) jane@example.com booking',
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});
+
+Deno.test('contact details are never taken from the agent reply', () => {
+  // If the agent mentions a business address, that is ours, not the lead's.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'I want a booking',
+    assistantText: 'Email us at hello@wolfpackmediapr.com or call 7875550000.',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.email, null);
+  assertEquals(lead.phone, null);
+  assertEquals(lead.isQualified, false); // no customer contact means no lead
+});
+
+Deno.test('the agent may still confirm what the lead wants', () => {
+  // Context is allowed to come from either side -- only identity is restricted.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Jane Rivera jane@example.com, is Friday possible?',
+    assistantText: 'We can do private dining on Friday.',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Jane Rivera');
+  assertEquals(lead.serviceInterest, 'private dining');
+  assertEquals(lead.isQualified, true);
+});
