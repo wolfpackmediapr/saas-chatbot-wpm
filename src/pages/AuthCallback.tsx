@@ -4,11 +4,26 @@ import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 
 /**
- * Full-page fallback for non-popup OAuth (e.g., email magic link, password recovery).
+ * Full-page fallback for non-popup OAuth (e.g., email magic link, password
+ * recovery, and Google sign-in via /auth/complete).
  * The Meta popup flow uses public/auth/callback.html instead, which never loads
  * React and therefore never touches localStorage or the current session.
+ *
+ * The point of this page is the wait: supabase-js has to read the session out
+ * of the URL fragment before anything asks whether a user is signed in, so
+ * landing straight on a ProtectedRoute races that and bounces to /login.
+ *
+ * `errorPath` / `errorLabel` let the failure exit suit the flow that arrived
+ * here; they default to the Meta channel-connection wording this page was
+ * originally written for.
  */
-export default function AuthCallback() {
+export default function AuthCallback({
+  errorPath = '/dashboard/channel-connections',
+  errorLabel = 'Go to Channel Connections',
+}: {
+  errorPath?: string;
+  errorLabel?: string;
+} = {}) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Completing sign in...');
@@ -90,10 +105,10 @@ export default function AuthCallback() {
           <p className="text-secondary-foreground mb-4 text-sm">{errorDetails}</p>
         )}
         <button
-          onClick={() => navigate('/dashboard/channel-connections')}
+          onClick={() => navigate(errorPath)}
           className="mt-4 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
         >
-          Go to Channel Connections
+          {errorLabel}
         </button>
       </div>
     </div>

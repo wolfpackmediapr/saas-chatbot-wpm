@@ -79,6 +79,13 @@ function App() {
               catch-all sent every reset link to the marketing homepage. */}
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          {/* Google sign-in lands here, not on /auth/callback: that path is the
+              Meta channel-connection popup's redirect URI, registered with Meta.
+              Landing straight on /dashboard would race the guard instead. */}
+          <Route
+            path="/auth/complete"
+            element={<AuthCallback errorPath="/login" errorLabel="Back to sign in" />}
+          />
 
           {/* Protected App (now under /dashboard to free up root for marketing) */}
           <Route

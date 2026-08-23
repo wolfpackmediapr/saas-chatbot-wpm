@@ -64,6 +64,54 @@ export async function signIn(email: string, password: string) {
   }
 }
 
+/**
+ * Start the Google OAuth flow.
+ *
+ * Returns to `/auth/complete` rather than straight to `/dashboard`: supabase-js
+ * has to read the session out of the URL fragment before `ProtectedRoute` asks
+ * whether anyone is signed in, and landing on a guarded route means racing it.
+ * `/auth/complete` waits for the session and only then navigates.
+ *
+ * It is deliberately NOT `/auth/callback` — that path belongs to the Meta
+ * channel-connection popup (`public/auth/callback.html`), whose redirect URI is
+ * registered with Meta. Sharing it would put two different OAuth flows on one
+ * route.
+ *
+ * There is no separate sign-up call. Google returns the same session either
+ * way, and `getOwnedWpmClient()` lazy-creates the client and default agent on
+ * first load, naming the business from `user_metadata.full_name` — which is
+ * exactly what Google supplies.
+ */
+export async function signInWithGoogle() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured');
+  }
+
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/complete`,
+      },
+    });
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Supabase Google sign-in error:', error);
+    if (error instanceof AuthError) {
+      // 400 here is almost always "Unsupported provider" — the provider has not
+      // been enabled in the Supabase dashboard yet. Say so, rather than showing
+      // a generic failure that looks like the user's fault.
+      if (error.status === 400) {
+        throw new Error('Google sign-in is not available yet. Please use your email and password.');
+      }
+      throw new Error(error.message);
+    }
+    throw new Error('Could not start Google sign-in. Please try again.');
+  }
+}
+
 export async function signOut() {
   if (!supabase) {
     throw new Error('Supabase is not configured');

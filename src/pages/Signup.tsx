@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import SignupForm, { SignupFormData } from '../components/auth/SignupForm';
 import { signUp } from '../lib/supabase/auth';
 import LegalFooter from '../components/LegalFooter';
+import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 
 export default function Signup() {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -72,6 +73,8 @@ export default function Signup() {
                 {error}
               </div>
             )}
+
+            <GoogleSignInButton label="Sign up with Google" onError={(m) => setError(m || null)} withDivider />
 
             <SignupForm onSubmit={handleSignup} isLoading={isLoading} />
 
