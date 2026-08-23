@@ -410,3 +410,64 @@ Deno.test('an acknowledgement before contact details is not a name', () => {
     null,
   );
 });
+
+// ── Spanish conversations ─────────────────────────────────────────────────
+//
+// A live Instagram lead in Spanish -- with a name, an email AND a phone --
+// was dropped entirely: isQualified was false because every service and
+// intent word in the list was English, and the agent had (correctly) replied
+// in Spanish. No lead row, no email, no Zapier, no Slack. In Puerto Rico that
+// is not an edge case.
+
+Deno.test('a Spanish handover qualifies and keeps the name', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Oka Luiso luisopr@outlook.net 8598147330',
+    assistantText:
+      'Gracias, Luiso. Un miembro de nuestro equipo se pondrá en contacto contigo. ' +
+      'Si prefieres, también puedes programar una llamada directamente usando este enlace: ' +
+      '[Calendly Discovery Call](https://calendly.com/wolfpackmediapr/wpm-discovery-meeting).',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Luiso');
+  assertEquals(lead.email, 'luisopr@outlook.net');
+  assertEquals(lead.phone, '8598147330');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('accented Spanish still matches the service list', () => {
+  // "contenido de vídeo" must match "contenido de video".
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Tengo un YouTube channel Uds trabajan contenido de vídeo? luis@x.com',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('Spanish pricing questions are a pricing_request', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Cuanto cuesta? mi correo es ana@x.com',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, 'pricing_request');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('handing over details qualifies even with no keyword in any language', () => {
+  // The language-independent rule: nobody types a name, an email and a phone
+  // into a business DM by accident.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Luiso luisopr@outlook.net 8598147330',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('an address mentioned in passing still does not qualify', () => {
+  // The handover rule must stay narrow: no name, and only one contact detail.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'is this the right place? write to support@other.com maybe',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.isQualified, false);
+});

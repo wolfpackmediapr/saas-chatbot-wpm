@@ -38,7 +38,7 @@ function titleCase(value: string): string {
 const NOT_A_NAME = new Set([
   'i', 'im', 'hi', 'hey', 'hello', 'thanks', 'thank', 'you', 'the', 'and', 'my',
   'am', 'is', 'are', 'a', 'an', 'to', 'for', 'me', 'we', 'us', 'it', 'yes', 'no',
-  'ok', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
+  'ok', 'oka', 'okey', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
   'every', 'day', 'today', 'tomorrow', 'am/pm', 'best', 'time', 'email', 'name',
   // Words that show up where a name should be, especially once single-word
   // names are accepted. "Chatbot" on its own line above an email address is a
@@ -57,6 +57,17 @@ const NOT_A_NAME = new Set([
   'cool', 'great', 'perfect', 'nice', 'awesome', 'yeah', 'yep', 'sure', 'sorry',
   'well', 'right', 'fine', 'done', 'got', 'send', 'sent', 'give', 'take',
 ]);
+
+/**
+ * Fold accents so one spelling matches them all.
+ *
+ * "vídeo" and "video", "automatización" and "automatizacion" -- customers type
+ * both, and a list that only holds one silently misses the other. Folding is
+ * far more reliable than trying to enumerate every spelling.
+ */
+function foldAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 
 function bareWord(part: string): string {
   return part.replace(/[^\p{L}'\-]/gu, '').toLowerCase();
@@ -212,31 +223,38 @@ function extractName(text: string): string | null {
 }
 
 function extractServiceInterest(text: string): string | null {
-  const lowered = text.toLowerCase();
+  const lowered = foldAccents(text.toLowerCase());
+  // English first, then Spanish. The agent answers in the customer's language,
+  // and in Puerto Rico that is very often Spanish -- an English-only list threw
+  // away a lead that had a name, an email AND a phone number.
   const services = [
-    'private dining',
-    'catering',
-    'appointment',
-    'reservation',
-    'consultation',
-    'booking',
-    'event',
-    'dinner',
-    'brunch',
+    'private dining', 'catering', 'appointment', 'reservation', 'consultation',
+    'booking', 'event', 'dinner', 'brunch',
+    'video production', 'content creation', 'social media', 'web development',
+    'app development', 'chatbot', 'automation', 'branding', 'marketing', 'seo',
+    // Spanish
+    'produccion de video', 'producción de video', 'creacion de contenido',
+    'creación de contenido', 'contenido de video', 'redes sociales',
+    'pagina web', 'página web', 'sitio web', 'desarrollo web', 'aplicacion',
+    'aplicación', 'automatizacion', 'automatización', 'mercadeo', 'publicidad',
+    'diseno', 'diseño', 'consulta', 'cita', 'reserva', 'reservacion',
+    'reservación', 'evento', 'cena', 'presupuesto', 'cotizacion', 'cotización',
   ];
 
   return services.find((service) => lowered.includes(service)) ?? null;
 }
 
 function extractIntent(text: string, serviceInterest: string | null, qualificationData: Record<string, unknown>): string | null {
-  const lowered = text.toLowerCase();
-  if (/\b(book|booking|reserve|reservation|appointment|available|availability|schedule)\b/.test(lowered)) {
+  const lowered = foldAccents(text.toLowerCase());
+  if (/\b(book|booking|reserve|reservation|appointment|available|availability|schedule)\b/.test(lowered)
+    || /\b(agendar|programar|reservar|reserva|cita|llamada|llamar|contactar|contacte|disponible|disponibilidad)\b/.test(lowered)) {
     return 'booking_request';
   }
   if (serviceInterest && (qualificationData.party_size || qualificationData.requested_date)) {
     return 'booking_request';
   }
-  if (/\b(price|pricing|cost|quote|estimate|package)\b/.test(lowered)) {
+  if (/\b(price|pricing|cost|quote|estimate|package)\b/.test(lowered)
+    || /\b(precio|precios|costo|costos|cuesta|cuestan|cotizacion|presupuesto|tarifa|tarifas|vale|valor)\b/.test(lowered)) {
     return 'pricing_request';
   }
   if (serviceInterest) return 'service_inquiry';
@@ -278,7 +296,20 @@ export function extractLeadFromConversationText(args: {
   const qualificationData = extractQualificationData(combinedText);
   const intent = extractIntent(combinedText, serviceInterest, qualificationData);
   const hasContact = Boolean(email || phone);
-  const hasCommercialIntent = Boolean(serviceInterest || intent);
+
+  // Handing over your details is itself the intent, in any language.
+  //
+  // Vocabulary lists will always trail the languages customers actually use --
+  // a Spanish lead with a name, an email AND a phone number was dropped
+  // outright because the agent replied in Spanish and no English keyword
+  // matched. Nobody types their name, email and phone into a business DM by
+  // accident; they do it because they were asked and they want a call back.
+  //
+  // Deliberately narrow: it needs a name plus contact, or both an email and a
+  // phone. A bare address mentioned in passing still does not qualify.
+  const handedOverDetails = Boolean((fullName && hasContact) || (email && phone));
+
+  const hasCommercialIntent = Boolean(serviceInterest || intent || handedOverDetails);
 
   return {
     isQualified: hasContact && hasCommercialIntent,
