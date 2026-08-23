@@ -47,11 +47,16 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  // Verify the user owns a wpm client
+  // Verify the user owns a wpm client. The column is `owner_user_id` — there is
+  // no `user_id` on wpm_clients, and no `business_name` either; it is `name`.
+  // An owner may hold more than one client (agency billing counts across all of
+  // them), so take the oldest rather than letting maybeSingle() throw on two.
   const { data: client, error: clientError } = await userClient
     .from('wpm_clients')
-    .select('id, business_name')
-    .eq('user_id', user.id)
+    .select('id, name')
+    .eq('owner_user_id', user.id)
+    .order('created_at', { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (clientError || !client) {
@@ -66,7 +71,7 @@ Deno.serve(async (req) => {
     const processorRes = await fetch(processorUrl, {
       method: 'POST',
       headers: {
-        'x-action-secret': processorSecret,
+        'x-wpm-action-secret': processorSecret,
         'Content-Type': 'application/json',
       },
     });
@@ -76,7 +81,7 @@ Deno.serve(async (req) => {
     return jsonResponse({
       ok: true,
       message: 'Processor triggered successfully',
-      client: client.business_name || client.id,
+      client: client.name || client.id,
       processorResult,
     });
   } catch (err) {

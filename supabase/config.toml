@@ -332,3 +332,10 @@ verify_jwt = true
 # unstated default silently changed this once already.
 [functions.wpm-actions-processor]
 verify_jwt = false
+
+# Invoked from the Launch Checklist with the user's own session, which is what
+# proves they own a client before the shared secret is used internally. JWT
+# verification must stay ON. Declared explicitly for the same reason as the
+# processor above: an unstated default has silently changed once already.
+[functions.wpm-trigger-automations]
+verify_jwt = true

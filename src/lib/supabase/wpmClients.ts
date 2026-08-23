@@ -13,6 +13,8 @@ export interface WpmClientRecord {
   contact_phone?: string | null;
   industry?: string | null;
   notes?: string | null;
+  lead_email_enabled?: boolean | null;
+  lead_email_override?: string | null;
 }
 
 export interface WpmBotProfileRecord {
@@ -86,6 +88,13 @@ export interface WpmIntegration {
  * Returns the current authenticated user's owned WPM client profile.
  * Creates the client record if it doesn't exist (lazy creation).
  */
+// One list, used by every read below. It was duplicated three times, which is
+// how a newly added column ends up present on one code path and missing on the
+// next.
+const CLIENT_COLUMNS =
+  'id, name, description, services, location, timezone, status, website_url, ' +
+  'contact_email, contact_phone, industry, notes, lead_email_enabled, lead_email_override';
+
 export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
   if (!supabase) {
     return {
@@ -102,7 +111,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     // Try to get existing client (oldest first so duplicates never break the lookup)
     let { data, error } = await (supabase as any)
       .from('wpm_clients')
-      .select('id, name, description, services, location, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+      .select(CLIENT_COLUMNS)
       .eq('owner_user_id', user.id)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -135,14 +144,14 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
           timezone: 'America/Puerto_Rico',
           contact_email: userEmail,
         })
-        .select('id, name, description, services, location, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+        .select(CLIENT_COLUMNS)
         .single();
 
       if (insertError) {
         // A concurrent call may have created the client already — re-read once
         const { data: retry } = await (supabase as any)
           .from('wpm_clients')
-          .select('id, name, description, services, location, timezone, status, website_url, contact_email, contact_phone, industry, notes')
+          .select(CLIENT_COLUMNS)
           .eq('owner_user_id', user.id)
           .order('created_at', { ascending: true })
           .limit(1)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Zap, ToggleLeft, ToggleRight, Save, AlertCircle } from 'lucide-react';
-import { getOwnedWpmClient, listIntegrations, upsertIntegration } from '../lib/supabase/wpmClients';
+import { getOwnedWpmClient, listIntegrations, upsertIntegration, updateClientProfile } from '../lib/supabase/wpmClients';
+import type { WpmClientRecord } from '../lib/supabase/wpmClients';
 import { cn } from '../lib/utils';
 
 interface AutomationDef {
@@ -45,7 +46,7 @@ interface AutomationState {
 }
 
 export default function Automations() {
-  const [client, setClient] = useState<any>(null);
+  const [client, setClient] = useState<WpmClientRecord | null>(null);
   const [states, setStates] = useState<Record<string, AutomationState>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,7 +66,7 @@ export default function Automations() {
           // Treat as demo so toggles don't crash on null client
           const fallback: Record<string, AutomationState> = {};
           AUTOMATION_DEFS.forEach(def => {
-            fallback[def.id] = { enabled: def.id === 'email-notification', configValue: '' };
+            fallback[def.id] = { enabled: false, configValue: '' };
           });
           setStates(fallback);
           setDemoMode(true);
@@ -83,13 +84,13 @@ export default function Automations() {
         // Initialize default states
         const initialStates: Record<string, AutomationState> = {};
         AUTOMATION_DEFS.forEach(def => {
-          initialStates[def.id] = { enabled: def.id === 'email-notification', configValue: '' };
+          initialStates[def.id] = { enabled: false, configValue: '' };
         });
 
         if (isDemo) {
           // Nice demo data
           initialStates['qualified-lead'] = { enabled: true, configValue: 'https://hooks.zapier.com/hooks/catch/123456/abc123/' };
-          initialStates['email-notification'] = { enabled: true, configValue: 'team@yourbusiness.com, sales@yourbusiness.com' };
+          initialStates['email-notification'] = { enabled: true, configValue: 'sales@yourbusiness.com' };
           initialStates['crm-sync'] = { enabled: false, configValue: '' };
           setStates(initialStates);
           setLoading(false);
@@ -100,16 +101,26 @@ export default function Automations() {
         const integrations = await listIntegrations(c.id);
 
         AUTOMATION_DEFS.forEach(def => {
+          // Lead email is not an integration. It is two columns on wpm_clients,
+          // read by the AFTER INSERT trigger on wpm_leads — there is no
+          // wpm_integrations row for it and nothing ever reads one. This card
+          // used to render a hardcoded ACTIVE badge and write a dead row.
+          if (def.type === 'email') {
+            initialStates[def.id] = {
+              enabled: c.lead_email_enabled ?? true,
+              configValue: c.lead_email_override ?? '',
+            };
+            return;
+          }
+
           const match = integrations.find(i => i.integration_type === def.integration_type);
           if (match) {
-            let configVal = '';
-            if (def.type === 'webhook') {
-              configVal = match.metadata?.webhook_url || match.metadata?.url || '';
-            } else if (def.type === 'email') {
-              configVal = (match.metadata?.recipients || []).join(', ') || match.metadata?.email || '';
-            } else {
-              configVal = match.metadata?.crm_url || '';
-            }
+            // 'email' is handled above and returns early, so only the webhook
+            // and CRM cards reach this point.
+            const configVal =
+              def.type === 'webhook'
+                ? match.metadata?.webhook_url || match.metadata?.url || ''
+                : match.metadata?.crm_url || '';
             initialStates[def.id] = {
               enabled: match.is_active,
               configValue: configVal,
@@ -124,7 +135,7 @@ export default function Automations() {
         // Fallback to demo-like state
         const fallback: Record<string, AutomationState> = {};
         AUTOMATION_DEFS.forEach(def => {
-          fallback[def.id] = { enabled: def.id === 'email-notification', configValue: '' };
+          fallback[def.id] = { enabled: false, configValue: '' };
         });
         setStates(fallback);
         setDemoMode(true);
@@ -158,6 +169,12 @@ export default function Automations() {
     try {
       setSavingId(def.id);
 
+      if (def.type === 'email') {
+        await updateClientProfile(client.id, { lead_email_enabled: newEnabled });
+        setClient((prev) => (prev ? { ...prev, lead_email_enabled: newEnabled } : prev));
+        return;
+      }
+
       // Find or create the integration row
       await upsertIntegration(client.id, {
         provider: def.provider,
@@ -178,6 +195,16 @@ export default function Automations() {
     }
   };
 
+  const flashSaved = (id: string) => {
+    const btn = document.getElementById(`save-${id}`);
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = 'Saved!';
+    setTimeout(() => {
+      if (btn) btn.textContent = original || 'Save';
+    }, 1200);
+  };
+
   const saveConfig = async (def: AutomationDef) => {
     const current = states[def.id];
     if (!current) return;
@@ -195,6 +222,21 @@ export default function Automations() {
     setError(null);
 
     try {
+      if (def.type === 'email') {
+        const address = current.configValue.trim();
+        await updateClientProfile(client.id, {
+          lead_email_enabled: current.enabled,
+          // NULL, not '', so the recipient chain in wpm_email.ts falls back to
+          // the agent handoff contact, then the business email, then signup.
+          lead_email_override: address === '' ? null : address,
+        });
+        setClient((prev) =>
+          prev ? { ...prev, lead_email_enabled: current.enabled, lead_email_override: address || null } : prev,
+        );
+        flashSaved(def.id);
+        return;
+      }
+
       await upsertIntegration(client.id, {
         provider: def.provider,
         integration_type: def.integration_type,
@@ -210,15 +252,7 @@ export default function Automations() {
         } : undefined,
       });
 
-      // Success feedback
-      const btn = document.getElementById(`save-${def.id}`);
-      if (btn) {
-        const original = btn.textContent;
-        btn.textContent = 'Saved!';
-        setTimeout(() => {
-          if (btn) btn.textContent = original || 'Save';
-        }, 1200);
-      }
+      flashSaved(def.id);
     } catch (e: any) {
       setError(e.message || 'Failed to save configuration');
     } finally {
@@ -317,15 +351,21 @@ export default function Automations() {
 
                       {def.type === 'email' && (
                         <>
-                          <label className="text-xs text-secondary-foreground">Email recipients (comma separated)</label>
+                          <label className="text-xs text-secondary-foreground">
+                            Send lead alerts to (optional)
+                          </label>
                           <input
-                            type="text"
-                            placeholder="you@company.com, team@company.com"
+                            type="email"
+                            placeholder="sales@company.com"
                             value={state.configValue}
                             onChange={(e) => updateConfigValue(def.id, e.target.value)}
                             className="w-full text-sm rounded-lg border border-secondary bg-background px-3 py-2"
                             disabled={isSaving}
                           />
+                          <p className="text-xs text-secondary-foreground">
+                            One address. Leave blank and we use your agent's handoff contact,
+                            then your business email, then the address you signed up with.
+                          </p>
                         </>
                       )}
 
