@@ -291,3 +291,83 @@ Deno.test('the agent may still confirm what the lead wants', () => {
   assertEquals(lead.serviceInterest, 'private dining');
   assertEquals(lead.isQualified, true);
 });
+
+// ── Single-word first names ───────────────────────────────────────────────
+//
+// Plenty of people give only a first name. A lone capitalised word in prose is
+// far more likely to be a subject than a person, so single words are trusted
+// only inside a "here are my details" block.
+
+Deno.test('a lone first name in a details block is captured', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Wilfre\n8598147330\ngoldenpinepplerecs@gmail.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Wilfre',
+  );
+});
+
+Deno.test('a lone first name above an email is captured', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Jane\njane@example.com\nbooking',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Jane',
+  );
+});
+
+Deno.test('a subject word in the name position is not a person', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Chatbot\nme@example.com\nbooking',
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});
+
+Deno.test('"I am interested" is not a name', () => {
+  // This shipped as a lead named "Interested In": the introduction rule
+  // returned whatever followed "I'm" with no check at all.
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: "I'm interested in a chat bot for social media, email me at test@example.com about booking",
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});
+
+Deno.test('"I am <name>" still works, including a single first name', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: "I'm Wilfre, jane@example.com, booking",
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Wilfre',
+  );
+});
+
+Deno.test('a Spanish greeting above contact details is not a name', () => {
+  // And nothing below the contact lines is considered: "reservation" trailing
+  // after the email used to be picked up as the person's name.
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Hola\ncorreo@ejemplo.com\nreservation',
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});
+
+Deno.test('prose without a details block still needs two words', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'hey I want a booking, reach me at a@b.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    null,
+  );
+});

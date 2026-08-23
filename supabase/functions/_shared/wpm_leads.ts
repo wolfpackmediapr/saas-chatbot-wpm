@@ -40,6 +40,18 @@ const NOT_A_NAME = new Set([
   'am', 'is', 'are', 'a', 'an', 'to', 'for', 'me', 'we', 'us', 'it', 'yes', 'no',
   'ok', 'okay', 'please', 'good', 'morning', 'afternoon', 'evening', 'everyday',
   'every', 'day', 'today', 'tomorrow', 'am/pm', 'best', 'time', 'email', 'name',
+  // Words that show up where a name should be, especially once single-word
+  // names are accepted. "Chatbot" on its own line above an email address is a
+  // subject, not a person.
+  'chatbot', 'chatbots', 'chat', 'bot', 'bots', 'marketing', 'branding', 'brand',
+  'video', 'website', 'web', 'app', 'apps', 'automation', 'social', 'media',
+  'content', 'seo', 'ads', 'design', 'development', 'agency', 'business',
+  'company', 'info', 'information', 'service', 'services', 'price', 'pricing',
+  'quote', 'booking', 'appointment', 'consultation', 'interested', 'interest',
+  'number', 'phone', 'contact', 'call', 'meeting', 'discovery', 'sure', 'here',
+  // The agent answers in Spanish too, and so do customers.
+  'hola', 'buenas', 'buenos', 'gracias', 'saludos', 'si', 'claro', 'bueno',
+  'nombre', 'correo', 'telefono', 'teléfono',
 ]);
 
 function bareWord(part: string): string {
@@ -63,13 +75,60 @@ function trimFiller(candidate: string): string[] {
   return parts.slice(start, end);
 }
 
-function looksLikeName(candidate: string): boolean {
-  const parts = trimFiller(candidate);
-  if (parts.length < 2 || parts.length > 4) return false;
-  return parts.every((part) => {
+/** Every word reads like part of a person's name. */
+function partsAreNamely(parts: string[]): boolean {
+  return parts.length > 0 && parts.every((part) => {
     const bare = bareWord(part);
     return bare.length >= 2 && !NOT_A_NAME.has(bare);
   });
+}
+
+function looksLikeName(candidate: string): boolean {
+  const parts = trimFiller(candidate);
+  if (parts.length < 2 || parts.length > 4) return false;
+  return partsAreNamely(parts);
+}
+
+/**
+ * A "here are my details" message, one value per line:
+ *
+ *     Wilfre
+ *     8598147330
+ *     goldenpinepplerecs@gmail.com
+ *
+ * The line that is neither an email, a phone number nor a link is the name.
+ * This is the only reliable way to accept someone who gives just a first name,
+ * which plenty of people do — elsewhere a lone capitalised word is far more
+ * likely to be a subject ("Chatbot") than a person, so single words are only
+ * trusted inside this shape.
+ */
+function nameFromDetailsBlock(text: string): string | null {
+  const lines = text.split(/[\n\r]+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+
+  const looksLikeContact = (line: string) =>
+    line.includes('@') || line.replace(/\D/g, '').length >= 7;
+
+  // Only trust this shape when the message really is a list of details.
+  const firstContact = lines.findIndex(looksLikeContact);
+  if (firstContact < 0) return null;
+
+  // Only lines ABOVE the contact details. People announce themselves and then
+  // give their details; anything after is trailing commentary, which is how
+  // "Hola / correo@… / reservation" produced a lead named "Reservation".
+  for (const line of lines.slice(0, firstContact)) {
+    if (/https?:\/\//i.test(line)) continue;
+
+    const parts = trimFiller(line.replace(/[.,;:!?]+$/, ''));
+    if (parts.length < 1 || parts.length > 3) continue;
+    if (!partsAreNamely(parts)) continue;
+    // Letters, apostrophes and hyphens only — no stray punctuation or digits.
+    if (!/^[\p{L}][\p{L}'\-]*(?:\s+[\p{L}][\p{L}'\-]*)*$/u.test(parts.join(' '))) continue;
+
+    return titleCase(parts.join(' '));
+  }
+
+  return null;
 }
 
 /** The trimmed form of a candidate that `looksLikeName` accepted. */
@@ -102,7 +161,26 @@ function extractName(text: string): string | null {
   const introduced = text.match(
     /(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i,
   );
-  if (introduced) return titleCase(nameFrom(introduced[1]));
+  // "I'm interested in a chat bot" matches this pattern just as well as
+  // "I'm Wilfre" does, and used to be stored as a lead named "Interested In".
+  // The introduction form is a strong signal, not a guarantee.
+  // Take words only until the first one that is not namely, rather than
+  // trimming the edges: a name follows "I'm" immediately, so "I'm interested
+  // in a chat" must yield nothing rather than salvaging "In" from the middle.
+  if (introduced) {
+    const parts: string[] = [];
+    for (const part of introduced[1].trim().split(/\s+/)) {
+      const bare = bareWord(part);
+      if (bare.length < 2 || NOT_A_NAME.has(bare)) break;
+      parts.push(part);
+    }
+    if (parts.length >= 1 && parts.length <= 4) return titleCase(parts.join(' '));
+  }
+
+  // A details block is more reliable than any regex over prose, and it is the
+  // only place a single-word name can be trusted.
+  const fromBlock = nameFromDetailsBlock(text);
+  if (fromBlock) return fromBlock;
 
   // Bare answer: capitalised words immediately before or after an email.
   // The lookahead stops the greedy capture from swallowing the start of the
