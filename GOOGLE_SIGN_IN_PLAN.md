@@ -1,17 +1,45 @@
 # Google sign-up and sign-in — plan
 
-> **STATUS: CODE SHIPPED 2026-08-23, PROVIDER NOT YET ENABLED.** Owner: Wilf.
+> **STATUS: ✅ FULLY LIVE 2026-08-23.** Owner: Wilf.
 >
-> The frontend is merged and live. It is inert by design: the button renders
-> only when the project reports the Google provider enabled, and prod currently
-> reports `google: false`, so both auth pages look exactly as they did before.
-> **What remains is entirely outside the codebase** — the Google Cloud steps and
-> the Supabase toggle in "Prerequisites" below, then the duplicate-account probe.
+> Code merged, provider enabled, consent screen **published to production**, and
+> the duplicate-account probe **passed**. The button is live on
+> ai.wolfpackmediapr.com — and it appeared **with no redeploy** the moment the
+> provider was saved in Supabase, which is what the live-config gate was for.
+>
+> **Google Cloud:** project `wolfpackmedia-ai`, on the **`authuser=1`** profile.
+> The other signed-in Google account (authuser=0) is blocked from Google Cloud
+> outright by 2SV enforcement, so always append `?authuser=1` to console URLs.
+> No logo uploaded — deliberately, since uploading one forces brand verification.
+> Scopes verified live as `email profile`; both non-sensitive, no review needed.
+>
+> **Probe result:** signing in with Google on an address that already existed as
+> an email/password user **linked** the identity to that user. Still 2 users,
+> same id, one client. Supabase does not duplicate when the email is confirmed —
+> and `mailer_autoconfirm` means every email here is.
+>
+> **One thing still open:** the consent screen reads *"Sign in to
+> upthfjkxbsqtipzoeecd.supabase.co"* rather than the app name, because the app
+> has not been through Google brand verification. See the callout below.
 >
 > Nothing here is urgent — email/password works and was proven end to end on
 > 2026-08-21. This is a conversion feature: "Continue with Google" removes the
 > password step from signup, which is the highest-friction moment in onboarding
 > for a product people reach from an Instagram DM on their phone.
+
+> [!danger] The consent screen shows the Supabase domain, not your brand
+> Added 2026-08-23, seen live. Google displays the OAuth client's redirect
+> domain — `upthfjkxbsqtipzoeecd.supabase.co` — instead of "WolfPack Media AI",
+> because the app has not been through brand verification. For a product people
+> reach from an Instagram DM, a random-looking string on the consent screen
+> reads as a phishing attempt and will cost signups at the exact moment you were
+> trying to remove friction.
+>
+> Two ways out. **Supabase Custom Domains** (~$10/mo Pro add-on) moves auth to
+> `auth.wolfpackmediapr.com`, which also fixes the Gmail password-reset
+> link-stripping problem — one purchase, two fixes, and it is already on the
+> open list. Or **Google brand verification**, which requires uploading a logo
+> and entering review. Custom Domains is the better buy.
 
 ## What shipped (commit `fd487f8`)
 
