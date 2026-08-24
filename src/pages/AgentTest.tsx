@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase/client';
 import {
   getOwnedWpmClient,
   getActiveBotProfile,
+  listBotProfiles,
   getBotInstructions,
   listKnowledgeSources,
 } from '../lib/supabase/wpmClients';
@@ -29,6 +30,9 @@ async function callTestChat(
   messages: Message[],
   accessToken: string,
   conversationId: string | null,
+  // Which agent to test. Without it the function falls back to the most
+  // recently created one, which is not necessarily the one on screen.
+  botProfileId: string | null,
 ): Promise<{ reply: string; context: ContextSummary; conversationId: string | null }> {
   const fnUrl = `${SUPABASE_URL}/functions/v1/wpm-test-chat`;
   const res = await fetch(fnUrl, {
@@ -37,7 +41,7 @@ async function callTestChat(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ messages, conversationId }),
+    body: JSON.stringify({ messages, conversationId, botProfileId }),
   });
 
   const data = await res.json();
@@ -56,6 +60,8 @@ export default function AgentTest() {
   const [configError, setConfigError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Array<{ id: string; public_name: string | null; name: string | null }>>([]);
+  const [botProfileId, setBotProfileId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // ── Load context summary + access token on mount ──────────────────────────
@@ -86,7 +92,15 @@ export default function AgentTest() {
           return;
         }
 
-        const botProfile = await getActiveBotProfile(client.id);
+        // An account can own several agents. Load them all so the tester can
+        // choose which one to talk to — otherwise this page silently tests
+        // whichever agent was created last, whatever is open in Agent Setup.
+        const [botProfile, allAgents] = await Promise.all([
+          getActiveBotProfile(client.id),
+          listBotProfiles(client.id),
+        ]);
+        setAgents(allAgents as Array<{ id: string; public_name: string | null; name: string | null }>);
+        setBotProfileId(botProfile?.id ?? allAgents[0]?.id ?? null);
         const instructions = botProfile ? await getBotInstructions(botProfile.id) : null;
         const knowledge = await listKnowledgeSources(client.id);
 
@@ -129,7 +143,7 @@ export default function AgentTest() {
     setIsTyping(true);
 
     try {
-      const { reply, context, conversationId: newConvId } = await callTestChat(updated, accessToken, conversationId);
+      const { reply, context, conversationId: newConvId } = await callTestChat(updated, accessToken, conversationId, botProfileId);
 
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
       setContextSummary(context);
@@ -214,6 +228,35 @@ export default function AgentTest() {
         <div className="mb-4 flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {configError}
+        </div>
+      )}
+
+      {/* Agent selector — only meaningful with more than one agent. Without
+          this the page tested whichever agent was created last, so edits to
+          any other agent looked like they had no effect. */}
+      {agents.length > 1 && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-secondary bg-secondary/20 p-3 text-sm">
+          <label htmlFor="agent-under-test" className="font-medium whitespace-nowrap">
+            Testing agent
+          </label>
+          <select
+            id="agent-under-test"
+            value={botProfileId ?? ''}
+            onChange={(e) => {
+              setBotProfileId(e.target.value);
+              // A different agent is a different conversation: starting fresh
+              // avoids one agent answering on top of another's history.
+              setConversationId(null);
+              setMessages([]);
+            }}
+            className="flex-1 rounded-lg border border-secondary bg-background px-3 py-2"
+          >
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.public_name || a.name || 'Untitled agent'}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 

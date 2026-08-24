@@ -61,7 +61,7 @@ Deno.serve(async (req: Request) => {
   });
 
   // ── Parse body ─────────────────────────────────────────────────────────────
-  let body: { messages?: Array<{ role: string; content: string }>; conversationId?: string };
+  let body: { messages?: Array<{ role: string; content: string }>; conversationId?: string; botProfileId?: string };
   try {
     body = await req.json();
   } catch {
@@ -86,15 +86,25 @@ Deno.serve(async (req: Request) => {
 
   const client = clientData as Record<string, any>;
 
-  // ── Load active bot profile ────────────────────────────────────────────────
-  const { data: botProfileData } = await supabaseUser
+  // ── Load the bot profile under test ───────────────────────────────────────
+  // An account can own several agents. Without an explicit id this took
+  // whichever was created LAST, so editing any other agent appeared to do
+  // nothing — Agent Test answered as a different agent than the one on screen.
+  // The id is always scoped to the caller's own client: RLS would block a
+  // foreign one anyway, but scoping it here makes that a miss, not a leak.
+  const botProfileQuery = supabaseUser
     .from("wpm_bot_profiles")
     .select("id, public_name, tone, language, response_length, booking_url, handoff_contact, model_provider, model_name")
     .eq("client_id", client.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("is_active", true);
+
+  const { data: botProfileData } = body.botProfileId
+    ? await botProfileQuery.eq("id", body.botProfileId).maybeSingle()
+    : await botProfileQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+  if (body.botProfileId && !botProfileData) {
+    return err("That agent was not found on your account.", 404);
+  }
 
   const rawBotProfile = (botProfileData as Record<string, any> | null) ?? {};
   const botProfile = {
@@ -191,10 +201,15 @@ Deno.serve(async (req: Request) => {
       .single();
     conversationId = (convData as { id: string } | null)?.id ?? null;
   } else {
-    // Update last_message_at on existing conversation
+    // Re-attribute as well as touch the timestamp. The test thread is reused
+    // across sessions, so without this it keeps whichever agent it was first
+    // created with and the Inbox shows the wrong one after switching agents.
     await supabaseAdmin
       .from("wpm_conversations")
-      .update({ last_message_at: new Date().toISOString() })
+      .update({
+        last_message_at: new Date().toISOString(),
+        ...(botProfile.id ? { bot_profile_id: botProfile.id } : {}),
+      })
       .eq("id", conversationId);
   }
 
