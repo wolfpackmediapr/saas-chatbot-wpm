@@ -173,6 +173,26 @@ function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): stri
  */
 export const HUMAN_REPLY_PREFIX = '[Replied by a human teammate]';
 
+/**
+ * Removes the teammate marker from anything the model produces.
+ *
+ * Hard rule 10 tells the model never to write it, but an instruction is not a
+ * guarantee and the marker is internal — a customer must never see it. Same
+ * defence stripHandoffSignal already applies to the handoff sentinel: forbid
+ * it in the prompt AND strip it on the way out.
+ */
+export function stripHumanReplyMarker(text: string): string {
+  // Untouched unless the marker is actually there. An earlier version
+  // normalised whitespace unconditionally, which would have flattened the line
+  // breaks out of every ordinary multi-line reply.
+  if (!text.includes(HUMAN_REPLY_PREFIX)) return text;
+  return text
+    .split(HUMAN_REPLY_PREFIX)
+    .join(' ')
+    .replace(/[ \t]{2,}/g, ' ') // tidy the gap left behind — spaces only, never newlines
+    .trim();
+}
+
 function buildHardRules(
   neverSayRules: string | null | undefined,
   handoffRules: string | null | undefined,

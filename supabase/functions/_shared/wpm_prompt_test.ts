@@ -3,6 +3,7 @@ import {
   buildWpmAssistantMessages,
   buildWpmSystemPrompt,
   HUMAN_REPLY_PREFIX,
+  stripHumanReplyMarker,
   type WpmBotContext,
 } from './wpm_prompt.ts';
 
@@ -210,4 +211,31 @@ Deno.test('a labelled human turn survives into the message array as an assistant
     content: `${HUMAN_REPLY_PREFIX} what number is best?`,
   });
   assertEquals(messages[messages.length - 1], { role: 'user', content: 'for you to call me' });
+});
+
+Deno.test('the teammate marker is stripped from anything the model writes', () => {
+  // Rule 10 forbids it; this is the guarantee. The marker is internal and a
+  // customer must never see it, however the model misbehaves.
+  assertEquals(
+    stripHumanReplyMarker(`${HUMAN_REPLY_PREFIX} I can call you at 3pm.`),
+    'I can call you at 3pm.',
+  );
+  assertEquals(
+    stripHumanReplyMarker(`Sure! ${HUMAN_REPLY_PREFIX} My colleague said 3pm.`),
+    'Sure! My colleague said 3pm.',
+  );
+  // Ordinary replies pass through untouched.
+  assertEquals(stripHumanReplyMarker('Happy to help — what works for you?'), 'Happy to help — what works for you?');
+});
+
+Deno.test('stripping the marker never reformats an ordinary reply', () => {
+  // The agent legitimately sends line breaks — booking links, short lists.
+  // Collapsing them would be a visible regression on every single reply.
+  const multiline = 'Great — here is the link:\n\nhttps://calendly.com/wolfpackmediapr\n\nSee you then!';
+  assertEquals(stripHumanReplyMarker(multiline), multiline);
+  // And line breaks survive even when the marker is removed.
+  assertEquals(
+    stripHumanReplyMarker(`${HUMAN_REPLY_PREFIX} Here you go:\n\nhttps://example.com`),
+    'Here you go:\n\nhttps://example.com',
+  );
 });

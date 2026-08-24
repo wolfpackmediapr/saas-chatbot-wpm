@@ -1,4 +1,4 @@
-import { buildWpmAssistantMessages, HUMAN_REPLY_PREFIX, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
+import { buildWpmAssistantMessages, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
 import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
@@ -323,7 +323,10 @@ export async function generateAndStoreAssistantReply(args: {
 
   // Strip the handoff sentinel before the reply is stored or sent — it is an
   // internal signal, never customer-facing.
-  const { content, requested: sentinelRequested } = stripHandoffSignal(completion.content.trim());
+  const { content: unstripped, requested: sentinelRequested } = stripHandoffSignal(completion.content.trim());
+  // Belt and braces: rule 10 forbids the model writing the teammate marker,
+  // but it must never reach a customer if the model does it anyway.
+  const content = stripHumanReplyMarker(unstripped);
   if (!content) return { ok: false, error: 'OpenAI returned an empty assistant response' };
 
   // Deterministic escalation runs regardless of what the model decided: an
