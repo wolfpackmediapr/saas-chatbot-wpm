@@ -1,1 +1,12 @@
+# Canonical host.
+#
+# www.ai.wolfpackmediapr.com exists only to catch people who type "www." out of
+# habit. Netlify serves a domain alias as-is, so without this rule the same app
+# answers on two hostnames -- which splits SEO, makes support ambiguous, and
+# means auth redirects could come back to a host the session was not set on.
+# Force it to the canonical address instead. The "!" is required because the SPA
+# rule below would otherwise match first.
+https://www.ai.wolfpackmediapr.com/*  https://ai.wolfpackmediapr.com/:splat  301!
+
+# SPA fallback: every other path is handled by the client-side router.
 /*    /index.html   200
