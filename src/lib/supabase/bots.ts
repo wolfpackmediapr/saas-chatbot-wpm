@@ -16,7 +16,7 @@ export interface AIBot {
 }
 
 export async function getBots() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('ai_bots')
@@ -28,7 +28,7 @@ export async function getBots() {
 }
 
 export async function getActiveBot() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   let { data, error } = await supabase
     .from('ai_bots')
@@ -67,7 +67,7 @@ export async function getActiveBot() {
 }
 
 export async function getBotById(botId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('ai_bots')
@@ -88,7 +88,7 @@ export async function createBot(bot: {
   color?: string;
   icon?: string;
 }) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: session } = await supabase.auth.getSession();
   if (!session.session?.user) throw new Error('Not authenticated');
@@ -113,7 +113,7 @@ export async function createBot(bot: {
 }
 
 export async function updateBot(botId: string, updates: Partial<AIBot>) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('ai_bots')
@@ -130,7 +130,7 @@ export async function updateBot(botId: string, updates: Partial<AIBot>) {
 }
 
 export async function deleteBot(botId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   // Check if this is the active bot
   const { data: botToDelete } = await supabase
@@ -164,7 +164,7 @@ export async function deleteBot(botId: string) {
 }
 
 export async function setActiveBot(botId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('ai_bots')
@@ -178,7 +178,7 @@ export async function setActiveBot(botId: string) {
 }
 
 export async function createDefaultBot() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: session } = await supabase.auth.getSession();
   if (!session.session?.user) throw new Error('Not authenticated');

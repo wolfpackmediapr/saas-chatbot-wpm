@@ -26,7 +26,7 @@ export async function createChatThread(
   botId?: string,
   botName?: string
 ) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('User not authenticated');
@@ -48,7 +48,7 @@ export async function createChatThread(
 }
 
 export async function getChatThreads() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_threads')
@@ -60,7 +60,7 @@ export async function getChatThreads() {
 }
 
 export async function getChatThread(threadId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_threads')
@@ -73,7 +73,7 @@ export async function getChatThread(threadId: string) {
 }
 
 export async function getChatThreadByOpenAIId(openaiThreadId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_threads')
@@ -86,7 +86,7 @@ export async function getChatThreadByOpenAIId(openaiThreadId: string) {
 }
 
 export async function updateChatThread(threadId: string, updates: Partial<ChatThread>) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_threads')
@@ -100,7 +100,7 @@ export async function updateChatThread(threadId: string, updates: Partial<ChatTh
 }
 
 export async function deleteChatThread(threadId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { error } = await supabase
     .from('chat_threads')
@@ -111,7 +111,7 @@ export async function deleteChatThread(threadId: string) {
 }
 
 export async function getChatMessages(threadId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_messages')
@@ -129,7 +129,7 @@ export async function createChatMessage(
   isUser: boolean,
   images?: string[]
 ) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_messages')
@@ -153,7 +153,7 @@ export async function createChatMessage(
 }
 
 export async function getChatThreadsByBot(botId: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('chat_threads')
@@ -166,7 +166,7 @@ export async function getChatThreadsByBot(botId: string) {
 }
 
 export async function deleteAllChatThreads() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { error } = await supabase
     .from('chat_threads')

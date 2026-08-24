@@ -16,7 +16,7 @@ export interface UserSettings {
 }
 
 export async function getUserSettings() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data, error } = await supabase
     .from('user_settings')
@@ -28,7 +28,7 @@ export async function getUserSettings() {
 }
 
 export async function updateUserSettings(updates: Partial<UserSettings>) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: session } = await supabase.auth.getSession();
   if (!session.session?.user) throw new Error('Not authenticated');
@@ -64,7 +64,7 @@ export async function updateOpenAIConfig(updates: {
 }
 
 export async function getProfile() {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: session } = await supabase.auth.getSession();
   if (!session.session?.user) throw new Error('Not authenticated');
@@ -80,7 +80,7 @@ export async function getProfile() {
 }
 
 export async function updateProfileName(name: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: session } = await supabase.auth.getSession();
   if (!session.session?.user) throw new Error('Not authenticated');

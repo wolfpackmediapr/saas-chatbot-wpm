@@ -196,7 +196,7 @@ export default function ChannelConnections() {
   // a second client's Page would just get the first account's Pages back.
   // 'rerequest' does NOT do this — it only re-asks for declined permissions.
   const handleMetaConnect = (options?: { switchAccount?: boolean }) => {
-    if (!supabase) { setError('Supabase is not configured.'); return; }
+    if (!supabase) { setError('Service is not configured. Please contact support.'); return; }
     if (!sdkReady || !window.FB) {
       setError('Facebook SDK is still loading — please wait a moment and try again.');
       return;

@@ -33,7 +33,7 @@ export default function AuthCallback({
     async function handleCallback() {
       if (!supabase) {
         setStatus('error');
-        setMessage('Supabase not configured');
+        setMessage('Service is not configured. Please contact support.');
         return;
       }
 

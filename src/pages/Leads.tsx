@@ -160,15 +160,11 @@ export default function Leads() {
             </table>
           </div>
           <div className="px-4 py-3 bg-background/30 text-xs text-secondary-foreground border-t border-secondary">
-            Showing {leads.length} most recent lead{leads.length !== 1 ? 's' : ''}. 
-            New leads are captured automatically by the WPM Bridge when conversations qualify.
+            Showing {leads.length} most recent lead{leads.length !== 1 ? 's' : ''}.
+            New leads appear here automatically when a conversation qualifies.
           </div>
         </div>
       )}
-
-      <div className="mt-6 text-xs text-secondary-foreground">
-        Leads are stored securely in your Supabase project and respect your client ownership rules.
-      </div>
     </div>
   );
 }

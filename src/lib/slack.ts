@@ -10,7 +10,7 @@ interface FeedbackData {
 
 export async function sendFeedbackToSlack(feedback: FeedbackData): Promise<{ success: boolean; error?: string }> {
   if (!supabase) {
-    return { success: false, error: 'Supabase is not configured' };
+    return { success: false, error: 'Service is not configured. Please contact support.' };
   }
 
   try {

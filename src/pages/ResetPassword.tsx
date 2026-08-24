@@ -34,7 +34,7 @@ export default function ResetPassword() {
 
     async function check() {
       if (!supabase) {
-        if (!cancelled) { setError('Supabase is not configured.'); setChecking(false); }
+        if (!cancelled) { setError('Service is not configured. Please contact support.'); setChecking(false); }
         return;
       }
 

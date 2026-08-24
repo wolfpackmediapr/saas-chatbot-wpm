@@ -180,7 +180,7 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
 }
 
 export async function updateClientProfile(clientId: string, updates: Partial<WpmClientRecord>) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any)
     .from('wpm_clients')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -221,7 +221,7 @@ export async function listBotProfiles(clientId: string): Promise<WpmBotProfileRe
 }
 
 export async function createBotProfile(clientId: string, name: string): Promise<string> {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
@@ -255,7 +255,7 @@ export async function updateBotProfile(botProfileId: string, updates: {
   handoff_contact?: string | null;
   settings?: Record<string, any>;
 }) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any)
     .from('wpm_bot_profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -285,7 +285,7 @@ export async function updateBotProfile(botProfileId: string, updates: {
  * all, and inbound DMs would go unanswered with nothing in the UI to explain why.
  */
 export async function deleteBotProfile(clientId: string, botProfileId: string): Promise<void> {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const remaining = await listBotProfiles(clientId);
   if (remaining.length <= 1) {
@@ -351,7 +351,7 @@ export async function getUsageSummary(): Promise<UsageSummary | null> {
 }
 
 export async function assignChannelBot(channelId: string, botProfileId: string | null) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any)
     .from('wpm_client_channels')
     .update({ bot_profile_id: botProfileId, updated_at: new Date().toISOString() })
@@ -362,7 +362,7 @@ export async function assignChannelBot(channelId: string, botProfileId: string |
 export async function upsertBotProfile(clientId: string, updates: {
   name?: string; public_name?: string; tone?: string; response_length?: string; settings?: Record<string, any>;
 }) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -423,7 +423,7 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
   /** Which details the agent should collect before a lead counts as qualified. */
   lead_fields?: string[];
 }) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -533,7 +533,7 @@ export async function createKnowledgeSource(clientId: string, source: {
   tags?: string;
   bot_profile_id?: string | null;
 }): Promise<KnowledgeSource> {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   const uiType = source.ui_type || 'other';
   const schemaType = UI_TYPE_TO_SCHEMA[uiType] ?? 'manual';
@@ -565,7 +565,7 @@ export async function createKnowledgeSource(clientId: string, source: {
 }
 
 export async function deleteKnowledgeSource(id: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any).from('wpm_knowledge_sources').delete().eq('id', id);
   if (error) throw error;
 }
@@ -588,7 +588,7 @@ export async function upsertClientChannel(clientId: string, channel: {
   channel_type: string;
   metadata?: Record<string, any>;
 }) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   // Try to find existing for this provider + channel_type combination
   const { data: existing } = await (supabase as any)
     .from('wpm_client_channels')
@@ -634,7 +634,7 @@ export async function upsertClientChannel(clientId: string, channel: {
 }
 
 export async function deactivateClientChannel(clientId: string, channelType: string) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any)
     .from('wpm_client_channels')
     // The privacy policy promises the stored access token is deleted
@@ -671,7 +671,7 @@ export async function upsertIntegration(clientId: string, integ: {
   field_map?: Record<string, any>;
   is_active?: boolean;
 }): Promise<string> {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
 
   // Find existing by client + integration_type (one per type per client)
   const { data: existing } = await (supabase as any)
@@ -710,7 +710,7 @@ export async function upsertIntegration(clientId: string, integ: {
 }
 
 export async function setIntegrationActive(integrationId: string, isActive: boolean) {
-  if (!supabase) throw new Error('Supabase not configured');
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any)
     .from('wpm_integrations')
     .update({ is_active: isActive, updated_at: new Date().toISOString() })

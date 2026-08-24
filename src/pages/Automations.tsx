@@ -305,7 +305,7 @@ export default function Automations() {
         {demoMode && (
           <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-sm text-yellow-400">
             <AlertCircle className="h-4 w-4" />
-            Demo mode — changes are local only. Connect live Supabase to persist to wpm_integrations.
+            Demo mode — changes are saved locally only and will not persist.
           </div>
         )}
         {error && (

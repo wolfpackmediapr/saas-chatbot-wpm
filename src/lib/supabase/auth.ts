@@ -3,7 +3,7 @@ import { AuthError } from '@supabase/supabase-js';
 
 export async function signUp(email: string, password: string, name: string) {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -37,7 +37,7 @@ export async function signUp(email: string, password: string, name: string) {
 
 export async function signIn(email: string, password: string) {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -84,7 +84,7 @@ export async function signIn(email: string, password: string) {
  */
 export async function signInWithGoogle() {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -114,7 +114,7 @@ export async function signInWithGoogle() {
 
 export async function signOut() {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -128,7 +128,7 @@ export async function signOut() {
 
 export async function resetPassword(email: string) {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -155,7 +155,7 @@ export async function resetPassword(email: string) {
 
 export async function updatePassword(newPassword: string) {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   try {
@@ -190,7 +190,7 @@ export async function updatePassword(newPassword: string) {
  */
 export async function deleteAccount(confirmEmail: string): Promise<void> {
   if (!supabase) {
-    throw new Error('Supabase is not configured');
+    throw new Error('Service is not configured. Please contact support.');
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;

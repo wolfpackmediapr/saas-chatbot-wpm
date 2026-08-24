@@ -65,7 +65,7 @@ export default function AgentTest() {
       setConfigError(null);
 
       if (!supabase || !SUPABASE_URL) {
-        setConfigError('Supabase is not configured — cannot reach the AI edge function.');
+        setConfigError('Service is not configured, so the agent cannot be reached. Please contact support.');
         setLoadingContext(false);
         return;
       }
