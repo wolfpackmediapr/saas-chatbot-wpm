@@ -1,4 +1,4 @@
-import { buildWpmAssistantMessages, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
+import { buildWpmAssistantMessages, HUMAN_REPLY_PREFIX, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
 import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
@@ -62,6 +62,7 @@ interface MessageRow {
   role: 'user' | 'assistant' | 'system' | 'tool' | 'human';
   content: string;
   created_at?: string;
+  provider_message_id?: string | null;
 }
 
 function firstOrValue<T>(value: T | T[] | null | undefined): T | null {
@@ -69,15 +70,46 @@ function firstOrValue<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null;
 }
 
-function toChatRole(role: MessageRow['role']): 'user' | 'assistant' | null {
-  if (role === 'user') return 'user';
-  if (role === 'assistant') return 'assistant';
+/**
+ * How many rows to read from the database. Deliberately larger than
+ * WPM_CONTEXT_WINDOW: `system`/`tool` rows are dropped after the fetch, so
+ * fetching exactly the window size meant any non-conversational row silently
+ * shrank what the model saw. Fetch wide, then trim to the window.
+ */
+const WPM_CONTEXT_FETCH_ROWS = 24;
+
+/** Turns of real conversation the model is given. The cap itself is unchanged. */
+const WPM_CONTEXT_WINDOW = 12;
+
+/**
+ * To the customer a teammate and the bot are the same voice, so a human turn
+ * has to become an `assistant` turn — otherwise the transcript reads as if
+ * nobody answered. It carries HUMAN_REPLY_PREFIX so the model knows a
+ * colleague already spoke and does not contradict or repeat them, which is
+ * exactly what happens when `decideHandoffAction` hands the bot back in.
+ */
+function toChatMessage(message: MessageRow): WpmChatMessage | null {
+  if (!message.content?.trim()) return null;
+  if (message.role === 'user') return { role: 'user', content: message.content };
+  if (message.role === 'assistant') return { role: 'assistant', content: message.content };
+  if (message.role === 'human') {
+    return { role: 'assistant', content: `${HUMAN_REPLY_PREFIX} ${message.content}` };
+  }
   return null;
 }
 
 export async function loadWpmBotContext(
   supabase: SupabaseLike,
   conversationId: string,
+  options?: {
+    /**
+     * `provider_message_id` of the inbound message this reply is being
+     * generated for. The webhook stores that message *before* generating, so
+     * without this the same text is handed to the model twice — once as the
+     * tail of the history and again as the appended inbound turn.
+     */
+    excludeProviderMessageId?: string | null;
+  },
 ): Promise<
   | { ok: true; context: WpmBotContext; recentMessages: WpmChatMessage[]; conversation: { id: string; client_id: string; bot_profile_id: string } }
   | { ok: false; error: string }
@@ -127,22 +159,30 @@ export async function loadWpmBotContext(
 
   const { data: messagesData, error: messagesError } = await supabase
     .from('wpm_messages')
-    .select('role, content, created_at')
+    .select('role, content, created_at, provider_message_id')
     .eq('conversation_id', conversation.id)
     .order('created_at', { ascending: false })
-    .limit(12);
+    .limit(WPM_CONTEXT_FETCH_ROWS);
 
   if (messagesError) return { ok: false, error: messagesError.message };
 
-  const recentMessages = ((messagesData ?? []) as MessageRow[])
-    .slice()
-    .reverse()
-    .map((message): WpmChatMessage | null => {
-      const role = toChatRole(message.role);
-      if (!role || !message.content?.trim()) return null;
-      return { role, content: message.content };
-    })
-    .filter((message): message is WpmChatMessage => message !== null);
+  const orderedRows = ((messagesData ?? []) as MessageRow[]).slice().reverse();
+
+  // Drop the stored copy of the message we are replying to, so it is not sent
+  // once here and again as the appended inbound turn. Matched on
+  // `provider_message_id`, never on text: a customer who genuinely sends the
+  // same word twice in a row must keep both turns. Only the newest row is
+  // eligible, so nothing deeper in the history can be removed.
+  const excludeId = options?.excludeProviderMessageId;
+  if (excludeId) {
+    const newest = orderedRows[orderedRows.length - 1];
+    if (newest && newest.provider_message_id === excludeId) orderedRows.pop();
+  }
+
+  const recentMessages = orderedRows
+    .map(toChatMessage)
+    .filter((message): message is WpmChatMessage => message !== null)
+    .slice(-WPM_CONTEXT_WINDOW);
 
   return {
     ok: true,
@@ -196,6 +236,12 @@ export async function generateAndStoreAssistantReply(args: {
   inboundMessage: string;
   /** Public image URLs attached to the inbound message (sent to vision-capable models). */
   imageUrls?: string[];
+  /**
+   * `provider_message_id` of the inbound message, when the caller has already
+   * stored it. Lets the loader drop that stored copy so the model receives the
+   * message once, not twice. Omit it and the previous behaviour is unchanged.
+   */
+  inboundProviderMessageId?: string | null;
 }): Promise<
   | {
       ok: true;
@@ -211,7 +257,9 @@ export async function generateAndStoreAssistantReply(args: {
     }
   | { ok: false; error: string }
 > {
-  const loaded = await loadWpmBotContext(args.supabase, args.conversationId);
+  const loaded = await loadWpmBotContext(args.supabase, args.conversationId, {
+    excludeProviderMessageId: args.inboundProviderMessageId,
+  });
   if (!loaded.ok) return loaded;
 
   const modelProvider = loaded.context.botProfile.model_provider;

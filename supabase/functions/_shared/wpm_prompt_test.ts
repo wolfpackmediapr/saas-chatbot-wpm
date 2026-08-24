@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.
 import {
   buildWpmAssistantMessages,
   buildWpmSystemPrompt,
+  HUMAN_REPLY_PREFIX,
   type WpmBotContext,
 } from './wpm_prompt.ts';
 
@@ -186,4 +187,27 @@ Deno.test('engaging with shared content must not license inventing services', ()
   const prompt = buildWpmSystemPrompt(context);
   assertStringIncludes(prompt, 'never invent a service to make the connection');
   assertStringIncludes(prompt, '4. NEVER invent, fabricate, or assume facts');
+});
+
+Deno.test('hard rules explain the human-teammate marker and forbid echoing it', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  // The rule must quote the exact marker wpm_ai.ts writes, or the model is
+  // being told about a label it never actually sees.
+  assertStringIncludes(prompt, HUMAN_REPLY_PREFIX);
+  assertStringIncludes(prompt, 'written by a person on the team');
+  assertStringIncludes(prompt, 'NEVER write that marker yourself');
+});
+
+Deno.test('a labelled human turn survives into the message array as an assistant turn', () => {
+  const messages = buildWpmAssistantMessages(
+    context,
+    [{ role: 'assistant', content: `${HUMAN_REPLY_PREFIX} what number is best?` }],
+    'for you to call me',
+  );
+
+  assertEquals(messages[1], {
+    role: 'assistant',
+    content: `${HUMAN_REPLY_PREFIX} what number is best?`,
+  });
+  assertEquals(messages[messages.length - 1], { role: 'user', content: 'for you to call me' });
 });

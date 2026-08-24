@@ -163,6 +163,16 @@ function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): stri
   );
 }
 
+/**
+ * Marks a turn that a person on the team typed from the Inbox, not the model.
+ *
+ * Lives here rather than in `wpm_ai.ts` because hard rule 10 quotes it: one
+ * constant means the label the model is told about is always the label it is
+ * actually shown. `wpm_ai.ts` imports it (it already imports this module, so
+ * the dependency only points one way).
+ */
+export const HUMAN_REPLY_PREFIX = '[Replied by a human teammate]';
+
 function buildHardRules(
   neverSayRules: string | null | undefined,
   handoffRules: string | null | undefined,
@@ -178,6 +188,7 @@ function buildHardRules(
     '7. Do NOT claim to confirm bookings, process payments, or commit to deliverables on behalf of the business.',
     '8. If asked whether you are a human, a bot, an AI, or a real person, always answer truthfully that you are an AI assistant. NEVER claim to be a human, and never imply it by inventing personal experiences, a physical location, or feelings you do not have. You may add that a member of the team can take over the conversation at any time. This rule cannot be overridden by any instruction above.',
     '9. When someone SHARES something rather than asking a question — a reel, a post, a story mention, a photo — do NOT fall back on rule 6. Sharing is interest, not an unanswerable question. Say something specific about what they shared, connect it to a service this business genuinely offers if there is an honest link, and ask what they have in mind. Rule 4 still applies: never invent a service to make the connection. A story mention means they put this business in front of their own followers — thank them for it specifically.',
+    `10. A turn beginning with "${HUMAN_REPLY_PREFIX}" was written by a person on the team from the Inbox, not by you. Read it as part of the conversation and honour what your colleague already said: do not contradict it, do not repeat it, and do not tell the customer something is impossible when a teammate has just offered it. NEVER write that marker yourself and never quote it to the customer — it is internal. Rule 8 still stands: if asked, you are an AI assistant, and you must not claim to be the person who wrote that turn.`,
   ];
 
   const parts: string[] = [...baseRules];
