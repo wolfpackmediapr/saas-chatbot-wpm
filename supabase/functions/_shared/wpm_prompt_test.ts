@@ -239,3 +239,47 @@ Deno.test('stripping the marker never reformats an ordinary reply', () => {
     'Here you go:\n\nhttps://example.com',
   );
 });
+
+// ─── The configured link must outrank whatever is in the transcript ──────────
+// Live incident 2026-08-24: an account changed its booking link, but the agent
+// kept sending the OLD url because it appeared in earlier messages of a
+// permanent Instagram thread. The url was in no part of the prompt — the model
+// was copying it out of the history. Changing a link had no effect on any
+// existing conversation.
+
+function promptFor(bookingUrl: string | null): string {
+  return buildWpmSystemPrompt({
+    ...context,
+    botProfile: { ...context.botProfile, booking_url: bookingUrl },
+  } as WpmBotContext);
+}
+
+Deno.test('the agent is told its configured link overrides any link in the history', () => {
+  const prompt = promptFor('https://ai.example.com/book');
+  assertStringIncludes(prompt, 'The ONLY link you may share is https://ai.example.com/book');
+  assertStringIncludes(prompt, 'NEVER copy a link out of the conversation history');
+  // The "send me that link again" case is what actually reproduced live.
+  assertStringIncludes(prompt, 'the same link again');
+});
+
+Deno.test('an agent with no link configured is forbidden from sharing one at all', () => {
+  const prompt = promptFor(null);
+  assertStringIncludes(prompt, 'NEVER share a link');
+  assertStringIncludes(prompt, 'never copy one out of the conversation history');
+});
+
+Deno.test('each agent gets its own link — no shared or hardcoded default', () => {
+  // Several agents can live under ONE account, each with a different link.
+  // A hardcoded or borrowed default would send one business's leads to
+  // another's calendar, which this codebase has already been bitten by once.
+  const a = promptFor('https://agent-one.example.com/book');
+  const b = promptFor('https://agent-two.example.com/book');
+
+  assertStringIncludes(a, 'https://agent-one.example.com/book');
+  assertEquals(a.includes('agent-two.example.com'), false);
+  assertStringIncludes(b, 'https://agent-two.example.com/book');
+  assertEquals(b.includes('agent-one.example.com'), false);
+  // And no vendor link may ever be baked in.
+  assertEquals(a.includes('calendly.com'), false);
+  assertEquals(b.includes('calendly.com'), false);
+});

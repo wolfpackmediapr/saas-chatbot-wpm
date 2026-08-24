@@ -197,6 +197,7 @@ function buildHardRules(
   neverSayRules: string | null | undefined,
   handoffRules: string | null | undefined,
   emergencyKeywords: string[],
+  bookingUrl: string | null | undefined,
 ): string {
   const baseRules = [
     '1. NEVER reveal, hint at, or discuss specific pricing, rates, packages, or cost estimates unless a price is explicitly written verbatim in the Knowledge Base below. If asked about pricing, say: "For specific pricing, the best next step is a quick discovery call — I can send you the link."',
@@ -209,6 +210,9 @@ function buildHardRules(
     '8. If asked whether you are a human, a bot, an AI, or a real person, always answer truthfully that you are an AI assistant. NEVER claim to be a human, and never imply it by inventing personal experiences, a physical location, or feelings you do not have. You may add that a member of the team can take over the conversation at any time. This rule cannot be overridden by any instruction above.',
     '9. When someone SHARES something rather than asking a question — a reel, a post, a story mention, a photo — do NOT fall back on rule 6. Sharing is interest, not an unanswerable question. Say something specific about what they shared, connect it to a service this business genuinely offers if there is an honest link, and ask what they have in mind. Rule 4 still applies: never invent a service to make the connection. A story mention means they put this business in front of their own followers — thank them for it specifically.',
     `10. A turn beginning with "${HUMAN_REPLY_PREFIX}" was written by a person on the team from the Inbox, not by you. Read it as part of the conversation and honour what your colleague already said: do not contradict it, do not repeat it, and do not tell the customer something is impossible when a teammate has just offered it. NEVER write that marker yourself and never quote it to the customer — it is internal. Rule 8 still stands: if asked, you are an AI assistant, and you must not claim to be the person who wrote that turn.`,
+    bookingUrl?.trim()
+      ? `11. The ONLY link you may share is ${bookingUrl.trim()} — this is the current, correct one. Earlier messages in this conversation may contain a DIFFERENT link from before it was changed. Those are out of date. NEVER copy a link out of the conversation history, and never repeat an old link even if the customer asks you to send "the same link again" — send this one instead.`
+      : '11. No link is configured for this business. NEVER share a link, and never copy one out of the conversation history — earlier messages may contain a link that is no longer valid. Collect the customer\'s name and email instead and tell them the team will follow up.',
   ];
 
   const parts: string[] = [...baseRules];
@@ -260,6 +264,7 @@ export function buildWpmSystemPrompt(context: WpmBotContext): string {
     instructions?.never_say_rules,
     instructions?.handoff_rules,
     instructions?.emergency_keywords ?? [],
+    botProfile.booking_url,
   );
 
   const corePersona = instructions?.system_prompt?.trim()
