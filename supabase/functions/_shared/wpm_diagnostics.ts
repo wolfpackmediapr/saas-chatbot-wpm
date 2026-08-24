@@ -30,7 +30,6 @@ export async function checkWpmBridgeReadiness(
     'SUPABASE_URL',
     'SUPABASE_SERVICE_ROLE_KEY',
     'OPENAI_API_KEY',
-    'WOZTELL_BOT_API_ACCESS_TOKEN',
     'WPM_ACTION_PROCESSOR_SECRET',
   ];
 

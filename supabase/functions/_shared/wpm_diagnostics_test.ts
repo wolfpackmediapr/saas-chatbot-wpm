@@ -58,7 +58,6 @@ Deno.test('checkWpmBridgeReadiness reports env presence only (never values) and 
     if (name === 'SUPABASE_URL') return 'https://example.supabase.co';
     if (name === 'SUPABASE_SERVICE_ROLE_KEY') return 'sb_secret_xxx';
     if (name === 'OPENAI_API_KEY') return 'sk-xxx';
-    if (name === 'WOZTELL_BOT_API_ACCESS_TOKEN') return 'token-xxx';
     if (name === 'WPM_ACTION_PROCESSOR_SECRET') return 'action-secret-xxx';
     return undefined;
   };
@@ -88,7 +87,9 @@ Deno.test('checkWpmBridgeReadiness reports env presence only (never values) and 
   assertEquals(reportStr.includes('sb_secret_xxx'), false);
 
   const envChecks = report.checks.filter((c) => !c.name.includes('wpm_'));
-  assertEquals(envChecks.length, 5);
+  // 4 since WOZTELL_BOT_API_ACCESS_TOKEN was retired: SUPABASE_URL,
+  // SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY, WPM_ACTION_PROCESSOR_SECRET.
+  assertEquals(envChecks.length, 4);
   assertEquals(envChecks.every((c) => c.ok === true && c.detail === 'present'), true);
 
   const dbChecks = report.checks.filter((c) => c.name.includes('wpm_'));
@@ -118,7 +119,6 @@ Deno.test('checkWpmBridgeReadiness detects missing env and missing config rows',
 
   const missingStr = report.checks.filter((c) => !c.ok).map((c) => c.name).join(',');
   assertStringIncludes(missingStr, 'OPENAI_API_KEY');
-  assertStringIncludes(missingStr, 'WOZTELL_BOT_API_ACCESS_TOKEN');
   assertStringIncludes(missingStr, 'WPM_ACTION_PROCESSOR_SECRET');
   assertStringIncludes(missingStr, 'wpm_clients (any status for launch base)');
   assertStringIncludes(missingStr, 'wpm_client_channels (active mappings)');
