@@ -34,6 +34,16 @@ const typeLabels: Record<UiType, string> = {
  */
 const SOURCES_USED_BY_AGENT = 8;
 
+/**
+ * Mirrors MAX_KNOWLEDGE_CHARS_PER_SOURCE in _shared/wpm_prompt.ts. The agent
+ * trims anything longer so a very large source cannot push the prompt past the
+ * model's context window. The trim is announced to the agent, but the person
+ * who pasted the text would otherwise never know it happened — and silent
+ * truncation of your own knowledge base is exactly the kind of invisible
+ * failure this product has been bitten by before.
+ */
+const CHARS_USED_PER_SOURCE = 4000;
+
 function isUiType(value: unknown): value is UiType {
   return typeof value === 'string' && value in typeLabels;
 }
@@ -326,6 +336,14 @@ export default function KnowledgeBase() {
                     {unused && (
                       <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
                         Not in use
+                      </span>
+                    )}
+                    {source.content_text.length > CHARS_USED_PER_SOURCE && (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400"
+                        title={`This source is ${source.content_text.length.toLocaleString()} characters. The agent reads the first ${CHARS_USED_PER_SOURCE.toLocaleString()} and offers to have someone follow up on the rest. Split it into focused sources so the important parts are always read.`}
+                      >
+                        Shortened for the agent
                       </span>
                     )}
                   </div>

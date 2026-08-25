@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
+  buildKnowledgeText,
   buildWpmAssistantMessages,
   buildWpmSystemPrompt,
   HUMAN_REPLY_PREFIX,
@@ -292,4 +293,60 @@ Deno.test('each agent gets its own link — no shared or hardcoded default', () 
   // And no vendor link may ever be baked in.
   assertEquals(a.includes('calendly.com'), false);
   assertEquals(b.includes('calendly.com'), false);
+});
+
+// ─── Knowledge base size budget ──────────────────────────────────────────────
+// Prompt assembly used to inject every source in full. At a few hundred
+// characters that is invisible; one pasted PDF would exceed the model's window
+// and the agent would stop answering with no error anywhere.
+
+Deno.test('a normal knowledge base is passed through untouched', () => {
+  // The live client has ~629 characters. This change must be a no-op there, or
+  // it is not a safety fix, it is a behaviour change.
+  const text = buildKnowledgeText([
+    { title: 'Services', content_text: 'We build AI agents and websites.' },
+    { title: 'Hours', content_text: 'Open Tuesday to Sunday.' },
+  ]);
+  assertEquals(text, '### Services\nWe build AI agents and websites.\n\n### Hours\nOpen Tuesday to Sunday.');
+  assertEquals(text.includes('shortened'), false);
+});
+
+Deno.test('an oversized source is trimmed and the trim is announced', () => {
+  const huge = 'word '.repeat(3000); // 15k chars, well over the per-source cap
+  const text = buildKnowledgeText([{ title: 'Handbook', content_text: huge }]);
+
+  assertEquals(text.length < 5000, true);
+  assertStringIncludes(text, '### Handbook');
+  // The model must be able to tell "trimmed" from "not offered", or it will
+  // confidently deny a service that was merely cut off.
+  assertStringIncludes(text, 'Do not assume anything missing here is unavailable');
+});
+
+Deno.test('the total budget holds across many large sources', () => {
+  const sources = Array.from({ length: 8 }, (_, i) => ({
+    title: `Doc ${i}`,
+    content_text: 'x'.repeat(4000),
+  }));
+  const text = buildKnowledgeText(sources);
+
+  // 8 x 4000 would be 32k characters unbounded. The total cap is what stops
+  // the context window being blown, not the per-source cap.
+  assertEquals(text.length < 13000, true);
+  assertStringIncludes(text, 'not included because the knowledge base is too large');
+});
+
+Deno.test('trimming happens on a word boundary, never mid-word', () => {
+  const text = buildKnowledgeText([
+    { title: 'T', content_text: 'alpha bravo charlie '.repeat(500) },
+  ]);
+  const body = text.split('\n')[1];
+  assertEquals(/\s$|[a-z]$/.test(body), true);
+  // No half-word left dangling at the cut.
+  assertEquals(body.endsWith('cha') || body.endsWith('brav'), false);
+});
+
+Deno.test('empty and whitespace-only sources are still ignored', () => {
+  assertEquals(buildKnowledgeText([]), '');
+  assertEquals(buildKnowledgeText([{ title: 'Blank', content_text: '   ' }]), '');
+  assertEquals(buildKnowledgeText([{ title: 'Null', content_text: null }]), '');
 });

@@ -244,6 +244,78 @@ function buildHardRules(
   return parts.join('\n');
 }
 
+/**
+ * Knowledge base size limits.
+ *
+ * Prompt assembly injected every source's `content_text` IN FULL, with no
+ * truncation anywhere. Harmless while a business has a few hundred characters
+ * of notes; the first customer to paste a long PDF into Knowledge Base would
+ * push the prompt past the model's context window and their agent would simply
+ * stop answering — no error, no log, the failure mode this codebase keeps
+ * getting caught by.
+ *
+ * Sized to be generous rather than tight: ~12k characters is roughly 3k tokens,
+ * far below any supported model's window, and well above what a DM agent needs.
+ * At today's real usage (a few hundred characters) nothing is trimmed at all.
+ */
+const MAX_KNOWLEDGE_CHARS_PER_SOURCE = 4000;
+const MAX_KNOWLEDGE_CHARS_TOTAL = 12000;
+
+/** Below this there is no point including a fragment — it only misleads. */
+const MIN_USEFUL_KNOWLEDGE_CHARS = 200;
+
+/** Cut on a line or word boundary so a sentence never ends mid-word. */
+function truncateAtBoundary(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const slice = text.slice(0, limit);
+  const boundary = Math.max(slice.lastIndexOf('\n'), slice.lastIndexOf(' '));
+  return (boundary > limit * 0.5 ? slice.slice(0, boundary) : slice).trimEnd();
+}
+
+/**
+ * Assembles the Knowledge Base section within a fixed character budget.
+ *
+ * Truncation is always announced. A silently shortened source would let the
+ * model state that something is not offered when it was merely cut off, which
+ * is worse than saying nothing — hard rule 6 already covers "not in the
+ * context" by promising a follow-up, and that only works if the model can tell
+ * the difference between absent and trimmed.
+ */
+export function buildKnowledgeText(
+  knowledge: Array<{ title: string; content_text: string | null }>,
+): string {
+  const usable = knowledge.filter((k) => k.content_text?.trim());
+  const parts: string[] = [];
+  let budget = MAX_KNOWLEDGE_CHARS_TOTAL;
+  let omitted = 0;
+
+  for (const source of usable) {
+    const content = source.content_text!.trim();
+    const allowance = Math.min(MAX_KNOWLEDGE_CHARS_PER_SOURCE, budget);
+
+    if (allowance < MIN_USEFUL_KNOWLEDGE_CHARS && content.length > allowance) {
+      omitted += 1;
+      continue;
+    }
+
+    const kept = truncateAtBoundary(content, allowance);
+    const wasTrimmed = kept.length < content.length;
+    parts.push(
+      `### ${source.title}\n${kept}` +
+        (wasTrimmed ? '\n[This source was shortened to fit. Do not assume anything missing here is unavailable — offer to have the team follow up.]' : ''),
+    );
+    budget -= kept.length;
+  }
+
+  if (omitted > 0) {
+    parts.push(
+      `[${omitted} further knowledge source${omitted === 1 ? ' was' : 's were'} not included because the knowledge base is too large. Do not assume they contain nothing relevant — offer to have the team follow up.]`,
+    );
+  }
+
+  return parts.join('\n\n');
+}
+
 // ─── Main system prompt builder ───────────────────────────────────────────────
 export function buildWpmSystemPrompt(context: WpmBotContext): string {
   const { client, botProfile, instructions, knowledge } = context;
@@ -252,10 +324,7 @@ export function buildWpmSystemPrompt(context: WpmBotContext): string {
   const responseLanguage = instructions?.response_language ?? 'English + Latin American Spanish';
   const rawLength = botProfile.response_length ?? 'balanced';
 
-  const knowledgeText = knowledge
-    .filter((k) => k.content_text?.trim())
-    .map((k) => `### ${k.title}\n${k.content_text!.trim()}`)
-    .join('\n\n');
+  const knowledgeText = buildKnowledgeText(knowledge);
 
   const languageRule = buildLanguageRule(responseLanguage);
   const lengthRule = buildLengthRule(rawLength);
