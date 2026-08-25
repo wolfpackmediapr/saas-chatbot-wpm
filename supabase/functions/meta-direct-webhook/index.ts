@@ -745,6 +745,10 @@ Deno.serve(async (request: Request) => {
         conversationId,
         inboundMessage: event.text,
         imageUrls: inboundImageUrls,
+        // The inbound message was stored above, before this call. Naming it
+        // here lets the context loader drop that stored copy instead of
+        // sending the same text to the model twice.
+        inboundProviderMessageId: event.messageId,
       });
 
       if (!aiResult.ok) {

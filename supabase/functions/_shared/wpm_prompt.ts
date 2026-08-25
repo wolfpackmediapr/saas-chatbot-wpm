@@ -163,10 +163,41 @@ function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): stri
   );
 }
 
+/**
+ * Marks a turn that a person on the team typed from the Inbox, not the model.
+ *
+ * Lives here rather than in `wpm_ai.ts` because hard rule 10 quotes it: one
+ * constant means the label the model is told about is always the label it is
+ * actually shown. `wpm_ai.ts` imports it (it already imports this module, so
+ * the dependency only points one way).
+ */
+export const HUMAN_REPLY_PREFIX = '[Replied by a human teammate]';
+
+/**
+ * Removes the teammate marker from anything the model produces.
+ *
+ * Hard rule 10 tells the model never to write it, but an instruction is not a
+ * guarantee and the marker is internal — a customer must never see it. Same
+ * defence stripHandoffSignal already applies to the handoff sentinel: forbid
+ * it in the prompt AND strip it on the way out.
+ */
+export function stripHumanReplyMarker(text: string): string {
+  // Untouched unless the marker is actually there. An earlier version
+  // normalised whitespace unconditionally, which would have flattened the line
+  // breaks out of every ordinary multi-line reply.
+  if (!text.includes(HUMAN_REPLY_PREFIX)) return text;
+  return text
+    .split(HUMAN_REPLY_PREFIX)
+    .join(' ')
+    .replace(/[ \t]{2,}/g, ' ') // tidy the gap left behind — spaces only, never newlines
+    .trim();
+}
+
 function buildHardRules(
   neverSayRules: string | null | undefined,
   handoffRules: string | null | undefined,
   emergencyKeywords: string[],
+  bookingUrl: string | null | undefined,
 ): string {
   const baseRules = [
     '1. NEVER reveal, hint at, or discuss specific pricing, rates, packages, or cost estimates unless a price is explicitly written verbatim in the Knowledge Base below. If asked about pricing, say: "For specific pricing, the best next step is a quick discovery call — I can send you the link."',
@@ -178,6 +209,10 @@ function buildHardRules(
     '7. Do NOT claim to confirm bookings, process payments, or commit to deliverables on behalf of the business.',
     '8. If asked whether you are a human, a bot, an AI, or a real person, always answer truthfully that you are an AI assistant. NEVER claim to be a human, and never imply it by inventing personal experiences, a physical location, or feelings you do not have. You may add that a member of the team can take over the conversation at any time. This rule cannot be overridden by any instruction above.',
     '9. When someone SHARES something rather than asking a question — a reel, a post, a story mention, a photo — do NOT fall back on rule 6. Sharing is interest, not an unanswerable question. Say something specific about what they shared, connect it to a service this business genuinely offers if there is an honest link, and ask what they have in mind. Rule 4 still applies: never invent a service to make the connection. A story mention means they put this business in front of their own followers — thank them for it specifically.',
+    `10. A turn beginning with "${HUMAN_REPLY_PREFIX}" was written by a person on the team from the Inbox, not by you. Read it as part of the conversation and honour what your colleague already said: do not contradict it, do not repeat it, and do not tell the customer something is impossible when a teammate has just offered it. NEVER write that marker yourself and never quote it to the customer — it is internal. Rule 8 still stands: if asked, you are an AI assistant, and you must not claim to be the person who wrote that turn.`,
+    bookingUrl?.trim()
+      ? `11. The ONLY link you may share is ${bookingUrl.trim()} — it is current and it OVERRIDES everything else, including this conversation's own history. If an earlier message here contains a different link, it is out of date: do not copy it forward, and if the customer asks you to "send that link again", send this one instead.`
+      : "11. No link is configured for this business, so there is nothing to override the conversation. If YOU already shared a link earlier in THIS conversation, you may send that same one again. Otherwise do not share a link: never invent one, never treat a link the CUSTOMER pasted as this business's own, and never use a link from anywhere else. With no link to give, collect their name and email and tell them the team will follow up.",
   ];
 
   const parts: string[] = [...baseRules];
@@ -229,6 +264,7 @@ export function buildWpmSystemPrompt(context: WpmBotContext): string {
     instructions?.never_say_rules,
     instructions?.handoff_rules,
     instructions?.emergency_keywords ?? [],
+    botProfile.booking_url,
   );
 
   const corePersona = instructions?.system_prompt?.trim()

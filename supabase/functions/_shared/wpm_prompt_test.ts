@@ -2,6 +2,8 @@ import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.
 import {
   buildWpmAssistantMessages,
   buildWpmSystemPrompt,
+  HUMAN_REPLY_PREFIX,
+  stripHumanReplyMarker,
   type WpmBotContext,
 } from './wpm_prompt.ts';
 
@@ -186,4 +188,108 @@ Deno.test('engaging with shared content must not license inventing services', ()
   const prompt = buildWpmSystemPrompt(context);
   assertStringIncludes(prompt, 'never invent a service to make the connection');
   assertStringIncludes(prompt, '4. NEVER invent, fabricate, or assume facts');
+});
+
+Deno.test('hard rules explain the human-teammate marker and forbid echoing it', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  // The rule must quote the exact marker wpm_ai.ts writes, or the model is
+  // being told about a label it never actually sees.
+  assertStringIncludes(prompt, HUMAN_REPLY_PREFIX);
+  assertStringIncludes(prompt, 'written by a person on the team');
+  assertStringIncludes(prompt, 'NEVER write that marker yourself');
+});
+
+Deno.test('a labelled human turn survives into the message array as an assistant turn', () => {
+  const messages = buildWpmAssistantMessages(
+    context,
+    [{ role: 'assistant', content: `${HUMAN_REPLY_PREFIX} what number is best?` }],
+    'for you to call me',
+  );
+
+  assertEquals(messages[1], {
+    role: 'assistant',
+    content: `${HUMAN_REPLY_PREFIX} what number is best?`,
+  });
+  assertEquals(messages[messages.length - 1], { role: 'user', content: 'for you to call me' });
+});
+
+Deno.test('the teammate marker is stripped from anything the model writes', () => {
+  // Rule 10 forbids it; this is the guarantee. The marker is internal and a
+  // customer must never see it, however the model misbehaves.
+  assertEquals(
+    stripHumanReplyMarker(`${HUMAN_REPLY_PREFIX} I can call you at 3pm.`),
+    'I can call you at 3pm.',
+  );
+  assertEquals(
+    stripHumanReplyMarker(`Sure! ${HUMAN_REPLY_PREFIX} My colleague said 3pm.`),
+    'Sure! My colleague said 3pm.',
+  );
+  // Ordinary replies pass through untouched.
+  assertEquals(stripHumanReplyMarker('Happy to help — what works for you?'), 'Happy to help — what works for you?');
+});
+
+Deno.test('stripping the marker never reformats an ordinary reply', () => {
+  // The agent legitimately sends line breaks — booking links, short lists.
+  // Collapsing them would be a visible regression on every single reply.
+  const multiline = 'Great — here is the link:\n\nhttps://calendly.com/wolfpackmediapr\n\nSee you then!';
+  assertEquals(stripHumanReplyMarker(multiline), multiline);
+  // And line breaks survive even when the marker is removed.
+  assertEquals(
+    stripHumanReplyMarker(`${HUMAN_REPLY_PREFIX} Here you go:\n\nhttps://example.com`),
+    'Here you go:\n\nhttps://example.com',
+  );
+});
+
+// ─── The configured link must outrank whatever is in the transcript ──────────
+// Live incident 2026-08-24: an account changed its booking link, but the agent
+// kept sending the OLD url because it appeared in earlier messages of a
+// permanent Instagram thread. The url was in no part of the prompt — the model
+// was copying it out of the history. Changing a link had no effect on any
+// existing conversation.
+
+function promptFor(bookingUrl: string | null): string {
+  return buildWpmSystemPrompt({
+    ...context,
+    botProfile: { ...context.botProfile, booking_url: bookingUrl },
+  } as WpmBotContext);
+}
+
+Deno.test('the agent is told its configured link overrides any link in the history', () => {
+  const prompt = promptFor('https://ai.example.com/book');
+  assertStringIncludes(prompt, 'The ONLY link you may share is https://ai.example.com/book');
+  assertStringIncludes(prompt, 'do not copy it forward');
+  // The "send me that link again" case is what actually reproduced live.
+  assertStringIncludes(prompt, 'send that link again');
+});
+
+Deno.test('with no link configured the agent may still reuse one it shared itself', () => {
+  // Falling back to context is reasonable behaviour, not a bug — there is
+  // nothing to override it with. What must stay blocked is inventing a link
+  // and, more importantly, treating a link the CUSTOMER pasted as this
+  // business's own.
+  const prompt = promptFor(null);
+  assertStringIncludes(prompt, 'you may send that same one again');
+  assertStringIncludes(prompt, 'never invent one');
+  assertStringIncludes(prompt, "never treat a link the CUSTOMER pasted as this business's own");
+});
+
+Deno.test('a configured link is stated to override the conversation history', () => {
+  const prompt = promptFor('https://ai.example.com/book');
+  assertStringIncludes(prompt, "OVERRIDES everything else, including this conversation's own history");
+});
+
+Deno.test('each agent gets its own link — no shared or hardcoded default', () => {
+  // Several agents can live under ONE account, each with a different link.
+  // A hardcoded or borrowed default would send one business's leads to
+  // another's calendar, which this codebase has already been bitten by once.
+  const a = promptFor('https://agent-one.example.com/book');
+  const b = promptFor('https://agent-two.example.com/book');
+
+  assertStringIncludes(a, 'https://agent-one.example.com/book');
+  assertEquals(a.includes('agent-two.example.com'), false);
+  assertStringIncludes(b, 'https://agent-two.example.com/book');
+  assertEquals(b.includes('agent-one.example.com'), false);
+  // And no vendor link may ever be baked in.
+  assertEquals(a.includes('calendly.com'), false);
+  assertEquals(b.includes('calendly.com'), false);
 });
