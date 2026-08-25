@@ -339,3 +339,12 @@ verify_jwt = false
 # processor above: an unstated default has silently changed once already.
 [functions.wpm-trigger-automations]
 verify_jwt = true
+
+# Agent Test, called from the dashboard with the signed-in user's session — the
+# token is what scopes the test to their own client and agent, so verification
+# must stay ON. It was previously undeclared and therefore correct only by
+# coincidence: the deploy default happens to be `true`. That is the same
+# unstated-default trap that silently flipped wpm-actions-processor, so it is
+# now written down rather than relied upon.
+[functions.wpm-test-chat]
+verify_jwt = true
