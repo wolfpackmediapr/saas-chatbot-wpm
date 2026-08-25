@@ -1,4 +1,4 @@
-import { buildWpmAssistantMessages, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
+import { buildWpmAssistantMessages, flattenMarkdownLinks, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
 import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
@@ -251,6 +251,12 @@ export async function generateAndStoreAssistantReply(args: {
       /** Why it fired, for the handoff event log. Null when no handoff. */
       handoffReason: string | null;
       messageId: string;
+      /**
+       * The metadata written onto the stored row, so a caller recording the
+       * send outcome merges into it instead of overwriting it — `generated_by`
+       * is queried elsewhere and has to survive that update.
+       */
+      metadata: Record<string, unknown>;
       modelProvider: string;
       modelName: string;
       tokenUsage: unknown;
@@ -326,7 +332,9 @@ export async function generateAndStoreAssistantReply(args: {
   const { content: unstripped, requested: sentinelRequested } = stripHandoffSignal(completion.content.trim());
   // Belt and braces: rule 10 forbids the model writing the teammate marker,
   // but it must never reach a customer if the model does it anyway.
-  const content = stripHumanReplyMarker(unstripped);
+  // Rule 12 likewise asks for plain text; this guarantees it, because these
+  // channels show markdown syntax to the customer verbatim.
+  const content = flattenMarkdownLinks(stripHumanReplyMarker(unstripped));
   if (!content) return { ok: false, error: 'OpenAI returned an empty assistant response' };
 
   // Deterministic escalation runs regardless of what the model decided: an
@@ -368,6 +376,10 @@ export async function generateAndStoreAssistantReply(args: {
     handoffRequested,
     handoffReason,
     messageId: (message as { id: string }).id,
+    // Handed back so a caller recording the send outcome can merge into this
+    // rather than overwrite it — `generated_by` is queried elsewhere and must
+    // survive the delivery update.
+    metadata: outboundPayload.metadata,
     modelProvider,
     modelName,
     tokenUsage: completion.tokenUsage,

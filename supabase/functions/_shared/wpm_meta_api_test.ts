@@ -1,5 +1,11 @@
-import { assertEquals, assertMatch } from 'jsr:@std/assert';
-import { fetchMetaUserProfile, GRAPH_API_BASE, GRAPH_API_VERSION } from './wpm_meta_api.ts';
+import { assertEquals, assertMatch, assertStringIncludes } from 'jsr:@std/assert';
+import {
+  describeSendFailure,
+  extractSentMessageId,
+  fetchMetaUserProfile,
+  GRAPH_API_BASE,
+  GRAPH_API_VERSION,
+} from './wpm_meta_api.ts';
 
 Deno.test('GRAPH_API_VERSION is a well-formed Graph API version', () => {
   assertMatch(GRAPH_API_VERSION, /^v\d+\.\d+$/);
@@ -128,4 +134,43 @@ Deno.test('an empty profile response returns null, not an empty string', async (
     await fetchMetaUserProfile('1234', 'tok', 'messenger', stubFetch(200, {})),
     null,
   );
+});
+
+
+// ── Send outcome ─────────────────────────────────────────────────────────────
+// Until now no outbound row carried a message id, so nothing could tell a
+// delivered reply from one Meta rejected — the Inbox showed both as sent.
+
+Deno.test('the message id is read from an accepted send', () => {
+  assertEquals(extractSentMessageId({ message_id: 'mid.abc123' }), 'mid.abc123');
+  assertEquals(extractSentMessageId({ recipient_id: '123' }), null);
+  assertEquals(extractSentMessageId(null), null);
+  assertEquals(extractSentMessageId({ message_id: 42 }), null);
+});
+
+Deno.test('code 10 is explained as the 24-hour window, not an outage', () => {
+  // The exact body Meta returned in production on 2026-08-25.
+  const message = describeSendFailure({
+    response: {
+      error: {
+        message: '(#10) This message is sent outside of allowed window.',
+        type: 'OAuthException',
+        code: 10,
+        error_subcode: 2534022,
+      },
+    },
+  });
+  assertStringIncludes(message, '24-hour messaging window');
+  assertStringIncludes(message, 'until they write again');
+});
+
+Deno.test('other Meta errors keep their own message', () => {
+  assertEquals(
+    describeSendFailure({ response: { error: { message: 'Invalid OAuth access token.', code: 190 } } }),
+    'Invalid OAuth access token.',
+  );
+});
+
+Deno.test('a thrown network error is reported as-is', () => {
+  assertEquals(describeSendFailure({ error: 'TypeError: network failure' }), 'TypeError: network failure');
 });
