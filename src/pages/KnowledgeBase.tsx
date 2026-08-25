@@ -5,6 +5,8 @@ import {
   listKnowledgeSources,
   createKnowledgeSource,
   deleteKnowledgeSource,
+  listBotProfiles,
+  setKnowledgeSourceAgent,
 } from '../lib/supabase/wpmClients';
 
 type UiType = 'faq' | 'service' | 'policy' | 'url' | 'other';
@@ -16,7 +18,17 @@ interface KnowledgeSource {
   content_text: string;
   source_url: string | null;
   tags: string;
+  /** null = shared with every agent on the account. */
+  bot_profile_id: string | null;
 }
+
+interface AgentOption {
+  id: string;
+  name: string;
+}
+
+/** The value the <select> uses for "every agent" — <option> cannot carry null. */
+const ALL_AGENTS = '';
 
 const typeLabels: Record<UiType, string> = {
   faq: 'FAQ',
@@ -64,6 +76,8 @@ export default function KnowledgeBase() {
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [savingAgentFor, setSavingAgentFor] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadKnowledge() {
@@ -77,7 +91,11 @@ export default function KnowledgeBase() {
         setIsDemoMode(isDemo);
 
         if (client && !isDemo) {
-          const rows = await listKnowledgeSources(client.id);
+          const [rows, profiles] = await Promise.all([
+            listKnowledgeSources(client.id),
+            listBotProfiles(client.id),
+          ]);
+          setAgents(profiles.map((p: any) => ({ id: p.id, name: p.name })));
           setSources(
             rows.map((row: any) => ({
               id: row.id,
@@ -86,6 +104,7 @@ export default function KnowledgeBase() {
               content_text: row.content_text || '',
               source_url: row.source_url ?? null,
               tags: (row.metadata?.tags || []).join(', '),
+              bot_profile_id: row.bot_profile_id ?? null,
             })),
           );
         }
@@ -126,6 +145,7 @@ export default function KnowledgeBase() {
           content_text: created.content_text || '',
           source_url: created.source_url ?? null,
           tags: newSource.tags,
+          bot_profile_id: created.bot_profile_id ?? null,
         },
         ...current,
       ]);
@@ -138,6 +158,36 @@ export default function KnowledgeBase() {
       );
     } finally {
       setAdding(false);
+    }
+  };
+
+  /**
+   * Reassign a source to one agent, or back to every agent.
+   *
+   * Optimistic, then reverted on failure: a select that snaps back is honest
+   * about not having saved, whereas one that stays put would quietly claim a
+   * scoping change that never reached the database.
+   */
+  const changeSourceAgent = async (id: string, value: string) => {
+    const botProfileId = value === ALL_AGENTS ? null : value;
+    const previous = sources.find((s) => s.id === id)?.bot_profile_id ?? null;
+    if (previous === botProfileId) return;
+
+    setSavingAgentFor(id);
+    setError(null);
+    setSources((current) =>
+      current.map((s) => (s.id === id ? { ...s, bot_profile_id: botProfileId } : s)),
+    );
+    try {
+      await setKnowledgeSourceAgent(id, botProfileId);
+    } catch (err) {
+      console.error('Failed to change knowledge source agent', err);
+      setSources((current) =>
+        current.map((s) => (s.id === id ? { ...s, bot_profile_id: previous } : s)),
+      );
+      setError('Could not change which agent uses that source. Please try again.');
+    } finally {
+      setSavingAgentFor(null);
     }
   };
 
@@ -359,6 +409,33 @@ export default function KnowledgeBase() {
                   )}
                   {source.tags && (
                     <div className="text-xs text-secondary-foreground mt-1">{source.tags}</div>
+                  )}
+                  {agents.length > 1 && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <label
+                        htmlFor={`agent-${source.id}`}
+                        className="text-xs text-secondary-foreground"
+                      >
+                        Used by
+                      </label>
+                      <select
+                        id={`agent-${source.id}`}
+                        value={source.bot_profile_id ?? ALL_AGENTS}
+                        onChange={(e) => changeSourceAgent(source.id, e.target.value)}
+                        disabled={savingAgentFor === source.id}
+                        className="text-xs bg-secondary border border-secondary rounded px-2 py-1 disabled:opacity-50"
+                      >
+                        <option value={ALL_AGENTS}>Every agent</option>
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} only
+                          </option>
+                        ))}
+                      </select>
+                      {savingAgentFor === source.id && (
+                        <Loader2 className="h-3 w-3 animate-spin text-secondary-foreground" />
+                      )}
+                    </div>
                   )}
                 </div>
                 <button

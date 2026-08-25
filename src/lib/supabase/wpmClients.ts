@@ -564,6 +564,23 @@ export async function createKnowledgeSource(clientId: string, source: {
   return data as KnowledgeSource;
 }
 
+/**
+ * Assigns a knowledge source to one agent, or back to every agent.
+ *
+ * `null` means account-wide — shared with every agent on the client, which is
+ * what every source was before per-agent knowledge existed. Setting an id
+ * restricts the source to that agent, so an account reselling to two different
+ * businesses stops putting one client's material into the other's prompt.
+ */
+export async function setKnowledgeSourceAgent(id: string, botProfileId: string | null) {
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
+  const { error } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .update({ bot_profile_id: botProfileId })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function deleteKnowledgeSource(id: string) {
   if (!supabase) throw new Error('Service is not configured. Please contact support.');
   const { error } = await (supabase as any).from('wpm_knowledge_sources').delete().eq('id', id);

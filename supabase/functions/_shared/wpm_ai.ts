@@ -147,11 +147,23 @@ export async function loadWpmBotContext(
 
   if (instructionsError) return { ok: false, error: instructionsError.message };
 
+  // Knowledge is scoped to the agent answering, not just the account. It used
+  // to be client-wide, so every agent on an account saw every other agent's
+  // documents — one account reselling to two different businesses would put
+  // one client's material into the other's prompt.
+  //
+  // An UNASSIGNED source (bot_profile_id NULL) stays shared with every agent
+  // on the account: that is the account-wide tier (a refund policy, opening
+  // hours) and it is what every existing row already is, so this changes
+  // nothing until a source is deliberately assigned.
+  const knowledgeScope = buildKnowledgeScopeFilter(conversation.bot_profile_id);
+
   const { data: knowledgeData, error: knowledgeError } = await supabase
     .from('wpm_knowledge_sources')
     .select('title, content_text')
     .eq('client_id', conversation.client_id)
     .eq('status', 'ready')
+    .or(knowledgeScope)
     .order('updated_at', { ascending: false })
     .limit(8);
 
@@ -199,6 +211,25 @@ export async function loadWpmBotContext(
       bot_profile_id: conversation.bot_profile_id,
     },
   };
+}
+
+/**
+ * PostgREST `.or()` filter restricting knowledge to the agent that is answering.
+ *
+ * Knowledge used to be scoped to the ACCOUNT, so every agent saw every other
+ * agent's documents — an account reselling to two businesses put one client's
+ * material into the other's prompt.
+ *
+ * An UNASSIGNED source (`bot_profile_id` NULL) stays shared with every agent:
+ * that is the account-wide tier, and it is what every pre-existing row already
+ * is, so this is a no-op until a source is deliberately assigned.
+ *
+ * With no agent resolved, only account-wide sources are visible — never
+ * another agent's.
+ */
+export function buildKnowledgeScopeFilter(botProfileId: string | null | undefined): string {
+  const shared = 'bot_profile_id.is.null';
+  return botProfileId ? `${shared},bot_profile_id.eq.${botProfileId}` : shared;
 }
 
 export function buildOutboundAssistantMessageInsertPayload(args: {

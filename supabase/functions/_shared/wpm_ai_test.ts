@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
+  buildKnowledgeScopeFilter,
   buildOutboundAssistantMessageInsertPayload,
   generateAndStoreAssistantReply,
   loadWpmBotContext,
@@ -24,6 +25,17 @@ class QueryStub {
   }
 
   eq(_column: string, _value: unknown) {
+    return this;
+  }
+
+  /**
+   * Records the filter as well as chaining, so a test can assert which scope a
+   * query actually asked for. Knowledge scoping is invisible otherwise — the
+   * stub returns the same rows however it is filtered, so without this a query
+   * that dropped its scope entirely would still pass.
+   */
+  or(filter: string) {
+    (this.db.orFilters as Array<{ table: string; filter: string }>).push({ table: this.table, filter });
     return this;
   }
 
@@ -78,6 +90,7 @@ class SupabaseStub {
 Deno.test('loadWpmBotContext loads client, bot profile, active instructions, ready knowledge, and recent messages', async () => {
   const supabase = new SupabaseStub({
     inserts: [],
+    orFilters: [],
     'wpm_conversations:single': {
       id: 'conversation-uuid',
       client_id: 'client-uuid',
@@ -127,6 +140,15 @@ Deno.test('loadWpmBotContext loads client, bot profile, active instructions, rea
   assertEquals(loaded.context.botProfile.model_name, 'gpt-4.1-mini');
   assertEquals(loaded.context.knowledge[0].title, 'Menu');
   assertEquals(loaded.recentMessages, [{ role: 'user', content: 'Do you cater?' }]);
+
+  // The knowledge query must be scoped to this agent plus the account-wide
+  // sources. Asserted on the filter the query actually sent, because the stub
+  // returns the same rows regardless — a query that silently dropped its scope
+  // would otherwise still pass here.
+  assertEquals(supabase.db.orFilters, [{
+    table: 'wpm_knowledge_sources',
+    filter: 'bot_profile_id.is.null,bot_profile_id.eq.bot-profile-uuid',
+  }]);
 });
 
 Deno.test('buildOutboundAssistantMessageInsertPayload stores server-side model metadata and token usage', () => {
@@ -158,6 +180,7 @@ Deno.test('buildOutboundAssistantMessageInsertPayload stores server-side model m
 Deno.test('generateAndStoreAssistantReply calls OpenAI with assembled prompt and stores outbound assistant message', async () => {
   const supabase = new SupabaseStub({
     inserts: [],
+    orFilters: [],
     'wpm_conversations:single': {
       id: 'conversation-uuid',
       client_id: 'client-uuid',
@@ -234,6 +257,7 @@ Deno.test('generateAndStoreAssistantReply calls OpenAI with assembled prompt and
 function contextStubDb(messages: unknown[]) {
   return {
     inserts: [],
+    orFilters: [],
     'wpm_conversations:single': {
       id: 'conversation-uuid',
       client_id: 'client-uuid',
@@ -343,4 +367,24 @@ Deno.test('only the newest row is eligible for removal', async () => {
   ], 'mid-1');
 
   assertEquals(messages.length, 2);
+});
+
+
+// ── Per-agent knowledge scoping ──────────────────────────────────────────────
+// Knowledge was scoped to the ACCOUNT, so three agents on one account all read
+// the same documents. Unassigned sources stay shared, which is what every
+// pre-existing row is — so this is a no-op until something is assigned.
+
+Deno.test('an agent sees its own knowledge plus the account-wide sources', () => {
+  assertEquals(
+    buildKnowledgeScopeFilter('abc-123'),
+    'bot_profile_id.is.null,bot_profile_id.eq.abc-123',
+  );
+});
+
+Deno.test('with no agent resolved, only account-wide sources are visible', () => {
+  // Never another agent's material, even when the agent cannot be determined.
+  assertEquals(buildKnowledgeScopeFilter(null), 'bot_profile_id.is.null');
+  assertEquals(buildKnowledgeScopeFilter(undefined), 'bot_profile_id.is.null');
+  assertEquals(buildKnowledgeScopeFilter(''), 'bot_profile_id.is.null');
 });

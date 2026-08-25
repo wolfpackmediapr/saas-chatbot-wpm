@@ -134,11 +134,18 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Load knowledge base ────────────────────────────────────────────────────
+  // Same scoping as the live path, or Agent Test would show an agent knowledge
+  // it will never actually have. Unassigned (NULL) stays account-wide.
+  const knowledgeScope = botProfile.id
+    ? `bot_profile_id.is.null,bot_profile_id.eq.${botProfile.id}`
+    : "bot_profile_id.is.null";
+
   const { data: knowledgeData } = await supabaseUser
     .from("wpm_knowledge_sources")
     .select("title, content_text")
     .eq("client_id", client.id)
     .eq("status", "ready")
+    .or(knowledgeScope)
     .order("updated_at", { ascending: false })
     .limit(10);
 
