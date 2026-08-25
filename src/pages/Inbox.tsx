@@ -264,10 +264,16 @@ export default function Inbox() {
       .from('wpm_messages')
       .select('id, direction, role, content, created_at, metadata')
       .eq('conversation_id', selectedId)
-      .order('created_at', { ascending: true })
+      // Newest 200, NOT oldest 200. Ascending + limit took the 200 OLDEST rows,
+      // so any conversation past 200 messages showed its opening weeks and
+      // never its latest message — a live Instagram thread sat on June history
+      // while the list beside it said "2m ago". Fetch descending, then reverse
+      // for display, the same order the agent's own context loader uses.
+      .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => {
-        setMessages((data as Message[]) ?? []);
+        const rows = (data as Message[]) ?? [];
+        setMessages(rows.slice().reverse());
         setLoadingMsgs(false);
       });
   }, [selectedId]);
