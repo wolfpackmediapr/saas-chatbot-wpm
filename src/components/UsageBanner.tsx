@@ -42,6 +42,11 @@ export default function UsageBanner() {
   // Unlimited plans (agency, super admin) have no meter to warn about.
   if (limit === null) return null;
 
+  // When the 7-day trial is what ran out, TrialBar already says so in the right
+  // words. This banner would claim the MESSAGE allowance was spent, which may
+  // be untrue — a trial can expire with most of the 1,000 unused.
+  if (usage.free_trial_expired) return null;
+
   const ratio = used / limit;
   if (ratio < WARN_AT) return null;
 
@@ -71,7 +76,7 @@ export default function UsageBanner() {
           <>
             <strong>Your agent has stopped replying.</strong> You've used all{' '}
             {limit.toLocaleString()} {unit}
-            {onFreeGrant && ' — the free grant is one-time and does not reset'}. New
+            {onFreeGrant && ' — the free trial is one-time and does not reset'}. New
             customer messages are still arriving in your Inbox, and they're getting a
             note saying someone will follow up.
           </>

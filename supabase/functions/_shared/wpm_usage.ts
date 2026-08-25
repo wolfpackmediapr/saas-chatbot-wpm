@@ -74,7 +74,7 @@ export function conversationCapWindowStart(now: Date = new Date()): string {
   return new Date(now.getTime() - CONVERSATION_CAP_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
 }
 
-export type AllowanceBlockReason = 'account_allowance' | 'conversation_cap';
+export type AllowanceBlockReason = 'account_allowance' | 'conversation_cap' | 'trial_expired';
 
 export interface ConversationAllowance {
   allowed: boolean;
@@ -136,6 +136,7 @@ export async function checkConversationAllowance(
       max_conversations: number | null;
       messages_lifetime: number;
       free_messages_limit: number | null;
+      free_trial_expired: boolean;
       within_allowance: boolean;
     };
 
@@ -145,9 +146,18 @@ export async function checkConversationAllowance(
     const used = onFreeGrant ? row.messages_lifetime : row.conversations_used;
     const max = onFreeGrant ? row.free_messages_limit : row.max_conversations;
 
-    return row.within_allowance
-      ? { allowed: true, used, max }
-      : { allowed: false, used, max, reason: 'account_allowance' };
+    if (row.within_allowance) return { allowed: true, used, max };
+
+    // A free account can be blocked two different ways and the difference
+    // matters when triaging "the bot stopped answering": the 7-day trial can
+    // run out with most of the 1,000 messages unused, and reporting that as a
+    // spent allowance would send whoever is debugging after the wrong number.
+    // This is the same mistake that cost the 2026-08-20 session.
+    const reason: AllowanceBlockReason = row.free_trial_expired
+      ? 'trial_expired'
+      : 'account_allowance';
+
+    return { allowed: false, used, max, reason };
   } catch {
     return { allowed: true, used: null, max: null };
   }
@@ -190,7 +200,11 @@ export function noticeForBlock(reason: AllowanceBlockReason | undefined): string
  */
 export function describeBlock(allowance: ConversationAllowance): string {
   const counts = `${allowance.used}/${allowance.max}`;
-  return allowance.reason === 'conversation_cap'
-    ? `Per-conversation reply cap reached (${counts} in the last ${CONVERSATION_CAP_WINDOW_HOURS}h)`
-    : `Account allowance exhausted (${counts})`;
+  if (allowance.reason === 'conversation_cap') {
+    return `Per-conversation reply cap reached (${counts} in the last ${CONVERSATION_CAP_WINDOW_HOURS}h)`;
+  }
+  if (allowance.reason === 'trial_expired') {
+    return `Free trial expired after 7 days (${counts} messages used — the message allowance was NOT the limit that fired)`;
+  }
+  return `Account allowance exhausted (${counts})`;
 }
