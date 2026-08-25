@@ -257,15 +257,25 @@ function promptFor(bookingUrl: string | null): string {
 Deno.test('the agent is told its configured link overrides any link in the history', () => {
   const prompt = promptFor('https://ai.example.com/book');
   assertStringIncludes(prompt, 'The ONLY link you may share is https://ai.example.com/book');
-  assertStringIncludes(prompt, 'NEVER copy a link out of the conversation history');
+  assertStringIncludes(prompt, 'do not copy it forward');
   // The "send me that link again" case is what actually reproduced live.
-  assertStringIncludes(prompt, 'the same link again');
+  assertStringIncludes(prompt, 'send that link again');
 });
 
-Deno.test('an agent with no link configured is forbidden from sharing one at all', () => {
+Deno.test('with no link configured the agent may still reuse one it shared itself', () => {
+  // Falling back to context is reasonable behaviour, not a bug — there is
+  // nothing to override it with. What must stay blocked is inventing a link
+  // and, more importantly, treating a link the CUSTOMER pasted as this
+  // business's own.
   const prompt = promptFor(null);
-  assertStringIncludes(prompt, 'NEVER share a link');
-  assertStringIncludes(prompt, 'never copy one out of the conversation history');
+  assertStringIncludes(prompt, 'you may send that same one again');
+  assertStringIncludes(prompt, 'never invent one');
+  assertStringIncludes(prompt, "never treat a link the CUSTOMER pasted as this business's own");
+});
+
+Deno.test('a configured link is stated to override the conversation history', () => {
+  const prompt = promptFor('https://ai.example.com/book');
+  assertStringIncludes(prompt, "OVERRIDES everything else, including this conversation's own history");
 });
 
 Deno.test('each agent gets its own link — no shared or hardcoded default', () => {
