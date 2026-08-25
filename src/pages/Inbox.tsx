@@ -113,6 +113,9 @@ function failedToSend(message: Message): boolean {
 /** Meta's error text is accurate but tells nobody what to do about it. */
 function friendlySendError(raw: string | undefined): string {
   if (!raw) return 'Could not send that reply.';
+  if (raw.toLowerCase().includes('invalid token') || raw.toLowerCase().includes('jwt')) {
+    return 'Your session expired before that could send. Your message has been kept — press send again.';
+  }
   if (raw.includes('(#10)') || raw.toLowerCase().includes('outside of allowed window')) {
     return `Meta only allows replies within ${REPLY_WINDOW_HOURS} hours of the customer's last message. This one is outside that window, so it was not delivered — the customer has to message again before you can reply.`;
   }
@@ -180,7 +183,6 @@ export default function Inbox() {
   const [togglingHandoff, setTogglingHandoff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState(false); // mobile: show detail panel
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const realtimeRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -204,12 +206,10 @@ export default function Inbox() {
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
-  // ── Auth token ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    supabase?.auth.getSession().then(({ data: { session } }) => {
-      setAccessToken(session?.access_token ?? null);
-    });
-  }, []);
+  // No access token is cached in state on purpose. A token copied at mount
+  // expires after an hour while supabase-js quietly refreshes its own session,
+  // so the stale copy is invisible until a manual fetch is rejected 401.
+  // handleSendReply asks for a fresh one at send time instead.
 
   // ── Load conversation list ─────────────────────────────────────────────────
   const loadConversations = useCallback(async () => {
@@ -371,14 +371,34 @@ export default function Inbox() {
 
   // ── Send human reply ───────────────────────────────────────────────────────
   const handleSendReply = async () => {
-    if (!replyText.trim() || !selectedId || !accessToken) return;
+    if (!replyText.trim() || !selectedId || !supabase) return;
     setSending(true);
     setError(null);
     const text = replyText.trim();
-    setReplyText('');
     try {
-      const result = await callInboxReply(accessToken, selectedId, text);
-      if (!result.ok) setError(friendlySendError(result.error));
+      // Ask for the token at SEND time, never the one captured at mount.
+      // Supabase access tokens expire after an hour; supabase-js refreshes its
+      // own session (which is why the list and the takeover toggle keep
+      // working), but a copy taken into React state goes stale silently. The
+      // manual fetch below then sent a dead token, inbox-reply answered 401,
+      // and it returns BEFORE the line that stores the message — so the reply
+      // was neither delivered nor recorded. An Inbox left open for an hour
+      // dropped every human reply.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? null;
+      if (!token) {
+        setError('Your session expired. Please refresh the page and sign in again.');
+        return;
+      }
+
+      const result = await callInboxReply(token, selectedId, text);
+      if (!result.ok) {
+        setError(friendlySendError(result.error));
+        return; // keep the draft — see below
+      }
+      // Only clear once it is actually sent. Clearing first meant a failed
+      // send destroyed what you had typed, on top of not delivering it.
+      setReplyText('');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -736,7 +756,7 @@ export default function Inbox() {
                   </div>
                   <button
                     onClick={handleSendReply}
-                    disabled={sending || !replyText.trim() || !accessToken}
+                    disabled={sending || !replyText.trim()}
                     className={cn(
                       'flex-shrink-0 p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white transition-colors',
                       'disabled:opacity-50 disabled:cursor-not-allowed',
