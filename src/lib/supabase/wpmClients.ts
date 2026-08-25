@@ -334,7 +334,26 @@ export interface UsageSummary {
   messages_lifetime: number;
   /** 1000 on the free plan; null once paid (then max_conversations applies). */
   free_messages_limit: number | null;
+  /**
+   * The free grant is 1,000 messages OR 7 days, whichever comes first.
+   *
+   * The clock starts at the FIRST INBOUND CUSTOMER MESSAGE, not at signup, so
+   * a signup that never connects a channel burns nothing. Null until that
+   * first message arrives — the trial has not started — and null on any paid
+   * or admin account, so a single null check tells you whether to show trial
+   * state at all.
+   */
+  free_trial_started_at: string | null;
+  free_trial_ends_at: string | null;
+  free_trial_expired: boolean;
   within_allowance: boolean;
+}
+
+/** Whole days left in the trial; 0 once it has run out. Null when not on one. */
+export function trialDaysRemaining(usage: UsageSummary): number | null {
+  if (!usage.free_trial_ends_at) return null;
+  const ms = new Date(usage.free_trial_ends_at).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
 /** Current-month usage across the signed-in user's clients (null if unavailable). */

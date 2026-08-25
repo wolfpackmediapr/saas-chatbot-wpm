@@ -4,6 +4,7 @@ import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 import LegalFooter from './LegalFooter';
 import UsageBanner from './UsageBanner';
+import TrialBar from './TrialBar';
 
 /**
  * Chat-style pages own the full viewport and scroll internally, so their
@@ -54,6 +55,7 @@ export default function Layout() {
           <div className="w-10" />
         </div>
 
+        <TrialBar />
         <UsageBanner />
 
         {isFullHeight ? (

@@ -1,4 +1,4 @@
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   checkConversationAllowance,
   CONVERSATION_CAP_WINDOW_HOURS,
@@ -74,6 +74,7 @@ const freeWithinGrant = {
   max_conversations: null,
   messages_lifetime: 250,
   free_messages_limit: 1000,
+  free_trial_expired: false,
   within_allowance: true,
 };
 
@@ -238,4 +239,42 @@ Deno.test('describeBlock names the limit that actually fired', () => {
   });
   assertEquals(allowance.includes('Account allowance'), true);
   assertEquals(allowance.includes('reply cap'), false);
+});
+
+
+// ── Free grant is a TRIAL: 1,000 messages OR 7 days, whichever comes first ────
+
+/** Days ran out with most of the message allowance still unused. */
+const freeTrialExpired = {
+  ...freeWithinGrant,
+  messages_lifetime: 212,
+  free_trial_expired: true,
+  within_allowance: false,
+};
+
+Deno.test('an expired trial blocks the reply even with messages left', async () => {
+  const supabase = makeSupabase({ outboundCount: 2, ownerUserId: 'user-1', usageRow: freeTrialExpired });
+  const allowance = await checkConversationAllowance(supabase, 'conversation-1', 'client-1');
+  assertEquals(allowance.allowed, false);
+  assertEquals(allowance.reason, 'trial_expired');
+});
+
+Deno.test('an expired trial is not reported as a spent message allowance', () => {
+  // The 2026-08-20 session was lost to a block that named the wrong limit.
+  // 212 of 1,000 messages used: whoever reads this must not go hunting the
+  // message counter when the clock is what ran out.
+  const described = describeBlock({
+    allowed: false,
+    used: 212,
+    max: 1000,
+    reason: 'trial_expired',
+  });
+  assertStringIncludes(described, 'Free trial expired after 7 days');
+  assertStringIncludes(described, 'NOT the limit that fired');
+});
+
+Deno.test('an expired trial still gets the permanent-sounding customer notice', () => {
+  // Same wording as a spent grant, and correct for the same reason: neither
+  // resets, so promising the customer it is temporary would be a lie.
+  assertEquals(noticeForBlock('trial_expired'), USAGE_CAP_NOTICE);
 });

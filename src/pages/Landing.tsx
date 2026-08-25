@@ -146,7 +146,7 @@ export default function Landing() {
               to="/signup" 
               className="px-5 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              Start free — 1,000 messages
+              Start your free 7-day trial
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -176,7 +176,7 @@ export default function Landing() {
               to="/signup" 
               className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground text-lg font-semibold rounded-2xl transition-all shadow-lg shadow-primary/20"
             >
-              Start free — 1,000 messages
+              Start your free 7-day trial
               <ArrowRight className="h-5 w-5" />
             </Link>
             <button 
@@ -187,7 +187,7 @@ export default function Landing() {
             </button>
           </div>
 
-          <p className="text-sm text-secondary-foreground mt-4">No credit card required • Free messages don't expire • Cancel anytime</p>
+          <p className="text-sm text-secondary-foreground mt-4">No credit card required • 7-day free trial • Cancel anytime</p>
         </div>
       </section>
 
@@ -258,7 +258,7 @@ export default function Landing() {
         <div className="text-center mb-12">
           <div className="text-primary text-sm font-medium tracking-[2px] mb-3">TRANSPARENT PRICING</div>
           <h2 className="text-4xl font-bold tracking-tight mb-3">Simple plans. Real results.</h2>
-          <p className="text-xl text-secondary-foreground">Start free — your first 1,000 messages are on us, counting messages sent and received. No credit card, no timer, and they don't expire.</p>
+          <p className="text-xl text-secondary-foreground">Start free — 1,000 messages or 7 days, whichever comes first, counting messages sent and received. No credit card required.</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
@@ -294,7 +294,7 @@ export default function Landing() {
               ))}
             </ul>
             <Link to="/signup" className="mt-8 block text-center py-3.5 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-colors">
-              Start free — 1,000 messages
+              Start your free 7-day trial
             </Link>
           </div>
 
@@ -314,7 +314,7 @@ export default function Landing() {
               ))}
             </ul>
             <Link to="/signup" className="mt-8 block text-center py-3.5 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-colors">
-              Start free — 1,000 messages
+              Start your free 7-day trial
             </Link>
           </div>
         </div>
@@ -346,10 +346,10 @@ export default function Landing() {
             to="/signup" 
             className="inline-flex items-center justify-center gap-3 px-10 py-4 bg-primary hover:bg-primary/90 text-primary-foreground text-lg font-semibold rounded-2xl transition-all"
           >
-            Start free — 1,000 messages
+            Start your free 7-day trial
             <ArrowRight className="h-5 w-5" />
           </Link>
-          <div className="text-sm text-secondary-foreground mt-4">No credit card • Free messages don't expire • Cancel anytime</div>
+          <div className="text-sm text-secondary-foreground mt-4">No credit card • 7-day free trial • Cancel anytime</div>
         </div>
       </section>
 

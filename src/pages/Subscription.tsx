@@ -249,7 +249,7 @@ export default function Subscription({ embedded = false }: { embedded?: boolean 
                     </div>
                     <span className="text-sm text-secondary-foreground">
                       {onFreeGrant
-                        ? "doesn't expire"
+                        ? '1,000 messages or 7 days, whichever comes first'
                         : `since ${new Date(usage.period_start).toLocaleDateString()}`}
                     </span>
                   </div>
