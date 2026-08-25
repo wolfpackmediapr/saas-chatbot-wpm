@@ -1,0 +1,48 @@
+name: CI
+
+# Runs the checks that already exist locally but nothing enforced. They would
+# not have caught the behavioural bugs found on 2026-08-24 (wrong agent
+# selected, a link copied out of history, an expired token) — those needed a
+# human using the product. What this does is stop the suite itself from
+# silently rotting, which has happened here before: the _shared deno tests sat
+# permanently red for weeks because nothing ran them.
+#
+# eslint is deliberately NOT a gate: it has 149 pre-existing errors, and a
+# check that is always red is a check nobody reads.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  edge-functions:
+    name: deno tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      # The edge functions are Deno, so `npm run typecheck` covers none of
+      # them — it is `tsc -p tsconfig.app.json`, i.e. src/ only. This job is
+      # the other half of the codebase.
+      - run: deno test --allow-all supabase/functions
