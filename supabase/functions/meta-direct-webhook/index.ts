@@ -22,7 +22,7 @@ import {
 } from '../_shared/wpm_usage.ts';
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
-import { fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
+import { describeSendFailure, extractSentMessageId, fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 
 // ---------------------------------------------------------------------------
 // Types for Meta webhook payload
@@ -785,7 +785,29 @@ Deno.serve(async (request: Request) => {
       }
 
       const sendResult = await sendGraphApiReply(event.senderId, replyText, pageAccessToken);
-      console.log(`[meta-direct] Send: ${sendResult.ok ? 'OK' : sendResult.error}`);
+      const sendFailure = sendResult.ok ? null : describeSendFailure(sendResult);
+      console.log(`[meta-direct] Send: ${sendResult.ok ? 'OK' : sendFailure}`);
+
+      // Record what actually happened to the reply. It was stored before this
+      // send (so a crash mid-send cannot lose it), which meant a reply Meta
+      // REJECTED still appeared in the Inbox looking delivered — the platform
+      // showing a message the customer never received. The row now says which.
+      if (aiResult.messageId) {
+        const { error: deliveryError } = await supabase
+          .from('wpm_messages')
+          .update({
+            provider_message_id: extractSentMessageId(sendResult.response),
+            metadata: {
+              ...(aiResult.metadata ?? {}),
+              delivery: sendResult.ok ? 'sent' : 'failed',
+              delivery_error: sendFailure,
+              delivered_at: sendResult.ok ? new Date().toISOString() : null,
+            },
+          })
+          .eq('id', aiResult.messageId);
+        // Never let bookkeeping fail the turn — the reply is already sent.
+        if (deliveryError) console.warn(`[meta-direct] Delivery status not recorded: ${deliveryError.message}`);
+      }
 
       // ── Escalate to a human ──────────────────────────────────────────
       // After the reply goes out, so the customer gets the acknowledgement the
@@ -828,7 +850,7 @@ Deno.serve(async (request: Request) => {
           .update({
             status: sendResult.ok ? 'processed' : 'failed',
             response_payload: sendResult,
-            error_message: sendResult.ok ? null : (sendResult.error ?? JSON.stringify(sendResult.response ?? {})),
+            error_message: sendFailure,
             processed_at: new Date().toISOString(),
           })
           .eq('external_event_id', event.messageId);

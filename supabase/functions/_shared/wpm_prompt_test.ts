@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.
 import {
   buildKnowledgeText,
   buildWpmAssistantMessages,
+  flattenMarkdownLinks,
   buildWpmSystemPrompt,
   HUMAN_REPLY_PREFIX,
   stripHumanReplyMarker,
@@ -349,4 +350,56 @@ Deno.test('empty and whitespace-only sources are still ignored', () => {
   assertEquals(buildKnowledgeText([]), '');
   assertEquals(buildKnowledgeText([{ title: 'Blank', content_text: '   ' }]), '');
   assertEquals(buildKnowledgeText([{ title: 'Null', content_text: null }]), '');
+});
+
+
+// ── Rule 12 / markdown flattening ────────────────────────────────────────────
+// A real ad lead was shown "[Discovery Call](https://calendly.com/...)" with the
+// brackets intact, because Instagram renders plain text and the model writes
+// markdown by default.
+
+Deno.test('a markdown link becomes label plus bare URL', () => {
+  assertEquals(
+    flattenMarkdownLinks('Book here: [Discovery Call](https://calendly.com/x/y).'),
+    'Book here: Discovery Call: https://calendly.com/x/y.',
+  );
+});
+
+Deno.test('a label that is just the URL again collapses to the URL', () => {
+  assertEquals(
+    flattenMarkdownLinks('[https://calendly.com/x](https://calendly.com/x)'),
+    'https://calendly.com/x',
+  );
+  // The live bot produced exactly this shape, scheme-less label included.
+  assertEquals(
+    flattenMarkdownLinks('[ai.wolfpackmediapr.com](https://ai.wolfpackmediapr.com)'),
+    'https://ai.wolfpackmediapr.com',
+  );
+});
+
+Deno.test('several links in one reply are all flattened', () => {
+  assertEquals(
+    flattenMarkdownLinks('See [A](https://a.com) and [B](https://b.com)'),
+    'See A: https://a.com and B: https://b.com',
+  );
+});
+
+Deno.test('text without markdown links is returned untouched', () => {
+  // Same discipline as stripHumanReplyMarker: a no-op must be a true no-op,
+  // including for multi-line replies and bare URLs.
+  const plain = 'Hello!\n\nBook here: https://calendly.com/x\n- Web\n- Apps';
+  assertEquals(flattenMarkdownLinks(plain), plain);
+  assertEquals(flattenMarkdownLinks(''), '');
+});
+
+Deno.test('brackets that are not a link survive', () => {
+  const attachment = '[Shared an Instagram reel] Ready to revolutionize?';
+  assertEquals(flattenMarkdownLinks(attachment), attachment);
+  assertEquals(flattenMarkdownLinks('[Sent a photo]'), '[Sent a photo]');
+});
+
+Deno.test('rule 12 tells the model these channels are plain text', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, 'PLAIN TEXT only');
+  assertStringIncludes(prompt, 'do not render markdown');
 });

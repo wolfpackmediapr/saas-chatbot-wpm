@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { buildWpmSystemPrompt, buildWpmAssistantMessages, type WpmBotContext, type WpmChatMessage } from "../_shared/wpm_prompt.ts";
+import { buildWpmSystemPrompt, buildWpmAssistantMessages, flattenMarkdownLinks, type WpmBotContext, type WpmChatMessage } from "../_shared/wpm_prompt.ts";
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from "../_shared/wpm_leads.ts";
 
 const corsHeaders = {
@@ -267,7 +267,11 @@ Deno.serve(async (req: Request) => {
   const assistantContent: string = openAIData.choices?.[0]?.message?.content ?? "";
   if (!assistantContent.trim()) return err("OpenAI returned an empty response", 502);
 
-  const reply = assistantContent.trim();
+  // Agent Test must show exactly what a customer would receive. The live path
+  // flattens markdown links (rule 12) because Instagram and Messenger render
+  // plain text; without the same treatment here, testing an agent would show
+  // formatting the real channel never produces.
+  const reply = flattenMarkdownLinks(assistantContent.trim());
 
   // ── Persist assistant reply ────────────────────────────────────────────────
   if (conversationId) {

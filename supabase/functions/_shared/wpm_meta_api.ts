@@ -91,3 +91,39 @@ export async function fetchMetaUserProfile(
     return null;
   }
 }
+
+/**
+ * The message id Meta assigns to a reply we sent, when it accepted it.
+ *
+ * Worth storing for its own sake — until now no outbound row carried one, so
+ * nothing downstream could tell a delivered reply from one Meta rejected.
+ */
+export function extractSentMessageId(response: unknown): string | null {
+  const body = response as { message_id?: unknown } | null;
+  return typeof body?.message_id === 'string' ? body.message_id : null;
+}
+
+/**
+ * Explains a rejected send in terms the owner can act on.
+ *
+ * Code 10 / subcode 2534022 is Meta's 24-hour messaging window: outside it a
+ * business may not message a customer who has not written recently. It is a
+ * policy limit, not an outage, and it was previously recorded as an opaque
+ * blob of JSON that read like a system failure.
+ */
+export function describeSendFailure(result: { error?: string; response?: unknown }): string {
+  if (result.error) return result.error;
+
+  const err = (result.response as { error?: { message?: string; code?: number; error_subcode?: number } } | null)?.error;
+  if (!err) return JSON.stringify(result.response ?? {});
+
+  if (err.code === 10) {
+    return (
+      "Outside Meta's 24-hour messaging window — this customer has not messaged " +
+      'in over 24 hours, so Meta will not deliver a reply until they write again. ' +
+      `(Meta: ${err.message ?? 'code 10'})`
+    );
+  }
+
+  return err.message ?? JSON.stringify(err);
+}

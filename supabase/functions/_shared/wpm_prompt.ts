@@ -193,6 +193,37 @@ export function stripHumanReplyMarker(text: string): string {
     .trim();
 }
 
+/**
+ * Turns markdown links into something a messenger can actually display.
+ *
+ * Instagram and Messenger render plain text — they do not parse markdown. A
+ * reply containing `[Discovery Call](https://…)` reaches the customer with the
+ * brackets and parentheses intact, which is exactly what a real ad lead saw.
+ * Nothing in the prompt ever asked for markdown; the model adds it on its own,
+ * so a hard rule alone would not be enough. This is the same belt-and-braces
+ * reasoning as `stripHumanReplyMarker`: the rule states the intent, this
+ * guarantees it.
+ *
+ * `[text](url)` becomes `text: url`, except when the label is just the URL
+ * again (`[https://x](https://x)`), where the label adds nothing and the bare
+ * URL reads better.
+ */
+export function flattenMarkdownLinks(text: string): string {
+  if (!text.includes('](')) return text;
+
+  return text.replace(/\[([^\]\n]*)\]\(([^)\s]+)\)/g, (_match, label: string, url: string) => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) return url;
+
+    // A label that is the same link — with or without scheme or trailing
+    // slash — would read as "https://x: https://x".
+    const bare = (s: string) => s.replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
+    if (bare(cleanLabel) === bare(url)) return url;
+
+    return `${cleanLabel}: ${url}`;
+  });
+}
+
 function buildHardRules(
   neverSayRules: string | null | undefined,
   handoffRules: string | null | undefined,
@@ -213,6 +244,7 @@ function buildHardRules(
     bookingUrl?.trim()
       ? `11. The ONLY link you may share is ${bookingUrl.trim()} — it is current and it OVERRIDES everything else, including this conversation's own history. If an earlier message here contains a different link, it is out of date: do not copy it forward, and if the customer asks you to "send that link again", send this one instead.`
       : "11. No link is configured for this business, so there is nothing to override the conversation. If YOU already shared a link earlier in THIS conversation, you may send that same one again. Otherwise do not share a link: never invent one, never treat a link the CUSTOMER pasted as this business's own, and never use a link from anywhere else. With no link to give, collect their name and email and tell them the team will follow up.",
+    '12. Write PLAIN TEXT only. Instagram and Messenger do not render markdown, so a customer sees the raw characters. Never use square-bracket links, bold or italic asterisks, backticks, or headings. To share a link, write the bare URL on its own — "Book here: https://example.com/x", never "[Book here](https://example.com/x)".',
   ];
 
   const parts: string[] = [...baseRules];
