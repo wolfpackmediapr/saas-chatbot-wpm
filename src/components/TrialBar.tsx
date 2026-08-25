@@ -14,8 +14,15 @@ import { getUsageSummary, trialDaysRemaining, type UsageSummary } from '../lib/s
  *
  * Deliberately thin and undismissable rather than a warning box: this is
  * ambient status, not an alert, right up until it becomes one. It escalates by
- * colour instead of by shouting — neutral for most of the week, amber in the
- * last two days, red once it has expired.
+ * colour instead of by shouting — brand blue for most of the week, amber in
+ * the last two days, red once it has expired.
+ *
+ * All three states are a solid fill with near-black text. That is both the
+ * brand treatment and the accessible one: on #0EA5E9 the palette's white
+ * foreground manages only 2.8:1, which fails WCAG for body text, while
+ * `text-background` reaches 6.8:1. The amber and red steps use the 400 weights
+ * for the same reason — a 500-weight red would push the dark text down to
+ * roughly 4:1.
  */
 
 /** Below this many days left, the bar stops being merely informational. */
@@ -42,10 +49,10 @@ export default function TrialBar() {
     return (
       <div
         role="status"
-        className="px-4 py-1.5 border-b border-secondary bg-secondary/30 text-xs flex items-center gap-2"
+        className="px-4 py-1.5 bg-primary text-background text-xs font-medium flex items-center gap-2"
       >
-        <Clock className="h-3.5 w-3.5 flex-shrink-0 text-secondary-foreground" />
-        <span className="text-secondary-foreground">
+        <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+        <span>
           Free trial — your 7 days start when your first customer messages you.{' '}
           {usage.free_messages_limit.toLocaleString()} messages included.
         </span>
@@ -60,12 +67,8 @@ export default function TrialBar() {
     <div
       role="status"
       className={
-        'px-4 py-1.5 border-b text-xs flex items-center gap-2 ' +
-        (expired
-          ? 'bg-red-500/10 border-red-500/30 text-red-200'
-          : urgent
-            ? 'bg-amber-500/10 border-amber-500/30 text-amber-100'
-            : 'bg-secondary/30 border-secondary text-secondary-foreground')
+        'px-4 py-1.5 text-xs font-medium text-background flex items-center gap-2 ' +
+        (expired ? 'bg-red-400' : urgent ? 'bg-amber-400' : 'bg-primary')
       }
     >
       <Clock className="h-3.5 w-3.5 flex-shrink-0" />
@@ -85,7 +88,7 @@ export default function TrialBar() {
       </span>
       <Link
         to="/dashboard/settings?tab=billing"
-        className="flex-shrink-0 underline underline-offset-2 hover:no-underline"
+        className="flex-shrink-0 font-semibold underline underline-offset-2 hover:no-underline"
       >
         {expired ? 'Choose a plan' : 'Upgrade'}
       </Link>
