@@ -403,3 +403,85 @@ Deno.test('rule 12 tells the model these channels are plain text', () => {
   assertStringIncludes(prompt, 'PLAIN TEXT only');
   assertStringIncludes(prompt, 'do not render markdown');
 });
+
+// ─── Goal playbooks must not impose rules the goal does not imply ────────────
+// Found 2026-08-31 while auditing why an agent kept sending a stale link. The
+// playbooks had quietly accumulated behaviour that the owner never chose and
+// could not see, and in one case that behaviour contradicted a hard rule.
+
+function promptForGoal(
+  primaryGoal: string,
+  overrides: Partial<WpmBotContext['instructions'] & object> = {},
+) {
+  return buildWpmSystemPrompt({
+    ...context,
+    instructions: { ...context.instructions, primary_goal: primaryGoal, ...overrides },
+  } as WpmBotContext);
+}
+
+Deno.test('the booking goal does not impose its own blanket pricing ban', () => {
+  // It used to say "NEVER mention pricing", which CONTRADICTED hard rule 1 —
+  // rule 1 allows a price the business wrote into its own Knowledge Base, this
+  // did not. A salon that uploads a price list must be able to quote it.
+  const prompt = promptForGoal('Book a meeting');
+  assertEquals(prompt.includes('NEVER mention pricing'), false);
+  // Rule 1 still governs pricing, escape hatch intact.
+  assertStringIncludes(prompt, 'unless a price is explicitly written verbatim in the Knowledge Base');
+});
+
+Deno.test('lead capture collects the fields the owner configured, not a hardcoded three', () => {
+  // The playbook hardcoded "name, email address, and phone number" while the
+  // Lead Qualification section was built from lead_fields, so a business that
+  // deliberately does not ask for a phone number was told to ask anyway.
+  const prompt = promptForGoal('Collect contact info / lead capture', {
+    lead_fields: ['name', 'email'],
+  });
+  assertStringIncludes(prompt, 'Your primary goal is to collect name, email');
+  assertEquals(prompt.includes("collect the lead's name, email address, and phone number"), false);
+});
+
+Deno.test('lead capture still names something to collect when no fields are set', () => {
+  const prompt = promptForGoal('Collect contact info / lead capture', { lead_fields: [] });
+  assertStringIncludes(prompt, "the lead's name and email address");
+});
+
+Deno.test('the FAQ goal does not restate the fallback sentence rule 6 already mandates', () => {
+  const prompt = promptForGoal('Answer FAQs');
+  // Rule 6 owns the scripted line; the playbook used to carry a second,
+  // slightly different wording of it.
+  assertEquals(prompt.includes("Great question — I'll make sure someone from our team follows up with that.\n"), false);
+  assertStringIncludes(prompt, 'answer questions accurately and helpfully using the Business Profile and Knowledge Base');
+  assertStringIncludes(prompt, "That's a great question");
+});
+
+// ─── Rule 11 must outrank the INSTRUCTIONS, not only the transcript ──────────
+
+Deno.test('a configured link is stated to override the instructions too', () => {
+  // Proven live: with the URL removed from every field but the word "Calendly"
+  // left in the prose, the agent still recovered the URL from history 15 hours
+  // later. Overriding the transcript alone was not enough.
+  const prompt = promptFor('https://ai.example.com/book');
+  assertStringIncludes(prompt, "including this conversation's own history AND any instruction above");
+  assertStringIncludes(prompt, 'names a different scheduling tool or address BY NAME');
+});
+
+Deno.test("with no booking link the agent may still share the business's own website", () => {
+  // Rule 11's no-link branch forbade "a link from anywhere else" so absolutely
+  // that an agent was shown its owner's website in the Business Profile and
+  // told it may not share it — breaking FAQ and shop agents by design.
+  const prompt = promptFor(null);
+  assertStringIncludes(prompt, "You may also share this business's own website, https://example.com");
+  // Every original protection survives.
+  assertStringIncludes(prompt, 'never invent one');
+  assertStringIncludes(prompt, "never treat a link the CUSTOMER pasted as this business's own");
+});
+
+Deno.test('a business with no website gets no website sentence', () => {
+  const prompt = buildWpmSystemPrompt({
+    ...context,
+    client: { ...context.client, website_url: null },
+    botProfile: { ...context.botProfile, booking_url: null },
+  } as WpmBotContext);
+  assertEquals(prompt.includes("You may also share this business's own website"), false);
+  assertStringIncludes(prompt, 'you may send that same one again');
+});
