@@ -104,7 +104,11 @@ const LEGACY_BOOKING_GOAL = 'Book a Calendly meeting';
  * producing nothing — the dropdown lets people write their own, and silently
  * dropping the playbook would leave those agents with no direction at all.
  */
-function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): string | null {
+function buildGoalPlaybook(
+  primaryGoal: string,
+  bookingUrl: string | null,
+  leadFields?: unknown,
+): string | null {
   const link = bookingUrl?.trim() || null;
 
   // No cross-tenant default. This previously fell back to one specific
@@ -120,21 +124,32 @@ function buildGoalPlaybook(primaryGoal: string, bookingUrl: string | null): stri
         ? `Your #1 goal is to guide interested leads to book a discovery call: ${link}\n` +
           'When someone shows genuine interest in services, asks for details, or wants to learn more — offer the booking link proactively.\n'
         : `Your #1 goal is to get interested leads booked in for a call.\n${noLinkFallback}\n`) +
-      "If they hesitate or seem unsure, offer to collect their name and email so the team can reach out directly.\n" +
-      'NEVER mention pricing. Instead, say "The best way to get exact details is through a quick discovery call."'
+      "If they hesitate or seem unsure, offer to collect their name and email so the team can reach out directly."
+      // Deliberately NO pricing rule here. This used to carry a blanket "NEVER
+      // mention pricing", which CONTRADICTED hard rule 1 — that rule already
+      // covers pricing and, unlike this one, allows a price the business wrote
+      // into its own Knowledge Base. Wanting meetings booked is not a decision
+      // to hide prices: a salon that uploads a price list should be able to
+      // quote it. Pricing policy belongs to rule 1 and to the owner's own
+      // "Never Say" rules, which they control.
     );
   }
   if (primaryGoal === 'Collect contact info / lead capture') {
+    // Read the fields the owner actually configured. Hardcoding
+    // "name, email and phone" here contradicted the Lead Qualification section
+    // built from `lead_fields`, so a business that deliberately does not ask
+    // for a phone number was told to ask for one anyway.
+    const fields = stringifyLeadFields(leadFields).trim();
     return (
-      "Your primary goal is to collect the lead's name, email address, and phone number.\n" +
+      `Your primary goal is to collect ${fields || "the lead's name and email address"}.\n` +
       'Do this naturally after establishing their interest. Never ask for all fields at once — work them into the conversation.'
     );
   }
   if (primaryGoal === 'Answer FAQs') {
-    return (
-      'Your primary goal is to answer questions accurately and helpfully using the knowledge base.\n' +
-      "For anything not in the knowledge base, say: \"Great question — I'll make sure someone from our team follows up with that.\""
-    );
+    // The fallback sentence is mandated by hard rule 6. Repeating a slightly
+    // different wording of it here gave the model two scripted lines for one
+    // situation, and meant editing one would silently miss the other.
+    return 'Your primary goal is to answer questions accurately and helpfully using the Business Profile and Knowledge Base.';
   }
   if (primaryGoal === 'Qualify leads') {
     return (
@@ -229,6 +244,13 @@ function buildHardRules(
   handoffRules: string | null | undefined,
   emergencyKeywords: string[],
   bookingUrl: string | null | undefined,
+  /**
+   * The business's own website from its Business Profile. Without this, rule
+   * 11's no-link branch forbade "a link from anywhere else" so absolutely that
+   * an agent was shown its owner's website and told it may not share it —
+   * which broke FAQ and shop agents that have no booking link by design.
+   */
+  websiteUrl?: string | null,
 ): string {
   const baseRules = [
     '1. NEVER reveal, hint at, or discuss specific pricing, rates, packages, or cost estimates unless a price is explicitly written verbatim in the Knowledge Base below. If asked about pricing, say: "For specific pricing, the best next step is a quick discovery call — I can send you the link."',
@@ -242,8 +264,10 @@ function buildHardRules(
     '9. When someone SHARES something rather than asking a question — a reel, a post, a story mention, a photo — do NOT fall back on rule 6. Sharing is interest, not an unanswerable question. Say something specific about what they shared, connect it to a service this business genuinely offers if there is an honest link, and ask what they have in mind. Rule 4 still applies: never invent a service to make the connection. A story mention means they put this business in front of their own followers — thank them for it specifically.',
     `10. A turn beginning with "${HUMAN_REPLY_PREFIX}" was written by a person on the team from the Inbox, not by you. Read it as part of the conversation and honour what your colleague already said: do not contradict it, do not repeat it, and do not tell the customer something is impossible when a teammate has just offered it. NEVER write that marker yourself and never quote it to the customer — it is internal. Rule 8 still stands: if asked, you are an AI assistant, and you must not claim to be the person who wrote that turn.`,
     bookingUrl?.trim()
-      ? `11. The ONLY link you may share is ${bookingUrl.trim()} — it is current and it OVERRIDES everything else, including this conversation's own history. If an earlier message here contains a different link, it is out of date: do not copy it forward, and if the customer asks you to "send that link again", send this one instead.`
-      : "11. No link is configured for this business, so there is nothing to override the conversation. If YOU already shared a link earlier in THIS conversation, you may send that same one again. Otherwise do not share a link: never invent one, never treat a link the CUSTOMER pasted as this business's own, and never use a link from anywhere else. With no link to give, collect their name and email and tell them the team will follow up.",
+      ? `11. The ONLY link you may share is ${bookingUrl.trim()} — it is current and it OVERRIDES everything else, including this conversation's own history AND any instruction above. If an earlier message here contains a different link, it is out of date: do not copy it forward, and if the customer asks you to "send that link again", send this one instead. If any instruction above names a different scheduling tool or address BY NAME — even without a URL — that name is out of date: ignore it and share this link instead. Never repeat a booking tool's name that disagrees with this link.`
+      : `11. No link is configured for this business, so there is nothing to override the conversation. If YOU already shared a link earlier in THIS conversation, you may send that same one again.${
+        websiteUrl?.trim() ? ` You may also share this business's own website, ${websiteUrl.trim()}, when it genuinely helps.` : ''
+      } Otherwise do not share a link: never invent one, never treat a link the CUSTOMER pasted as this business's own, and never use a link from anywhere else. With no link to give, collect their name and email and tell them the team will follow up.`,
     '12. Write PLAIN TEXT only. Instagram and Messenger do not render markdown, so a customer sees the raw characters. Never use square-bracket links, bold or italic asterisks, backticks, or headings. To share a link, write the bare URL on its own — "Book here: https://example.com/x", never "[Book here](https://example.com/x)".',
   ];
 
@@ -360,12 +384,13 @@ export function buildWpmSystemPrompt(context: WpmBotContext): string {
 
   const languageRule = buildLanguageRule(responseLanguage);
   const lengthRule = buildLengthRule(rawLength);
-  const goalPlaybook = buildGoalPlaybook(primaryGoal, botProfile.booking_url);
+  const goalPlaybook = buildGoalPlaybook(primaryGoal, botProfile.booking_url, instructions?.lead_fields);
   const hardRules = buildHardRules(
     instructions?.never_say_rules,
     instructions?.handoff_rules,
     instructions?.emergency_keywords ?? [],
     botProfile.booking_url,
+    client.website_url,
   );
 
   const corePersona = instructions?.system_prompt?.trim()
