@@ -260,10 +260,31 @@ function extractServiceInterest(text: string): string | null {
   return services.find((service) => lowered.includes(service)) ?? null;
 }
 
-function extractIntent(text: string, serviceInterest: string | null, qualificationData: Record<string, unknown>): string | null {
+/**
+ * @param text      Both sides. The agent legitimately confirms a service or a
+ *                  time, so context may read its reply.
+ * @param inboundText  The customer's own words ONLY. Patterns matched here must
+ *                  never be ones the agent itself writes — "se pondrá en
+ *                  contacto contigo" appears in nearly every lead-capture
+ *                  reply, so matching `contact\w*` on both sides would tag
+ *                  almost every lead from our own boilerplate and make the
+ *                  column meaningless.
+ */
+function extractIntent(
+  text: string,
+  inboundText: string,
+  serviceInterest: string | null,
+  qualificationData: Record<string, unknown>,
+): string | null {
   const lowered = foldAccents(text.toLowerCase());
+  const inbound = foldAccents(inboundText.toLowerCase());
+
   if (/\b(book|booking|reserve|reservation|appointment|available|availability|schedule)\b/.test(lowered)
-    || /\b(agendar|programar|reservar|reserva|cita|llamada|llamar|contactar|contacte|disponible|disponibilidad)\b/.test(lowered)) {
+    || /\b(agendar|programar|reservar|reserva|cita|llamada|llamar|contactar|contacte|disponible|disponibilidad)\b/.test(lowered)
+    // Spanish conjugates, and a fixed word list only ever matches the forms
+    // someone happened to think of. "quiero agendarme", "resérvame" and
+    // "citas" all mean the same thing as the infinitives above. Inbound only.
+    || /\b(agend\w*|program\w*|reserv\w*|cit[ao]s?|disponib\w*)\b/.test(inbound)) {
     return 'booking_request';
   }
   if (serviceInterest && (qualificationData.party_size || qualificationData.requested_date)) {
@@ -272,6 +293,23 @@ function extractIntent(text: string, serviceInterest: string | null, qualificati
   if (/\b(price|pricing|cost|quote|estimate|package)\b/.test(lowered)
     || /\b(precio|precios|costo|costos|cuesta|cuestan|cotizacion|presupuesto|tarifa|tarifas|vale|valor)\b/.test(lowered)) {
     return 'pricing_request';
+  }
+  // Asking to be CALLED is not the same as asking to book, and it is a
+  // stronger sales signal than a general enquiry: they have chosen the
+  // channel. Deliberately ranked below booking so "Call me at 787…" alongside
+  // "private dining for 30 on Friday" stays a booking_request.
+  //
+  // Found live 2026-08-31: "Si pero quiero que me llamen" produced a qualified
+  // lead with a NULL intent, because `llamen` is subjunctive and the list held
+  // only `llamar|llamada`. Slack then rendered "Wants:" with nothing after it.
+  if (/\b(llamame|llamenme|llamarme|contactame|contactenme)\b/.test(inbound)
+    || /\bme\s+llam(e|en|es|as)\b/.test(inbound)
+    || /\bque\s+me\s+llam\w+/.test(inbound)
+    || /\bcall\s+me\b/.test(inbound)
+    || /\bcall\s+back\b/.test(inbound)
+    || /\bcallback\b/.test(inbound)
+    || /\bphone\s+me\b/.test(inbound)) {
+    return 'callback_request';
   }
   if (serviceInterest) return 'service_inquiry';
   return null;
@@ -310,7 +348,7 @@ export function extractLeadFromConversationText(args: {
   const fullName = extractName(identityText);
   const serviceInterest = extractServiceInterest(combinedText);
   const qualificationData = extractQualificationData(combinedText);
-  const intent = extractIntent(combinedText, serviceInterest, qualificationData);
+  const intent = extractIntent(combinedText, args.inboundText, serviceInterest, qualificationData);
   const hasContact = Boolean(email || phone);
 
   // Handing over your details is itself the intent, in any language.

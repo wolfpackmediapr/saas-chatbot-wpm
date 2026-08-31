@@ -507,3 +507,60 @@ Deno.test('a stopword adjacent to contact details is still not a name', () => {
     );
   }
 });
+
+// ─── Asking to be CALLED is its own intent ───────────────────────────────────
+// Found live 2026-08-31. A real Instagram lead said "Si pero quiero que me
+// llamen", handed over name, email and phone, and was correctly qualified —
+// but `intent` came out NULL, because `llamen` is subjunctive and the list
+// held only `llamar|llamada`. Slack then posted "... | Via: instagram |
+// Wants:" with nothing after the label.
+
+Deno.test('a Spanish subjunctive request to be called is a callback_request', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Si pero quiero que me llamen',
+    assistantText: 'Entiendo, puedo hacer que un miembro de nuestro equipo te llame.',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, 'callback_request');
+});
+
+Deno.test('the English "call me" is a callback_request too', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Can someone call me? 7875550123',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, 'callback_request');
+});
+
+Deno.test('callback ranks BELOW booking — a booking that mentions calling stays a booking', () => {
+  // This is the live shape the old ordering would have broken: the customer
+  // wants a table, and happens to leave a phone number to be reached on.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'I need private dining for 30 people this Friday. Call me at +17875550123.',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, 'booking_request');
+});
+
+Deno.test('the agent offering to call does NOT invent a callback intent', () => {
+  // The agent writes "se pondrá en contacto contigo" in nearly every capture
+  // reply. If intent read our own boilerplate, every lead would carry the same
+  // label and the column would say nothing at all.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Ok gracias Ana ana@x.com 7875550123',
+    assistantText:
+      'Un miembro de nuestro equipo se pondrá en contacto contigo y te llamara pronto.',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, null);
+  // Still qualifies — handing over details is the intent, per the 08-22 rule.
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('Spanish conjugations of booking verbs are matched from the customer side', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Quiero agendarme para la proxima semana, mi correo es luis@x.com',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(lead.intent, 'booking_request');
+});
