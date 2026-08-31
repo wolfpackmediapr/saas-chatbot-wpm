@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Bot, Save, CheckCircle2, AlertCircle, Sparkles, Plus, Crown, Trash2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Bot, Save, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Plus, Crown, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   getOwnedWpmClient,
@@ -15,6 +15,7 @@ import {
   type WpmClientChannel,
 } from '../lib/supabase/wpmClients';
 import { BUSINESS_TEMPLATES } from '../lib/businessTemplates';
+import { findLinkConflicts } from '../lib/instructionLinkAudit';
 
 const PRIMARY_GOALS = [
   'Book a meeting',
@@ -423,6 +424,34 @@ export default function AgentSetup() {
 
   // A goal that isn't one of the presets is a custom one the business typed.
   const isCustomGoal = !PRIMARY_GOALS.includes(settings.primaryGoal as typeof PRIMARY_GOALS[number]);
+
+  // Prose that names a destination outranks the link field beside it, because
+  // the model reads the prompt as fact. Nothing else in the product surfaces
+  // that, so an agent can send a link its owner has already replaced and every
+  // message still records as delivered. Warn, never block — mentioning another
+  // site is often legitimate.
+  const linkConflicts = useMemo(
+    () =>
+      findLinkConflicts(
+        [
+          { field: 'Core Instructions', text: settings.instructions },
+          { field: 'Escalation Policy', text: settings.escalationPolicy },
+          { field: '"Never Say" Rules', text: settings.neverSayRules },
+          { field: 'Tone Guidelines', text: settings.toneGuidelines },
+          ...(isCustomGoal ? [{ field: 'Primary Goal', text: settings.primaryGoal }] : []),
+        ],
+        settings.bookingUrl,
+      ),
+    [
+      settings.instructions,
+      settings.escalationPolicy,
+      settings.neverSayRules,
+      settings.toneGuidelines,
+      settings.primaryGoal,
+      settings.bookingUrl,
+      isCustomGoal,
+    ],
+  );
   // Presets say whether they need a link; a custom goal may optionally use one.
   const goalLink = GOAL_LINK_LABEL[settings.primaryGoal] ?? (isCustomGoal
     ? {
@@ -548,6 +577,45 @@ export default function AgentSetup() {
       {error && (
         <div className="mb-6 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm">
           {error}
+        </div>
+      )}
+
+      {linkConflicts.length > 0 && (
+        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm">
+          <div className="flex items-start gap-2 text-amber-400 font-medium">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              Your instructions point somewhere your booking link doesn't
+            </span>
+          </div>
+          <ul className="mt-3 space-y-1.5 text-secondary-foreground">
+            {linkConflicts.map((c, i) => (
+              <li key={`${c.field}-${c.found}-${i}`}>
+                <span className="text-foreground font-medium">{c.field}</span>
+                {c.kind === 'booking-tool' ? ' names ' : ' contains '}
+                <code className="px-1 py-0.5 bg-secondary/60 rounded">{c.found}</code>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-secondary-foreground">
+            {settings.bookingUrl.trim() ? (
+              <>
+                Your agent is told to use{' '}
+                <code className="px-1 py-0.5 bg-secondary/60 rounded">
+                  {settings.bookingUrl.trim()}
+                </code>
+                , but text you wrote names something else — and the wording wins, because
+                the agent reads it as fact. If it's out of date, edit the wording above.
+              </>
+            ) : (
+              <>
+                No booking link is set, so your agent has nothing to fall back on. It may
+                repeat whatever it finds in the conversation. Set the link, or remove the
+                mention from the wording above.
+              </>
+            )}{' '}
+            This is a warning only — you can save either way.
+          </p>
         </div>
       )}
 
