@@ -1,0 +1,111 @@
+import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
+import { type MetaMessageEvent, normalizeMetaEvents } from './wpm_meta_normalize.ts';
+
+const PAGE = '17841440758501262';
+const CUSTOMER = '4569826076583257';
+
+function entry(messaging: MetaMessageEvent[]) {
+  return { id: PAGE, messaging };
+}
+
+/** An inbound customer message: sender is the customer. */
+function inbound(text: string): MetaMessageEvent {
+  return {
+    sender: { id: CUSTOMER },
+    recipient: { id: PAGE },
+    timestamp: 1788185629044,
+    message: { mid: 'mid.inbound', text },
+  };
+}
+
+/**
+ * An echo: the business sent it, so Meta swaps sender and recipient.
+ * Shape copied from a real row in wpm_webhook_events (2026-08-09).
+ */
+function echo(text: string, mid = 'mid.echo'): MetaMessageEvent {
+  return {
+    sender: { id: PAGE },
+    recipient: { id: CUSTOMER },
+    timestamp: 1788185629044,
+    message: { mid, text, is_echo: true },
+  };
+}
+
+Deno.test('an echo is normalized instead of being discarded', () => {
+  const out = normalizeMetaEvents(entry([echo('Estos son los precios que tenemos')]), 'instagram');
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].text, 'Estos son los precios que tenemos');
+  assertEquals(out[0].isEcho, true);
+});
+
+Deno.test('an echo is attributed to the CUSTOMER, not the page', () => {
+  // The whole defect in one assertion. Meta puts the page in `sender` on an
+  // echo, so reading sender.id keys the conversation as pageId:pageId and the
+  // message lands in a thread that belongs to no customer.
+  const out = normalizeMetaEvents(entry([echo('hola')]), 'instagram');
+
+  assertEquals(out[0].senderId, CUSTOMER);
+  assertEquals(out[0].pageId, PAGE);
+});
+
+Deno.test('an inbound message still reads the customer from sender', () => {
+  const out = normalizeMetaEvents(entry([inbound('¿Cuál es el costo?')]), 'instagram');
+
+  assertEquals(out[0].senderId, CUSTOMER);
+  assertEquals(out[0].isEcho, false);
+});
+
+Deno.test('an echo keeps its mid so the caller can de-duplicate our own sends', () => {
+  // Every AI reply and Inbox reply echoes back too. Without the mid there is
+  // no way to tell "the colleague typed this on their phone" from "we sent
+  // this ourselves five seconds ago", and every bot reply would double.
+  const out = normalizeMetaEvents(entry([echo('Looking fwd to it', 'mid.abc123')]), 'instagram');
+
+  assertEquals(out[0].messageId, 'mid.abc123');
+});
+
+Deno.test('delivery and read receipts are still discarded', () => {
+  const receipts: MetaMessageEvent[] = [
+    { sender: { id: PAGE }, recipient: { id: CUSTOMER }, timestamp: 1, delivery: { watermarks: 1 } },
+    { sender: { id: PAGE }, recipient: { id: CUSTOMER }, timestamp: 2, read: { watermark: 1 } },
+  ];
+
+  assertEquals(normalizeMetaEvents(entry(receipts), 'instagram').length, 0);
+});
+
+Deno.test('an attachment-only echo is described rather than dropped', () => {
+  // A voice note sent from the phone arrives as an attachment with no text.
+  // It is real context the agent otherwise never sees.
+  const out = normalizeMetaEvents(
+    entry([{
+      sender: { id: PAGE },
+      recipient: { id: CUSTOMER },
+      timestamp: 1788185629044,
+      message: {
+        mid: 'mid.voice',
+        is_echo: true,
+        attachments: [{ type: 'audio', payload: { url: 'https://lookaside.example/a.mp4' } }],
+      },
+    }]),
+    'instagram',
+  );
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].isEcho, true);
+  assertEquals(out[0].attachments[0].type, 'audio');
+  assertEquals(typeof out[0].text, 'string');
+});
+
+Deno.test('a mixed batch keeps both the customer message and the echo', () => {
+  const out = normalizeMetaEvents(
+    entry([inbound('No, prefiero más información aquí.'), echo('Entiendo, pero…')]),
+    'instagram',
+  );
+
+  assertEquals(out.length, 2);
+  assertEquals(out[0].isEcho, false);
+  assertEquals(out[0].senderId, CUSTOMER);
+  assertEquals(out[1].isEcho, true);
+  assertEquals(out[1].senderId, CUSTOMER);
+});

@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
-import { GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
+import { extractSentMessageId, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +26,7 @@ async function sendGraphApiReply(
   recipientId: string,
   text: string,
   pageAccessToken: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; messageId?: string | null }> {
   try {
     const resp = await fetch(
       `${GRAPH_API_BASE}/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`,
@@ -42,7 +42,11 @@ async function sendGraphApiReply(
     );
     const body = await resp.json();
     if (!resp.ok) return { ok: false, error: body?.error?.message ?? `HTTP ${resp.status}` };
-    return { ok: true };
+    // Meta echoes every send back to the webhook. Keeping the id it returns is
+    // what lets meta-direct-webhook tell "the owner typed this in the dashboard
+    // a second ago" from "the owner typed this on their phone" — without it,
+    // storing echoes would show every takeover reply twice.
+    return { ok: true, messageId: extractSentMessageId(body) };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -116,7 +120,12 @@ Deno.serve(async (request) => {
     direction: 'outbound',
     role: 'human',
     content: message.trim(),
-    metadata: { sent_via_graph_api: sendResult.ok, send_error: sendResult.error ?? null },
+    provider_message_id: sendResult.messageId ?? null,
+    metadata: {
+      sent_via_graph_api: sendResult.ok,
+      send_error: sendResult.error ?? null,
+      sent_from: 'dashboard',
+    },
   });
 
   // Update conversation timestamp

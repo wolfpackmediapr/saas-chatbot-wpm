@@ -23,52 +23,7 @@ import {
 import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { describeSendFailure, extractSentMessageId, fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
-
-// ---------------------------------------------------------------------------
-// Types for Meta webhook payload
-// ---------------------------------------------------------------------------
-
-interface MetaMessageEvent {
-  sender: { id: string };
-  recipient: { id: string };
-  timestamp: number;
-  message?: {
-    mid: string;
-    text?: string;
-    attachments?: Array<{
-      type: string;
-      payload?: {
-        url?: string;
-        // Shared reels and posts carry the whole caption here. It is the only
-        // real content in the delivery, and reading `type` alone throws it away.
-        title?: string;
-        // Instagram's phone/WhatsApp/Call card arrives as a generic template
-        // with an EMPTY elements array — rendered client-side, nothing in the
-        // payload to read.
-        generic?: { elements?: unknown[] };
-      };
-    }>;
-    is_echo?: boolean;
-  };
-  postback?: {
-    mid?: string;
-    title: string;
-    payload: string;
-  };
-  read?: { watermark: number };
-  delivery?: { watermarks: number };
-}
-
-interface NormalizedMetaPayload {
-  platform: 'messenger' | 'instagram';
-  pageId: string;
-  senderId: string;
-  messageId: string | null;
-  text: string | null;
-  attachments: Array<{ type: string; url: string | null }>;
-  rawEventType: string;
-  timestamp: number;
-}
+import { normalizeMetaEvents } from '../_shared/wpm_meta_normalize.ts';
 
 // ---------------------------------------------------------------------------
 // CORS + JSON helpers
@@ -134,59 +89,6 @@ function getSupabaseAdmin() {
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Normalize a single Meta messaging event
-// ---------------------------------------------------------------------------
-
-function normalizeMetaEvents(
-  entry: { id: string; messaging?: MetaMessageEvent[] },
-  platform: 'messenger' | 'instagram',
-): NormalizedMetaPayload[] {
-  const results: NormalizedMetaPayload[] = [];
-
-  for (const event of entry.messaging ?? []) {
-    // Skip echo messages (sent by the page itself), delivery, and read receipts
-    if (event.message?.is_echo || event.delivery || event.read) continue;
-
-    let text: string | null = null;
-    let messageId: string | null = null;
-    let rawEventType = 'unknown';
-    let attachments: Array<{ type: string; url: string | null }> = [];
-
-    if (event.message) {
-      text = event.message.text ?? null;
-      messageId = event.message.mid ?? null;
-      rawEventType = 'message';
-      attachments = (event.message.attachments ?? []).map((a) => ({
-        type: a.type ?? 'attachment',
-        url: a.payload?.url ?? null,
-      }));
-      // Attachment-only messages (images, audio, shares, story replies) must
-      // still reach the pipeline so the conversation is logged and answered.
-      if (!text && attachments.length > 0) {
-        text = describeAttachments(event.message.attachments ?? []);
-      }
-    } else if (event.postback) {
-      text = event.postback.payload ?? event.postback.title;
-      messageId = event.postback.mid ?? null;
-      rawEventType = 'postback';
-    }
-
-    results.push({
-      platform,
-      pageId: entry.id,
-      senderId: event.sender.id,
-      messageId,
-      text,
-      attachments,
-      rawEventType,
-      timestamp: event.timestamp ?? Date.now(),
-    });
-  }
-
-  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +520,74 @@ Deno.serve(async (request: Request) => {
             conversation_id: conversationId,
           })
           .eq('external_event_id', event.messageId);
+      }
+
+      // ── Echo: the BUSINESS sent this, not the customer ───────────────
+      // Store it and stop. An echo is the only way we ever learn about a reply
+      // typed straight into the Instagram or Messenger app — and until 08-31
+      // they were discarded, so those replies existed nowhere: not in the
+      // Inbox, and not in the agent's context, which is built from
+      // wpm_messages. The bot would then answer as though its colleague had
+      // never spoken, and could contradict them outright.
+      //
+      // Recorded as role='human' deliberately: toChatMessage() in wpm_ai.ts
+      // already renders that as a colleague's turn, and decideHandoffAction
+      // already treats it as a person owning the conversation. Both start
+      // working for phone replies with no further change.
+      //
+      // No AI reply, no lead extraction, no usage metering: we are recording
+      // our own outbound message, and the customer must never be billed or
+      // answered for it.
+      if (event.isEcho) {
+        // Our own API sends echo back too. Those are already recorded — by
+        // generateAndStoreAssistantReply for the AI, and by inbox-reply for a
+        // takeover — both of which now store the mid the Send API returned.
+        // Without this check every bot reply would appear twice.
+        let alreadyRecorded = false;
+        if (event.messageId) {
+          const { data: existing } = await supabase
+            .from('wpm_messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('provider_message_id', event.messageId)
+            .limit(1)
+            .maybeSingle();
+          alreadyRecorded = Boolean(existing);
+        }
+
+        if (alreadyRecorded) {
+          console.log(`[meta-direct] Echo of our own send mid=${event.messageId} — already recorded`);
+        } else {
+          await supabase.from('wpm_messages').insert({
+            conversation_id: conversationId,
+            client_id: channel.client_id,
+            direction: 'outbound',
+            role: 'human',
+            content: event.text,
+            provider_message_id: event.messageId,
+            metadata: {
+              platform: event.platform,
+              // Names the surface, so the Inbox and any future audit can tell a
+              // phone reply from one typed in the dashboard.
+              sent_from: 'native_app',
+              ...(event.attachments.length > 0 ? { attachments: event.attachments } : {}),
+            },
+          });
+          console.log(`[meta-direct] Stored ${event.platform} echo from the business in ${conversationId}`);
+        }
+
+        await supabase
+          .from('wpm_conversations')
+          .update({ last_message_at: new Date(event.timestamp).toISOString() })
+          .eq('id', conversationId);
+
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({ status: 'processed', processed_at: new Date().toISOString() })
+            .eq('external_event_id', event.messageId);
+        }
+        continue;
       }
 
       // ── Store inbound message ────────────────────────────────────────
