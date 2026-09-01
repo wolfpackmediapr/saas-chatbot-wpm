@@ -97,6 +97,58 @@ Deno.test('an attachment-only echo is described rather than dropped', () => {
   assertEquals(typeof out[0].text, 'string');
 });
 
+// ── Facebook Messenger ─────────────────────────────────────────────────────
+// The normalizer is platform-agnostic and must stay that way. Whether Meta
+// DELIVERS a Messenger echo is a separate question the code cannot answer: it
+// needs the `message_echoes` webhook field subscribed for the Page, which is
+// not the same subscription as `messages`. No Messenger echo has ever been
+// recorded in wpm_webhook_events. These tests pin the handling; the delivery
+// has to be confirmed against live traffic.
+
+const PSID = '9048123456789012';
+const FB_PAGE = '432187430677024';
+
+Deno.test('a Messenger echo is handled exactly like an Instagram one', () => {
+  const out = normalizeMetaEvents(
+    {
+      id: FB_PAGE,
+      messaging: [{
+        sender: { id: FB_PAGE },
+        recipient: { id: PSID },
+        timestamp: 1788185629044,
+        message: { mid: 'mid.fb.echo', text: 'Following up from my phone', is_echo: true },
+      }],
+    },
+    'messenger',
+  );
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].isEcho, true);
+  assertEquals(out[0].platform, 'messenger');
+  // The same sender/recipient swap applies on Messenger.
+  assertEquals(out[0].senderId, PSID);
+  assertEquals(out[0].pageId, FB_PAGE);
+  assertEquals(out[0].messageId, 'mid.fb.echo');
+});
+
+Deno.test('an inbound Messenger message is unaffected', () => {
+  const out = normalizeMetaEvents(
+    {
+      id: FB_PAGE,
+      messaging: [{
+        sender: { id: PSID },
+        recipient: { id: FB_PAGE },
+        timestamp: 1788185629044,
+        message: { mid: 'mid.fb.in', text: 'Hi there' },
+      }],
+    },
+    'messenger',
+  );
+
+  assertEquals(out[0].senderId, PSID);
+  assertEquals(out[0].isEcho, false);
+});
+
 Deno.test('a mixed batch keeps both the customer message and the echo', () => {
   const out = normalizeMetaEvents(
     entry([inbound('No, prefiero más información aquí.'), echo('Entiendo, pero…')]),
