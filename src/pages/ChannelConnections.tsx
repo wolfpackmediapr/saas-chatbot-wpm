@@ -11,6 +11,7 @@ import {
   type WpmClientChannel,
 } from '../lib/supabase/wpmClients';
 import { supabase } from '../lib/supabase/client';
+import { readFunctionError } from '../lib/supabase/functionError';
 import MetaAccountSelectModal, { MetaPage } from '../components/MetaAccountSelectModal';
 import { loadFacebookSDK } from '../lib/facebook';
 
@@ -249,7 +250,7 @@ export default function ChannelConnections() {
       });
 
       if (fnError || !data?.success) {
-        setError(data?.error || fnError?.message || 'Failed to fetch Facebook Pages.');
+        setError(await readFunctionError(fnError, data, 'Failed to fetch Facebook Pages.'));
         return;
       }
 
@@ -275,7 +276,7 @@ export default function ChannelConnections() {
       });
 
       if (fnError || !data?.success) {
-        setError(data?.error || fnError?.message || 'Failed to save channels.');
+        setError(await readFunctionError(fnError, data, 'Failed to save channels.'));
         return;
       }
 

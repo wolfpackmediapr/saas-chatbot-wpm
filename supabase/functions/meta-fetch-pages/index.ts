@@ -10,6 +10,12 @@
  *   { user_token: string, supabase_user_id: string }                   ← legacy fallback
  *
  * Response: { success: true, long_lived_token: string, pages: MetaPageResult[] }
+ *
+ * On failure: { error: string, hint?: string, details?: unknown }. `error` states
+ * what happened, `hint` says what the person should do about it — and it must be
+ * honest about WHOSE problem it is, because the caller shows both strings
+ * verbatim to a business owner who cannot read a log. See readFunctionError() in
+ * src/lib/supabase/functionError.ts for how they are recovered from a non-2xx.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -90,7 +96,8 @@ Deno.serve(async (request: Request) => {
         console.error("[meta-fetch-pages] Code exchange failed:", codeData);
         return jsonResponse(
           {
-            error: "Failed to exchange Facebook authorization code for a token.",
+            error: "Facebook wouldn't complete the sign-in.",
+            hint: "The authorization from Facebook expired or was already used. Please try Connect via Meta again.",
             details: codeData?.error ?? codeData,
           },
           400,
@@ -101,7 +108,20 @@ Deno.serve(async (request: Request) => {
     } else if (body.user_token) {
       shortLivedToken = body.user_token;
     } else {
-      return jsonResponse({ error: "Either 'code' + 'redirect_uri' or 'user_token' is required" }, 400);
+      // Ours, not theirs: the Facebook sign-in returned without a token and the
+      // caller invoked us anyway. Say so plainly rather than blaming their Meta
+      // account, and log it — this branch used to return silently, which is why
+      // a live incident could not be told apart from the empty-Pages one below.
+      console.error(
+        "[meta-fetch-pages] Called without credentials — no 'code' + 'redirect_uri' and no 'user_token'",
+      );
+      return jsonResponse(
+        {
+          error: "We couldn't read the result of your Facebook sign-in.",
+          hint: "This is a problem on our side, not with your Meta account. Please try Connect via Meta again.",
+        },
+        400,
+      );
     }
 
     // ── Step 2: Exchange short-lived token → 60-day long-lived token ─────────
@@ -118,7 +138,8 @@ Deno.serve(async (request: Request) => {
       console.error("[meta-fetch-pages] Long-lived exchange failed:", longLivedData);
       return jsonResponse(
         {
-          error: "Failed to obtain a long-lived Facebook token.",
+          error: "Facebook wouldn't extend your sign-in session.",
+          hint: "Your Facebook login expired before we could finish. Please try Connect via Meta again.",
           details: longLivedData?.error ?? longLivedData,
         },
         400,
@@ -142,7 +163,9 @@ Deno.serve(async (request: Request) => {
       console.error("[meta-fetch-pages] Fetch pages failed:", pagesData);
       return jsonResponse(
         {
-          error: "Failed to fetch Facebook Pages. Make sure you manage at least one Page.",
+          error: "Facebook refused to list your Pages.",
+          hint:
+            "Meta rejected the request rather than returning an empty list, so this is usually a permission that wasn't granted. Try Connect via Meta again and accept every permission on Facebook's screen.",
           details: pagesData?.error ?? pagesData,
         },
         400,
@@ -152,8 +175,20 @@ Deno.serve(async (request: Request) => {
     const pages: MetaPage[] = pagesData.data ?? [];
 
     if (pages.length === 0) {
+      // Graph answered normally and returned an empty list. That is a fact about
+      // the signed-in Facebook profile, not a fault in our pipeline — so name the
+      // three things that actually cause it. Being an admin of the business
+      // portfolio is NOT the same as holding a role on the Page itself, and that
+      // distinction is the one that costs people the most time.
+      console.error(
+        "[meta-fetch-pages] /me/accounts returned zero Pages for the signed-in profile",
+      );
       return jsonResponse(
-        { error: "No Facebook Pages found. Make sure you manage at least one Facebook Page." },
+        {
+          error: "Facebook didn't return any Pages for the account you just signed in with.",
+          hint:
+            "That usually means one of three things: the Facebook profile you signed in with has no role on a Page (access to a business portfolio is not the same as a role on the Page itself); you didn't tick the Page on Facebook's permission screen; or your browser is signed in to a different Facebook profile — use \"Connect a different Meta account\" to switch. Instagram also has to be a Professional account linked to that Page.",
+        },
         400,
       );
     }
