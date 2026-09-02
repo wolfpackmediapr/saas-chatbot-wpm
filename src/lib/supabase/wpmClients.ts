@@ -95,6 +95,81 @@ const CLIENT_COLUMNS =
   'id, name, description, services, location, timezone, status, website_url, ' +
   'contact_email, contact_phone, industry, notes, lead_email_enabled, lead_email_override';
 
+/**
+ * The client the owner has selected, or null to mean "no preference".
+ *
+ * Never throws and never blocks the dashboard: a missing settings row, a failed
+ * read or a column that does not exist yet all resolve to null, which puts the
+ * caller on the oldest owned client — the behaviour that predates this setting.
+ */
+export async function getActiveClientId(): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data, error } = await (supabase as any)
+      .from('user_settings')
+      .select('active_client_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (error) {
+      console.warn('[wpmClients] getActiveClientId failed, using oldest client', error);
+      return null;
+    }
+    return (data?.active_client_id as string | null) ?? null;
+  } catch (err) {
+    console.warn('[wpmClients] getActiveClientId threw, using oldest client', err);
+    return null;
+  }
+}
+
+/**
+ * Every client this user owns, oldest first — the order the switcher shows and
+ * the same order getOwnedWpmClient() falls back to.
+ */
+export async function listOwnedClients(): Promise<WpmClientRecord[]> {
+  if (!supabase) return [];
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await (supabase as any)
+    .from('wpm_clients')
+    .select(CLIENT_COLUMNS)
+    .eq('owner_user_id', user.id)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as WpmClientRecord[];
+}
+
+/**
+ * Point the dashboard at one of the owner's clients.
+ *
+ * Ownership is checked here rather than trusted, because the RLS on
+ * user_settings only proves the row belongs to this user — not that the client
+ * they are pointing it at does.
+ */
+export async function setActiveClient(clientId: string): Promise<void> {
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data: owned, error: ownErr } = await (supabase as any)
+    .from('wpm_clients')
+    .select('id')
+    .eq('id', clientId)
+    .eq('owner_user_id', user.id)
+    .maybeSingle();
+  if (ownErr) throw ownErr;
+  if (!owned) throw new Error('That business does not belong to this account.');
+
+  const { error } = await (supabase as any)
+    .from('user_settings')
+    .upsert(
+      { user_id: user.id, active_client_id: clientId, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    );
+  if (error) throw error;
+}
+
 export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
   if (!supabase) {
     return {
@@ -108,17 +183,46 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Try to get existing client (oldest first so duplicates never break the lookup)
-    let { data, error } = await (supabase as any)
-      .from('wpm_clients')
-      .select(CLIENT_COLUMNS)
-      .eq('owner_user_id', user.id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    // Which business is this owner looking at?
+    //
+    // An owner may hold several clients (agency multi-tenancy), so "the oldest"
+    // is a fallback, not an answer. `user_settings.active_client_id` is where
+    // the answer lives once the switcher lets them choose one.
+    //
+    // The ownership filter here is not decoration: RLS on user_settings only
+    // checks user_id, so a user could point active_client_id at somebody else's
+    // client. Pairing it with owner_user_id means a bad pointer resolves to
+    // nothing and we fall through to the oldest owned client rather than
+    // returning a client they do not own.
+    let data: WpmClientRecord | null = null;
 
-    if (error && error.code !== 'PGRST116') {
-      console.warn('[wpmClients] getOwnedWpmClient query error', error);
+    const activeClientId = await getActiveClientId();
+    if (activeClientId) {
+      const { data: active } = await (supabase as any)
+        .from('wpm_clients')
+        .select(CLIENT_COLUMNS)
+        .eq('id', activeClientId)
+        .eq('owner_user_id', user.id)
+        .maybeSingle();
+      data = (active as WpmClientRecord | null) ?? null;
+    }
+
+    // Fallback: the oldest owned client. With active_client_id unset — which is
+    // every account until the switcher ships — this is the only query that runs,
+    // exactly as before.
+    if (!data) {
+      const { data: oldest, error } = await (supabase as any)
+        .from('wpm_clients')
+        .select(CLIENT_COLUMNS)
+        .eq('owner_user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.warn('[wpmClients] getOwnedWpmClient query error', error);
+      }
+      data = (oldest as WpmClientRecord | null) ?? null;
     }
 
     if (!data) {
