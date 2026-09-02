@@ -73,10 +73,22 @@ Deno.serve(async (req: Request) => {
   if (!lastUserMsg) return err("No user message found in messages array");
 
   // ── Load business client (RLS ensures only owner can read) ────────────────
+  // An owner may hold more than one client — agency billing counts across all
+  // of them, and a signup race can transiently create two — so take the oldest
+  // rather than letting maybeSingle() throw on two. This is the same rule
+  // wpm-trigger-automations, meta-oauth-callback and getOwnedWpmClient() follow.
+  //
+  // Without the ordering this failed for real on 2026-09-02: a duplicate client
+  // row made Test Agent answer every message with
+  // "Failed to load business profile: JSON object requested, multiple (or no)
+  // rows returned", while the live agent on the same account was replying to
+  // customers perfectly.
   const { data: clientData, error: clientErr } = await supabaseUser
     .from("wpm_clients")
     .select("id, name, description, services, location, industry, timezone, website_url, contact_email, contact_phone")
     .eq("owner_user_id", user.id)
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (clientErr) return err(`Failed to load business profile: ${clientErr.message}`, 500);
