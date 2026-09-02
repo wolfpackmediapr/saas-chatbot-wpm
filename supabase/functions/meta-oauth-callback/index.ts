@@ -112,7 +112,15 @@ Deno.serve(async (request: Request) => {
     let pages: MetaPage[] = pagesData.data || [];
 
     if (pages.length === 0) {
-      return jsonResponse({ error: "No Facebook Pages found." }, 400);
+      console.error("[meta-oauth-callback] /me/accounts returned zero Pages at save time");
+      return jsonResponse(
+        {
+          error: "Facebook didn't return any Pages for this account.",
+          hint:
+            "The Facebook profile you signed in with needs a role on the Page itself — access to the business portfolio is not enough. Try Connect via Meta again, and use \"Connect a different Meta account\" if the wrong profile is signed in.",
+        },
+        400,
+      );
     }
 
     // Filter to only selected pages when the caller specifies
@@ -121,7 +129,15 @@ Deno.serve(async (request: Request) => {
     }
 
     if (pages.length === 0) {
-      return jsonResponse({ error: "None of the selected pages were found on this account." }, 400);
+      console.error("[meta-oauth-callback] Selected page ids matched none of the account's Pages");
+      return jsonResponse(
+        {
+          error: "The Page you picked is no longer available on this Facebook account.",
+          hint:
+            "Your Facebook sign-in may have expired, or the Page was picked under a different profile. Please start Connect via Meta again.",
+        },
+        400,
+      );
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");

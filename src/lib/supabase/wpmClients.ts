@@ -147,22 +147,40 @@ export async function getOwnedWpmClient(): Promise<WpmClientRecord | null> {
         .select(CLIENT_COLUMNS)
         .single();
 
-      if (insertError) {
-        // A concurrent call may have created the client already — re-read once
-        const { data: retry } = await (supabase as any)
-          .from('wpm_clients')
-          .select(CLIENT_COLUMNS)
-          .eq('owner_user_id', user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (!retry) {
-          console.error('[wpmClients] Failed to create client', insertError);
-          return null;
-        }
-        data = retry;
-      } else {
-        data = newClient;
+      // Re-read the oldest row whether the insert succeeded or not.
+      //
+      // This function is called from ~8 places (Home, AgentSetup, Settings,
+      // ChannelConnections, Automations, NotificationsContext, launchStatus…),
+      // several of which run concurrently on a fresh account. Each one saw no
+      // client and inserted its own, and nothing stops that: there is no unique
+      // index on owner_user_id, and there deliberately must not be one — agency
+      // multi-tenancy is meant to give a single login several clients.
+      //
+      // So the insert is allowed to race; what matters is that every caller
+      // ends up on the SAME client. Re-reading the oldest makes them converge,
+      // which is also what every later lookup does. Trusting our own INSERT's
+      // return value is what let one signup end up with two clients 61ms apart
+      // on 2026-09-02 — one holding the agent, one empty. Nothing pointed the
+      // owner at the empty one that day, but only because it happened to sort
+      // second.
+      const { data: settled } = await (supabase as any)
+        .from('wpm_clients')
+        .select(CLIENT_COLUMNS)
+        .eq('owner_user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!settled) {
+        console.error('[wpmClients] Failed to create client', insertError);
+        return null;
+      }
+      data = settled;
+      if (newClient && settled.id !== newClient.id) {
+        console.warn(
+          `[wpmClients] Concurrent client creation: using ${settled.id}, ` +
+          `discarding the row this call inserted (${newClient.id})`,
+        );
       }
     }
 
@@ -417,6 +435,21 @@ export async function upsertBotProfile(clientId: string, updates: {
   return data.id;
 }
 
+/**
+ * Read an agent's active instructions.
+ *
+ * Throws when the query itself fails, and returns null ONLY when the agent
+ * genuinely has no instructions row. That distinction is the whole point:
+ * this function used to `return null` on any error, and on 2026-09-02 a signup
+ * race left one account with three active rows, which made `.maybeSingle()`
+ * error on every call. Callers read the resulting null as "no instructions
+ * exist" and inserted another default row — on every page load, 134 times in
+ * three hours — burying the customer's real configuration.
+ *
+ * `.order('version').limit(1)` matches what the edge functions already do
+ * (`wpm_ai.ts`), so a duplicated row is survivable rather than fatal while the
+ * partial unique index (20260902174814) keeps it from arising at all.
+ */
 export async function getBotInstructions(botProfileId: string): Promise<WpmBotInstructionsRecord | null> {
   if (!supabase) return null;
   const { data, error } = await (supabase as any)
@@ -424,8 +457,13 @@ export async function getBotInstructions(botProfileId: string): Promise<WpmBotIn
     .select('*')
     .eq('bot_profile_id', botProfileId)
     .eq('is_active', true)
+    .order('version', { ascending: false })
+    .limit(1)
     .maybeSingle();
-  if (error) return null;
+  if (error) {
+    console.error('[wpmClients] getBotInstructions failed', error);
+    throw error;
+  }
   return data as WpmBotInstructionsRecord | null;
 }
 
