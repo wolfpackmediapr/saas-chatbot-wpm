@@ -1,5 +1,5 @@
 import { buildWpmAssistantMessages, flattenMarkdownLinks, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
-import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
+import { matchEmergencyKeyword, matchEscalationRequest, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
   from(table: string): any;
@@ -374,12 +374,21 @@ export async function generateAndStoreAssistantReply(args: {
     args.inboundMessage,
     loaded.context.instructions?.emergency_keywords,
   );
-  const handoffRequested = sentinelRequested || keywordHit !== null;
+  // ...and neither may an outright request for a person. The owner's keyword
+  // list is checked first because it is their explicit choice, but a customer
+  // saying "can I talk to a human" escalates even when that list is empty or
+  // has nothing to do with it — which is every account by default, since the
+  // word "human" is not something anyone thinks to type into a keyword box.
+  // See ESCALATION_REQUEST_PATTERNS for the live evidence this fixes.
+  const requestHit = keywordHit ? null : matchEscalationRequest(args.inboundMessage);
+  const handoffRequested = sentinelRequested || keywordHit !== null || requestHit !== null;
   const handoffReason = keywordHit
     ? `Emergency keyword: "${keywordHit}"`
-    : sentinelRequested
-      ? 'AI escalated per the escalation policy'
-      : null;
+    : requestHit
+      ? `Customer asked for a human: "${requestHit}"`
+      : sentinelRequested
+        ? 'AI escalated per the escalation policy'
+        : null;
 
   const outboundPayload = buildOutboundAssistantMessageInsertPayload({
     conversationId: loaded.conversation.id,
