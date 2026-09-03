@@ -1,5 +1,5 @@
-import { assertEquals } from 'jsr:@std/assert';
-import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
+import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
+import { matchEmergencyKeyword, matchEscalationRequest, stripHandoffSignal } from './wpm_handoff.ts';
 import { extractLeadFromConversationText } from './wpm_leads.ts';
 
 Deno.test('stripHandoffSignal removes the tag and reports the request', () => {
@@ -90,4 +90,73 @@ Deno.test('lead name: does not invent names from greetings or products', () => {
 
 Deno.test('lead name: ignores single capitalised words', () => {
   assertEquals(nameFrom('Wilfredo'), null);
+});
+
+// ── Built-in escalation on an explicit request for a human ──────────────────
+// These are the exact live messages that FAILED to escalate on 2026-09-02 with
+// an emergency_keywords list of ["lawsuit","data breach","refund"]. Every one
+// of them returns null from matchEmergencyKeyword — which is the whole bug.
+
+Deno.test('an explicit request for a human escalates with NO keywords configured', () => {
+  const ownerKeywords = ['lawsuit', 'data breach', 'refund'];
+  const realMisses = [
+    'I want to talk to a human again.',
+    'Can I talk to a human?',
+    'Oye quisiera hablar ahora mismo con un humano',
+  ];
+  for (const text of realMisses) {
+    // The owner's keyword list cannot catch these — this is the gap.
+    assertEquals(matchEmergencyKeyword(text, ownerKeywords), null, text);
+    // The built-in must.
+    assertNotEquals(matchEscalationRequest(text), null, text);
+  }
+});
+
+Deno.test('matchEscalationRequest covers the common phrasings, English and Spanish', () => {
+  for (const text of [
+    'can I speak with a representative',
+    'please connect me to someone',
+    'I need a real person',
+    'transfer me to an agent',
+    'give me a live agent',
+    'quiero hablar con una persona',
+    'me pueden comunicar con un agente',
+    'necesito un representante',
+    'quisiera hablar con alguien',
+  ]) {
+    assertNotEquals(matchEscalationRequest(text), null, text);
+  }
+});
+
+Deno.test('matchEscalationRequest ignores accents', () => {
+  assertNotEquals(matchEscalationRequest('quiero hablar con un agénte'), null);
+});
+
+Deno.test('matchEscalationRequest does NOT fire on asking whether the bot is human', () => {
+  // Hard rule 8 has the agent answer these truthfully. Escalating them would
+  // page a teammate for an ordinary question — which is why these patterns
+  // match a REQUEST (verb aimed at a person-noun), not the bare word "human".
+  for (const text of [
+    'are you a human?',
+    'are you human or a bot',
+    'you sound human',
+    'is this a real person or AI?',
+    'eres un humano?',
+    'that was a very human answer',
+  ]) {
+    assertEquals(matchEscalationRequest(text), null, text);
+  }
+});
+
+Deno.test('matchEscalationRequest ignores our own lead-capture boilerplate', () => {
+  // The agent writes this in nearly every lead-capture reply. It must never be
+  // fed back in as an escalation — the 2026-08-30 intent bug, one level over.
+  assertEquals(
+    matchEscalationRequest('A team member will follow up with you shortly.'),
+    null,
+  );
+  assertEquals(
+    matchEscalationRequest('Un miembro del equipo se pondrá en contacto contigo.'),
+    null,
+  );
 });
