@@ -18,7 +18,7 @@ export interface WpmLeadRecord {
   updated_at: string;
 }
 
-export async function listOwnedLeads(clientId: string, limit: number = 50): Promise<WpmLeadRecord[]> {
+export async function listOwnedLeads(clientId: string, limit: number = 50, offset: number = 0): Promise<WpmLeadRecord[]> {
   if (!supabase) {
     // Demo / preview mode — return sample leads so the UI is usable without full Supabase setup
     return [
@@ -64,7 +64,8 @@ export async function listOwnedLeads(clientId: string, limit: number = 50): Prom
     .select('*')
     .eq('client_id', clientId)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .order('id', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error) {
     throw error;

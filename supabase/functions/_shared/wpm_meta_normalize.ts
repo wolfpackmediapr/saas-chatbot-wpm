@@ -10,6 +10,43 @@
 
 import { describeAttachments } from './wpm_meta_attachments.ts';
 
+/**
+ * What to record for an echo we cannot read.
+ *
+ * WHY THIS EXISTS. PR #5 taught the pipeline to store echoes, but the caller
+ * discards any event with no text 190 lines BEFORE it reaches the echo branch
+ * (`meta-direct-webhook/index.ts:351` vs `:541`). An echo therefore only
+ * survived if it already had words. Measured 2026-09-05 across the 66 echoes
+ * since v86: **62 stored, 4 dropped**, in two distinct shapes —
+ *   - 3 × an attachment `describeAttachments` has no case for
+ *     (`unsupported_type`), so it returned null;
+ *   - 1 × a reply to a story (2026-09-04 15:18 UTC), which arrives with
+ *     `reply_to.story` and NO text and NO attachments at all, so
+ *     `describeAttachments` was never even called.
+ * Fixing only the attachment case would not have caught the second.
+ *
+ * An echo is the ONLY evidence that exists that a person replied from the
+ * Instagram or Messenger app — there is no other record anywhere. So a
+ * placeholder is strictly better than silence for both the Inbox and the
+ * agent's context: "the owner sent something here at 16:06" is a fact the bot
+ * needs in order not to talk over them.
+ *
+ * Deliberately scoped to echoes. An INBOUND message with nothing readable is a
+ * different question — manufacturing text for one would burn an OpenAI call, a
+ * reply-cap slot and a free-grant message to answer nothing, which is the trap
+ * already recorded for Instagram's empty phone-card template. That behaviour is
+ * left exactly as it was.
+ */
+function describeUnreadableEcho(
+  message: NonNullable<MetaMessageEvent['message']>,
+  attachments: Array<{ type: string; url: string | null }>,
+): string {
+  if (message.reply_to?.story) return '[Replied to a story]';
+  const types = [...new Set(attachments.map((a) => a.type))].filter(Boolean);
+  if (types.length > 0) return `[Sent an attachment (${types.join(', ')})]`;
+  return '[Sent a message with no readable content]';
+}
+
 export interface MetaMessageEvent {
   sender: { id: string };
   recipient: { id: string };
@@ -26,6 +63,15 @@ export interface MetaMessageEvent {
       };
     }>;
     is_echo?: boolean;
+    /**
+     * Present when the message is a reply to a story. Meta sends this with no
+     * `text` and no `attachments` when the reply itself carried nothing we can
+     * read, which is how four of these reached us as "no text (type message)".
+     */
+    reply_to?: {
+      story?: { id?: string; url?: string };
+      mid?: string;
+    };
   };
   postback?: {
     mid?: string;
@@ -100,6 +146,12 @@ export function normalizeMetaEvents(
       // still reach the pipeline so the conversation is logged and answered.
       if (!text && attachments.length > 0) {
         text = describeAttachments(event.message.attachments ?? []);
+      }
+      // See describeUnreadableEcho: without this an echo we cannot read is
+      // dropped by the caller's text guard and the reply typed on someone's
+      // phone exists nowhere at all.
+      if (!text && isEcho) {
+        text = describeUnreadableEcho(event.message, attachments);
       }
     } else if (event.postback) {
       text = event.postback.payload ?? event.postback.title;

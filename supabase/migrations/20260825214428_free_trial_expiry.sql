@@ -152,8 +152,10 @@ begin
 end;
 $function$;
 
--- Restored exactly as captured from production before the drop. anon is
--- deliberately absent: it has no EXECUTE and must not gain any.
+-- DROP + CREATE resets privileges. Explicitly remove the default PUBLIC grant.
+revoke execute on function public.get_wpm_usage(uuid) from public, anon;
+
+-- Preserve the application and service-role callers.
 grant execute on function public.get_wpm_usage(uuid) to authenticated;
 grant execute on function public.get_wpm_usage(uuid) to postgres;
 grant execute on function public.get_wpm_usage(uuid) to service_role;

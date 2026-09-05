@@ -21,6 +21,75 @@
 /** Appended by the AI to request a handoff. Never shown to the customer. */
 export const HANDOFF_SENTINEL = '[[HANDOFF]]';
 
+/**
+ * Strip diacritics so "atención" and "atencion" match the same pattern.
+ * Messenger and Instagram customers type both, constantly.
+ */
+function foldAccents(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Asking for a human, in the words customers actually use.
+ *
+ * WHY THIS EXISTS. Until 2026-09-02 the ONLY deterministic escalation path was
+ * the owner's own `emergency_keywords`, and the word "human" is not something
+ * anyone thinks to type into a keyword box — Wolfpack's list was
+ * ["lawsuit","data breach","refund"]. So every "can I talk to a human"
+ * escalation depended entirely on the model choosing to append HANDOFF_SENTINEL,
+ * which it does inconsistently. Measured on live traffic that day, with
+ * identical configuration:
+ *   14:35 "quisiera hablar ahora mismo con un humano"  → escalated
+ *   23:29 "I want to talk to a human again."           → NOT escalated
+ *   23:31 "Can I talk to a human?"                     → NOT escalated
+ * Same intent, same config, nine hours apart. The prompt itself warns that
+ * telling a customer a human is coming without the tag means "nobody is ever
+ * notified" — which is exactly what happened, twice, to a real prospect.
+ *
+ * An explicit request for a human is the least ambiguous signal a customer can
+ * send. It must not depend on the model's mood, and it must not depend on every
+ * business guessing the right keyword.
+ *
+ * SHAPE, NOT VOCABULARY. EVERY pattern requires a request verb aimed at a
+ * person-noun; none matches a bare noun. A first draft included a standalone
+ * "real person" pattern and its own test caught it firing on "is this a real
+ * person or AI?" — precisely the question hard rule 8 exists to answer. That is deliberate: hard
+ * rule 8 tells the agent to answer truthfully when asked "are you a human?",
+ * and a bare-word match would escalate that perfectly ordinary question. Same
+ * lesson as the 2026-08-22 Spanish lead bug: prefer the structural signal.
+ *
+ * Cost of a false positive is low by design: this opens a handoff with
+ * source 'auto', and decideHandoffAction keeps the bot replying while an auto
+ * handoff is unattended. Nobody gets stranded; a teammate just gets an alert.
+ */
+export const ESCALATION_REQUEST_PATTERNS: readonly RegExp[] = [
+  // EN — "talk/speak/chat/connect/transfer ... to/with ... a human/person/agent"
+  /\b(?:talk|speak|chat|connect|transfer|forward)\w*\b[^.!?\n]{0,25}?\b(?:to|with)\b[^.!?\n]{0,20}?\b(?:human|person|people|agent|representative|rep|someone|somebody|advisor|operator)\b/,
+  // EN — "I want / need / give me a real person", "get me an agent"
+  /\b(?:want|need|get|give|put)\b[^.!?\n]{0,15}?\b(?:a|an|the)\s+(?:real\s+|live\s+|actual\s+|human\s+)?(?:human|person|agent|representative|rep|operator|advisor)\b/,
+  // ES — "hablar/comunicar/contactar ... con ... humano/persona/agente/alguien"
+  /\b(?:hablar|hablarle|comunicar|comunicarme|comunicarse|contactar|conversar|atienda|atiendan)\b[^.!?\n]{0,25}?\bcon\b[^.!?\n]{0,20}?\b(?:humano|humana|persona|agente|representante|alguien|asesor|operador)\b/,
+  // ES — "quiero / necesito / quisiera / dame / paseme un humano | una persona"
+  /\b(?:quiero|quisiera|necesito|deseo|dame|paseme|pasame|transfiereme|transfiera|comunicame)\b[^.!?\n]{0,20}?\b(?:un|una|el|la)\s+(?:humano|humana|persona(?:\s+real)?|agente|representante|asesor|operador)\b/,
+];
+/**
+ * Did the customer explicitly ask to be handed to a person?
+ *
+ * Returns the matched phrase (for the audit trail) or null. Runs on the
+ * INBOUND text only — never on our own reply, which routinely contains
+ * "a team member will follow up" and would otherwise escalate every
+ * lead-capture conversation. Same trap as the 2026-08-30 intent bug.
+ */
+export function matchEscalationRequest(text: string | null | undefined): string | null {
+  if (!text?.trim()) return null;
+  const haystack = foldAccents(text.toLowerCase());
+  for (const pattern of ESCALATION_REQUEST_PATTERNS) {
+    const hit = pattern.exec(haystack);
+    if (hit) return hit[0].trim();
+  }
+  return null;
+}
+
 /** Minutes of human silence after which the next inbound returns the bot. */
 export const HANDOFF_IDLE_MINUTES = 30;
 
@@ -63,6 +132,39 @@ export function matchEmergencyKeyword(
       return rawKeyword.trim();
     }
   }
+  return null;
+}
+
+export interface DeterministicHandoffMatch {
+  reason: string;
+  priority: 'normal' | 'urgent';
+}
+
+/**
+ * Resolve the server-owned escalation reason once for an inbound message.
+ * Keeping precedence and reason formatting here prevents the webhook and the
+ * AI path from recording different explanations for the same customer text.
+ */
+export function resolveDeterministicHandoff(
+  text: string | null | undefined,
+  emergencyKeywords: string[] | null | undefined,
+): DeterministicHandoffMatch | null {
+  const emergencyHit = matchEmergencyKeyword(text, emergencyKeywords);
+  if (emergencyHit) {
+    return {
+      reason: `Emergency keyword: "${emergencyHit}"`,
+      priority: 'urgent',
+    };
+  }
+
+  const humanRequest = matchEscalationRequest(text);
+  if (humanRequest) {
+    return {
+      reason: `Customer asked for a human: "${humanRequest}"`,
+      priority: 'normal',
+    };
+  }
+
   return null;
 }
 
@@ -109,6 +211,8 @@ export async function decideHandoffAction(
       .select('created_at')
       .eq('conversation_id', conversationId)
       .eq('role', 'human')
+      .or('metadata->>sent_via_graph_api.is.null,metadata->>sent_via_graph_api.neq.false')
+      .or('metadata->>delivery.is.null,metadata->>delivery.neq.failed')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -163,7 +267,7 @@ export async function openHandoff(
     // so the same conversation can re-trigger escalation on every message.
     // Without this, each one would add another handoff event, reset the
     // "waiting for" timer, and fire another alert for a handoff already raised.
-    const { data: alreadyOpen } = await supabase
+    const { data: alreadyOpen, error: openError } = await supabase
       .from('wpm_handoff_events')
       .select('id')
       .eq('conversation_id', args.conversationId)
@@ -171,6 +275,7 @@ export async function openHandoff(
       .limit(1)
       .maybeSingle();
 
+    if (openError) throw new Error(openError.message);
     if (alreadyOpen) return { opened: false };
 
     const { data: conversation } = await supabase
@@ -181,7 +286,7 @@ export async function openHandoff(
 
     const existing = (conversation as { metadata?: Record<string, unknown> } | null)?.metadata ?? {};
 
-    await supabase
+    const { error: updateError } = await supabase
       .from('wpm_conversations')
       .update({
         status: 'handoff',
@@ -189,7 +294,8 @@ export async function openHandoff(
       })
       .eq('id', args.conversationId);
 
-    await supabase.from('wpm_handoff_events').insert({
+    if (updateError) throw new Error(updateError.message);
+    const { error: insertError } = await supabase.from('wpm_handoff_events').insert({
       client_id: args.clientId,
       conversation_id: args.conversationId,
       reason: args.reason,
@@ -198,6 +304,7 @@ export async function openHandoff(
       metadata: args.metadata ?? {},
     });
 
+    if (insertError) throw new Error(insertError.message);
     return { opened: true };
   } catch (err) {
     console.error('[handoff] openHandoff failed:', err);
