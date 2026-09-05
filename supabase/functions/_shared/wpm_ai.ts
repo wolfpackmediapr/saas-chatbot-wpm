@@ -1,5 +1,5 @@
 import { buildWpmAssistantMessages, flattenMarkdownLinks, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
-import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
+import { matchEmergencyKeyword, matchEscalationRequest, stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
   from(table: string): any;
@@ -63,6 +63,7 @@ interface MessageRow {
   content: string;
   created_at?: string;
   provider_message_id?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 function firstOrValue<T>(value: T | T[] | null | undefined): T | null {
@@ -90,6 +91,8 @@ const WPM_CONTEXT_WINDOW = 12;
  */
 function toChatMessage(message: MessageRow): WpmChatMessage | null {
   if (!message.content?.trim()) return null;
+  // A rejected send was never part of the customer's conversation.
+  if (message.metadata?.sent_via_graph_api === false || message.metadata?.delivery === 'failed') return null;
   if (message.role === 'user') return { role: 'user', content: message.content };
   if (message.role === 'assistant') return { role: 'assistant', content: message.content };
   if (message.role === 'human') {
@@ -171,7 +174,7 @@ export async function loadWpmBotContext(
 
   const { data: messagesData, error: messagesError } = await supabase
     .from('wpm_messages')
-    .select('role, content, created_at, provider_message_id')
+    .select('role, content, created_at, provider_message_id, metadata')
     .eq('conversation_id', conversation.id)
     .order('created_at', { ascending: false })
     .limit(WPM_CONTEXT_FETCH_ROWS);
@@ -374,12 +377,21 @@ export async function generateAndStoreAssistantReply(args: {
     args.inboundMessage,
     loaded.context.instructions?.emergency_keywords,
   );
-  const handoffRequested = sentinelRequested || keywordHit !== null;
+  // ...and neither may an outright request for a person. The owner's keyword
+  // list is checked first because it is their explicit choice, but a customer
+  // saying "can I talk to a human" escalates even when that list is empty or
+  // has nothing to do with it — which is every account by default, since the
+  // word "human" is not something anyone thinks to type into a keyword box.
+  // See ESCALATION_REQUEST_PATTERNS for the live evidence this fixes.
+  const requestHit = keywordHit ? null : matchEscalationRequest(args.inboundMessage);
+  const handoffRequested = sentinelRequested || keywordHit !== null || requestHit !== null;
   const handoffReason = keywordHit
     ? `Emergency keyword: "${keywordHit}"`
-    : sentinelRequested
-      ? 'AI escalated per the escalation policy'
-      : null;
+    : requestHit
+      ? `Customer asked for a human: "${requestHit}"`
+      : sentinelRequested
+        ? 'AI escalated per the escalation policy'
+        : null;
 
   const outboundPayload = buildOutboundAssistantMessageInsertPayload({
     conversationId: loaded.conversation.id,

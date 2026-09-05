@@ -388,3 +388,15 @@ Deno.test('with no agent resolved, only account-wide sources are visible', () =>
   assertEquals(buildKnowledgeScopeFilter(undefined), 'bot_profile_id.is.null');
   assertEquals(buildKnowledgeScopeFilter(''), 'bot_profile_id.is.null');
 });
+
+Deno.test('context omits failed human and AI sends but keeps native and delivered replies', async () => {
+  const result = await loadMessages([
+    { role: 'human', content: 'Failed human', metadata: { sent_via_graph_api: false } },
+    { role: 'assistant', content: 'Failed AI', metadata: { delivery: 'failed' } },
+    { role: 'human', content: 'Native reply', metadata: { sent_from: 'native_app' } },
+    { role: 'assistant', content: 'Delivered reply', metadata: { delivery: 'sent' } },
+  ]);
+  assertEquals(result.length, 2);
+  assertEquals(result.some(m => m.content.includes('Failed')), false);
+  assertEquals(result.some(m => m.content.includes('Native reply')), true);
+});

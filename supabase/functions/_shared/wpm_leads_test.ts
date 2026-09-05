@@ -72,6 +72,12 @@ class SupabaseStub {
   from(table: string) {
     return new QueryStub(table, this.db);
   }
+  rpc(_fn: string, args: Record<string, unknown>) {
+    if (this.db.captureError) return Promise.resolve({ data: null, error: this.db.captureError });
+    if (this.db.existingLead) return Promise.resolve(ok({ id: 'lead-uuid', created: false }));
+    (this.db.inserts as unknown[]).push({ table: 'wpm_leads', payload: args.p_lead });
+    return Promise.resolve(ok({ id: 'lead-uuid', created: true }));
+  }
 }
 
 const extractedLead: ExtractedLead = {
@@ -563,4 +569,52 @@ Deno.test('Spanish conjugations of booking verbs are matched from the customer s
     sourceChannel: 'instagram',
   });
   assertEquals(lead.intent, 'booking_request');
+});
+
+Deno.test('explicit booking commitment qualifies a known Instagram thread without invented contact details', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: "Let's schedule a meeting", sourceChannel: 'instagram',
+    threadIdentity: { externalUserId: 'provider-user-123', displayName: 'prospect' },
+  });
+  assertEquals(lead.isQualified, true);
+  assertEquals(lead.email, null);
+  assertEquals(lead.phone, null);
+  assertEquals(lead.qualificationData.contact_method, 'conversation');
+});
+
+Deno.test('Spanish acceptance qualifies only with an earlier concrete invitation and provider identity', () => {
+  const args = { inboundText: 'Sí, perfecto', sourceChannel: 'facebook',
+    threadIdentity: { externalUserId: 'provider-user-123' } };
+  assertEquals(extractLeadFromConversationText({ ...args,
+    previousAssistantText: '¿Te gustaría agendar una llamada?' }).isQualified, true);
+  assertEquals(extractLeadFromConversationText(args).isQualified, false);
+  assertEquals(extractLeadFromConversationText({ ...args,
+    assistantText: '¿Te gustaría agendar una llamada?' }).isQualified, false);
+  assertEquals(extractLeadFromConversationText({ ...args, threadIdentity: undefined,
+    previousAssistantText: '¿Te gustaría agendar una llamada?' }).isQualified, false);
+});
+
+Deno.test('declines and ordinary greetings never become contactless leads', () => {
+  for (const inboundText of ['No, I do not want to book', 'Maybe later', 'Hola', 'Yes, no thanks']) {
+    const lead = extractLeadFromConversationText({ inboundText, sourceChannel: 'instagram',
+      threadIdentity: { externalUserId: 'provider-user-123' },
+      previousAssistantText: 'Would you like to schedule a call?' });
+    assertEquals(lead.isQualified, false, inboundText);
+  }
+});
+
+Deno.test('Starter cap skips new lead actions without failing the customer reply', async () => {
+  const supabase = new SupabaseStub({ inserts: [], captureError: { message: 'LEAD_MONTHLY_LIMIT' } });
+  const result = await persistQualifiedLeadAndQueueActions({ supabase, clientId: 'tenant', conversationId: 'thread', lead: extractedLead });
+  assertEquals(result.ok, true);
+  assertEquals(result.skipped, true);
+  assertEquals(result.queuedToolExecutionIds, []);
+  assertEquals(supabase.db.inserts, []);
+});
+Deno.test('existing lead enrichment does not queue duplicate automation actions', async () => {
+  const supabase = new SupabaseStub({ inserts: [], existingLead: true });
+  const result = await persistQualifiedLeadAndQueueActions({ supabase, clientId: 'tenant', conversationId: 'thread', lead: extractedLead });
+  assertEquals(result.leadId, 'lead-uuid');
+  assertEquals(result.skipped, true);
+  assertEquals(result.queuedToolExecutionIds, []);
 });

@@ -46,3 +46,14 @@ jobs:
       # them — it is `tsc -p tsconfig.app.json`, i.e. src/ only. This job is
       # the other half of the codebase.
       - run: deno test --allow-all supabase/functions
+
+  database-regressions:
+    name: database ownership and tier limits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix scripts/tests
+      - run: node scripts/tests/instruction-history.mjs
