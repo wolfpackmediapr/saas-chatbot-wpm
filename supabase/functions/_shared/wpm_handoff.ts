@@ -135,6 +135,39 @@ export function matchEmergencyKeyword(
   return null;
 }
 
+export interface DeterministicHandoffMatch {
+  reason: string;
+  priority: 'normal' | 'urgent';
+}
+
+/**
+ * Resolve the server-owned escalation reason once for an inbound message.
+ * Keeping precedence and reason formatting here prevents the webhook and the
+ * AI path from recording different explanations for the same customer text.
+ */
+export function resolveDeterministicHandoff(
+  text: string | null | undefined,
+  emergencyKeywords: string[] | null | undefined,
+): DeterministicHandoffMatch | null {
+  const emergencyHit = matchEmergencyKeyword(text, emergencyKeywords);
+  if (emergencyHit) {
+    return {
+      reason: `Emergency keyword: "${emergencyHit}"`,
+      priority: 'urgent',
+    };
+  }
+
+  const humanRequest = matchEscalationRequest(text);
+  if (humanRequest) {
+    return {
+      reason: `Customer asked for a human: "${humanRequest}"`,
+      priority: 'normal',
+    };
+  }
+
+  return null;
+}
+
 export type HandoffDecision =
   /** Let the AI answer this message. */
   | { action: 'reply'; returnToBot: boolean; reason?: string }

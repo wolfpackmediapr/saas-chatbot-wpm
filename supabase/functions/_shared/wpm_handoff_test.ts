@@ -1,5 +1,10 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
-import { matchEmergencyKeyword, matchEscalationRequest, stripHandoffSignal } from './wpm_handoff.ts';
+import {
+  matchEmergencyKeyword,
+  matchEscalationRequest,
+  resolveDeterministicHandoff,
+  stripHandoffSignal,
+} from './wpm_handoff.ts';
 import { extractLeadFromConversationText } from './wpm_leads.ts';
 
 Deno.test('stripHandoffSignal removes the tag and reports the request', () => {
@@ -54,6 +59,18 @@ Deno.test('matchEmergencyKeyword returns null for empty inputs', () => {
   assertEquals(matchEmergencyKeyword('refund', []), null);
   assertEquals(matchEmergencyKeyword(null, ['refund']), null);
   assertEquals(matchEmergencyKeyword('refund', null), null);
+});
+
+Deno.test('resolveDeterministicHandoff owns reason formatting and keyword precedence', () => {
+  assertEquals(resolveDeterministicHandoff('lawsuit and talk to a human', ['lawsuit']), {
+    reason: 'Emergency keyword: "lawsuit"',
+    priority: 'urgent',
+  });
+  assertEquals(resolveDeterministicHandoff('Can I talk to a human?', []), {
+    reason: 'Customer asked for a human: "talk to a human"',
+    priority: 'normal',
+  });
+  assertEquals(resolveDeterministicHandoff('What are your hours?', ['lawsuit']), null);
 });
 
 // ── Lead name extraction ─────────────────────────────────────────────────────

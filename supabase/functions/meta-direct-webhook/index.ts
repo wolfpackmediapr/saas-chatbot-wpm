@@ -11,6 +11,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
+import { beginInboundTurn } from '../_shared/wpm_inbound_start.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { describeAttachments } from '../_shared/wpm_meta_attachments.ts';
@@ -20,7 +21,7 @@ import {
   describeBlock,
   noticeForBlock,
 } from '../_shared/wpm_usage.ts';
-import { closeHandoff, decideHandoffAction, openHandoff, matchEmergencyKeyword, matchEscalationRequest } from '../_shared/wpm_handoff.ts';
+import { closeHandoff, decideHandoffAction, openHandoff, resolveDeterministicHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { describeSendFailure, extractSentMessageId, fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 import { normalizeMetaEvents } from '../_shared/wpm_meta_normalize.ts';
@@ -679,19 +680,20 @@ Deno.serve(async (request: Request) => {
         if (configError) console.warn('[meta-direct] Escalation config unavailable:', configError.message);
         emergencyKeywords = escalationConfig?.emergency_keywords ?? [];
       }
-      const emergencyHit = matchEmergencyKeyword(event.text, emergencyKeywords);
-      const humanRequest = matchEscalationRequest(event.text);
-      if (emergencyHit || humanRequest) {
-        await escalate(
-          emergencyHit ? `Emergency keyword: "${emergencyHit}"` : `Customer asked for a human: "${humanRequest}"`,
-          emergencyHit ? 'urgent' : 'normal',
-        );
-      }
+      const deterministicHandoff = resolveDeterministicHandoff(event.text, emergencyKeywords);
 
       // ── Usage caps: pause AI when the account allowance or this single
       // conversation's reply cap runs out. Either way the conversation stays in
-      // the Inbox so a human can still reply.
-      const allowance = await checkConversationAllowance(supabase, channel.client_id, conversationId);
+      // the Inbox so a human can still reply. beginInboundTurn makes the
+      // persistence-before-allowance contract executable and regression-tested.
+      const allowance = await beginInboundTurn({
+        persistDeterministicHandoff: async () => {
+          if (deterministicHandoff) {
+            await escalate(deterministicHandoff.reason, deterministicHandoff.priority);
+          }
+        },
+        checkAllowance: () => checkConversationAllowance(supabase, channel.client_id, conversationId),
+      });
       if (!allowance.allowed) {
         const notice = noticeForBlock(allowance.reason);
         const noticeKey = allowance.reason === 'conversation_cap'
@@ -830,8 +832,7 @@ Deno.serve(async (request: Request) => {
       // A model-only escalation is also recorded. Existing deterministic
       // handoffs are deduplicated by openHandoff.
       if (aiResult.handoffRequested) {
-        await escalate(aiResult.handoffReason ?? 'Escalation requested',
-          aiResult.handoffReason?.startsWith('Emergency keyword') ? 'urgent' : 'normal');
+        await escalate(aiResult.handoffReason ?? 'Escalation requested', 'normal');
       }
 
       // Update webhook event status ('failed' — 'send_failed' violates the
