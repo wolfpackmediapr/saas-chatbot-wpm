@@ -34,6 +34,7 @@ begin
 end;
 $$;
 revoke execute on function public.enforce_wpm_lead_allowance() from public,anon,authenticated;
+drop trigger if exists enforce_wpm_lead_allowance on public.wpm_leads;
 create trigger enforce_wpm_lead_allowance before insert on public.wpm_leads
 for each row execute function public.enforce_wpm_lead_allowance();
 
