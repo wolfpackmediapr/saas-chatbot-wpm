@@ -1,5 +1,23 @@
 // Run with WPM_PGLITE_MODULE pointing to an installed @electric-sql/pglite module.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+
+/**
+ * Resolve a migration by its NAME, not its timestamp.
+ *
+ * apply_migration stamps its own version, so a local file gets renamed to the
+ * registered one after it is applied (handbook: "apply_migration stamps its own
+ * timestamp — rename the local file"). Hardcoding the filename here made this
+ * suite fail the moment that correct rename happened. Match on the suffix so the
+ * test survives any future re-stamp.
+ */
+function migration(name) {
+  const dir = 'supabase/migrations';
+  const hits = readdirSync(dir).filter((f) => f.endsWith(`_${name}.sql`));
+  if (hits.length !== 1) {
+    throw new Error(`expected exactly one migration named ${name}, found ${hits.length}: ${hits.join(', ')}`);
+  }
+  return readFileSync(`${dir}/${hits[0]}`, 'utf8');
+}
 import { strict as assert } from 'node:assert';
 const { PGlite } = await import(process.env.WPM_PGLITE_MODULE || '@electric-sql/pglite');
 const db = new PGlite();
@@ -34,7 +52,7 @@ grant select,insert,update,delete on all tables in schema public to authenticate
 insert into wpm_clients values('${a}','${alice}'),('${b}','${bob}');
 insert into wpm_bot_profiles values('${a}','${a}','${alice}'),('${b}','${b}','${bob}');
 `);
-await db.exec(readFileSync('supabase/migrations/20260905192134_preserve_instruction_history.sql','utf8'));
+await db.exec(migration('preserve_instruction_history'));
 await db.exec(`set role authenticated; set request.jwt.claim.sub='${alice}';`);
 const save=(id,updates,version)=>db.query('select save_wpm_bot_instructions($1,$2,$3)',[id,JSON.stringify(updates),version]);
 await save(a,{system_prompt:'Original',handoff_rules:'Escalate safely'},0);
@@ -53,7 +71,7 @@ await db.exec('reset role;');
 assert.equal((await db.query("select has_function_privilege('anon','public.save_wpm_bot_instructions(uuid,jsonb,integer)','execute') allowed")).rows[0].allowed,false);
 // Tier limits are account-wide and must remain the published values.
 await db.exec(`create table subscriptions(user_id uuid,plan text,status text); create table app_admins(user_id uuid);`);
-await db.exec(readFileSync('supabase/migrations/20260821052320_align_max_bots_with_pricing_page.sql','utf8'));
+await db.exec(migration('align_max_bots_with_pricing_page'));
 for(const [plan,channels,bots] of [['free',2,1],['starter',1,1],['growth',3,2],['pro',10,3],['agency',null,10]]) {
  await db.query('delete from subscriptions');
  await db.query('insert into subscriptions values($1,$2,$3)',[bob,plan,'active']);
@@ -70,10 +88,10 @@ create table wpm_leads(id uuid primary key default gen_random_uuid(),client_id u
  full_name text,email text,phone text,service_interest text,intent text,qualification_data jsonb,
  source_channel text,status text,last_contact_at timestamptz,created_at timestamptz default now(),updated_at timestamptz default now());
 `);
-await db.exec(readFileSync('supabase/migrations/20260825214428_free_trial_expiry.sql','utf8'));
-await db.exec(readFileSync('supabase/migrations/20260825214503_get_wpm_usage_revoke_public_execute.sql','utf8'));
+await db.exec(migration('free_trial_expiry'));
+await db.exec(migration('get_wpm_usage_revoke_public_execute'));
 assert.equal((await db.query("select has_function_privilege('anon','public.get_wpm_usage(uuid)','execute') allowed")).rows[0].allowed,false);
-await db.exec(readFileSync('supabase/migrations/20260905193121_lead_capture_entitlements.sql','utf8'));
+await db.exec(migration('lead_capture_entitlements'));
 const a2='10000000-0000-0000-0000-000000000003';
 await db.query('insert into wpm_clients values($1,$2)',[a2,alice]);
 await db.query('insert into subscriptions values($1,$2,$3)',[alice,'starter','active']);
