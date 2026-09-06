@@ -61,16 +61,43 @@ function foldAccents(text: string): string {
  * Cost of a false positive is low by design: this opens a handoff with
  * source 'auto', and decideHandoffAction keeps the bot replying while an auto
  * handoff is unattended. Nobody gets stranded; a teammate just gets an alert.
+ *
+ * ⚠️ DOMAIN COLLISION — why a bare "agent" is deliberately NOT a trigger.
+ * These patterns are server-side and are merged WITH the owner's
+ * emergency_keywords, so an owner cannot remove one. That makes any noun here
+ * a promise to every tenant, in every industry.
+ *
+ * "agent" fails that test. Measured on live traffic 2026-09-05: WolfPack Media
+ * SELLS AI agents, so "agent"/"agente" in their keyword list escalated their
+ * best inbound leads. A prospect asked "what does the agent do?" at 01:58:43
+ * and a handoff plus an escalation email fired at 01:58:47. The owner removed
+ * both words from their own list at 02:00:09 — a fix these built-in patterns
+ * would have silently overridden.
+ *
+ * So: "talk to an agent" still escalates (a request aimed at a person), and so
+ * does "a human agent" or "un agente humano". A bare "I want an agent" /
+ * "quiero un agente" does not, because for an agency, a SaaS, an insurer or a
+ * travel firm that phrase is a purchase intent, not a plea for a human.
+ * An owner who wants the bare noun can still add it to their own
+ * emergency_keywords, where they can also take it back out.
+ *
+ * The general rule when adding a noun here: if a legitimate business could sell
+ * the thing the noun names, it does not belong in an unremovable list.
  */
 export const ESCALATION_REQUEST_PATTERNS: readonly RegExp[] = [
   // EN — "talk/speak/chat/connect/transfer ... to/with ... a human/person/agent"
   /\b(?:talk|speak|chat|connect|transfer|forward)\w*\b[^.!?\n]{0,25}?\b(?:to|with)\b[^.!?\n]{0,20}?\b(?:human|person|people|agent|representative|rep|someone|somebody|advisor|operator)\b/,
   // EN — "I want / need / give me a real person", "get me an agent"
-  /\b(?:want|need|get|give|put)\b[^.!?\n]{0,15}?\b(?:a|an|the)\s+(?:real\s+|live\s+|actual\s+|human\s+)?(?:human|person|agent|representative|rep|operator|advisor)\b/,
+  // EN — "I want / need / give me a real person", "get me a representative".
+  // NOTE the asymmetry on "agent": a QUALIFIED agent ("a human agent", "a real
+  // agent") is an escalation request, but a BARE "an agent" is not. See the
+  // comment below on domain collision.
+  /\b(?:want|need|get|give|put)\b[^.!?\n]{0,15}?\b(?:a|an|the)\s+(?:(?:real|live|actual|human)\s+(?:human|person|agent|representative|rep|operator|advisor)|(?:human|person|representative|rep|operator|advisor))\b/,
   // ES — "hablar/comunicar/contactar ... con ... humano/persona/agente/alguien"
   /\b(?:hablar|hablarle|comunicar|comunicarme|comunicarse|contactar|conversar|atienda|atiendan)\b[^.!?\n]{0,25}?\bcon\b[^.!?\n]{0,20}?\b(?:humano|humana|persona|agente|representante|alguien|asesor|operador)\b/,
   // ES — "quiero / necesito / quisiera / dame / paseme un humano | una persona"
-  /\b(?:quiero|quisiera|necesito|deseo|dame|paseme|pasame|transfiereme|transfiera|comunicame)\b[^.!?\n]{0,20}?\b(?:un|una|el|la)\s+(?:humano|humana|persona(?:\s+real)?|agente|representante|asesor|operador)\b/,
+  // ES — same asymmetry: "un agente humano" escalates, bare "un agente" does not.
+  /\b(?:quiero|quisiera|necesito|deseo|dame|paseme|pasame|transfiereme|transfiera|comunicame)\b[^.!?\n]{0,20}?\b(?:un|una|el|la)\s+(?:humano|humana|persona(?:\s+real)?|representante|asesor|operador|agente\s+(?:humano|real)|persona\s+de\s+verdad)\b/,
 ];
 /**
  * Did the customer explicitly ask to be handed to a person?

@@ -177,3 +177,41 @@ Deno.test('matchEscalationRequest ignores our own lead-capture boilerplate', () 
     null,
   );
 });
+
+// ── Domain collision: a bare "agent" is a product, not a plea ───────────────
+// Found on live traffic 2026-09-05. WolfPack Media sells AI agents, so "agent"
+// in their emergency_keywords escalated their best leads: a prospect asked
+// "what does the agent do?" at 01:58:43 and a handoff plus an escalation email
+// fired at 01:58:47. The owner removed the word at 02:00:09 — and because these
+// built-in patterns are merged WITH the owner's keywords rather than replaced by
+// them, shipping "agent" here would have silently overridden that fix with no way
+// to opt out. These tests pin the asymmetry in both directions.
+
+Deno.test('a bare request to BUY an agent never escalates', () => {
+  for (
+    const sales of [
+      'I want an agent for my Instagram',
+      'I need an agent for my business',
+      'quiero un agente para mi negocio',
+      'necesito un agente de IA',
+      'quiero un agente de ventas',
+      'how much for an agent',
+    ]
+  ) {
+    assertEquals(matchEscalationRequest(sales), null, `should not escalate: ${sales}`);
+  }
+});
+
+Deno.test('asking to reach an agent, or a HUMAN agent, still escalates', () => {
+  for (
+    const request of [
+      'can I talk to an agent',
+      'I want a human agent',
+      'quiero un agente humano',
+      'put me through to an operator',
+      'give me a representative',
+    ]
+  ) {
+    assertEquals(matchEscalationRequest(request) !== null, true, `should escalate: ${request}`);
+  }
+});
