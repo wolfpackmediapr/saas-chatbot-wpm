@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { buildWpmSystemPrompt, buildWpmAssistantMessages, flattenMarkdownLinks, type WpmBotContext, type WpmChatMessage } from "../_shared/wpm_prompt.ts";
+import { checkConversationAllowance } from "../_shared/wpm_usage.ts";
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from "../_shared/wpm_leads.ts";
 
 const corsHeaders = {
@@ -97,6 +98,16 @@ Deno.serve(async (req: Request) => {
   }
 
   const client = clientData as Record<string, any>;
+  // A caller-supplied test thread must belong to this business. All later
+  // writes use service_role, so RLS on the initial client read is not enough.
+  if (body.conversationId) {
+    const { data: ownedThread, error: threadError } = await supabaseUser
+      .from('wpm_conversations').select('id').eq('id', body.conversationId)
+      .eq('client_id', client.id).eq('channel_type', 'test').maybeSingle();
+    if (threadError || !ownedThread) return err('Test conversation unavailable for this business.', 403);
+  }
+  const allowance = await checkConversationAllowance(supabaseAdmin, client.id, body.conversationId);
+  if (!allowance.allowed) return err('Your plan or trial allowance has been reached. Check Subscription before testing again.', 429);
 
   // ── Load the bot profile under test ───────────────────────────────────────
   // An account can own several agents. Without an explicit id this took
@@ -319,18 +330,22 @@ Deno.serve(async (req: Request) => {
       inboundText: lastUserMsg.content,
       assistantText: reply,
       sourceChannel: "test",
+      threadIdentity: { externalUserId: user.id },
+      previousAssistantText: historyWithoutLastUser.at(-1)?.role === 'assistant'
+        ? historyWithoutLastUser.at(-1)?.content : undefined,
     });
 
     if (lead.isQualified && conversationId) {
-      await persistQualifiedLeadAndQueueActions({
+      const capture = await persistQualifiedLeadAndQueueActions({
         supabase: supabaseAdmin,
         clientId: client.id,
         conversationId,
         lead,
       });
+      if (!capture.ok) console.warn('[test-chat] Lead persistence failed:', capture.error);
     }
   } catch (_leadErr) {
-    // Lead extraction is best-effort — never fail the response
+    console.warn('[test-chat] Lead capture failed:', _leadErr);
   }
 
   return ok({

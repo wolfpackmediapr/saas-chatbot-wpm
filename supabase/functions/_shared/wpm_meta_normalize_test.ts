@@ -161,3 +161,104 @@ Deno.test('a mixed batch keeps both the customer message and the echo', () => {
   assertEquals(out[1].isEcho, true);
   assertEquals(out[1].senderId, CUSTOMER);
 });
+
+// ── Echoes we cannot read ────────────────────────────────────────────────
+//
+// Every payload below is copied from a real row that the pipeline DISCARDED.
+// Find them with:
+//   select created_at, error_message, raw_payload from wpm_webhook_events
+//   where status='ignored'
+//     and (raw_payload->'entry'->0->'messaging'->0->'message'->>'is_echo')='true';
+//
+// The caller drops any event with no text at meta-direct-webhook/index.ts:351,
+// 190 lines before the echo branch at :541 — so an echo with nothing readable
+// never reached the code written to store it.
+
+Deno.test('an echo replying to a story is kept, not dropped for having no text', () => {
+  // Real row: 2026-09-04 15:18:33 UTC. No text, no attachments, only reply_to.
+  const out = normalizeMetaEvents(
+    entry([{
+      sender: { id: PAGE },
+      recipient: { id: CUSTOMER },
+      timestamp: 1788492000000,
+      message: {
+        mid: 'mid.story.echo',
+        is_echo: true,
+        reply_to: { story: { id: '17934571032364398', url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1' } },
+      },
+    }]),
+    'instagram',
+  );
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].isEcho, true);
+  assertEquals(out[0].text, '[Replied to a story]');
+  // Still the customer's thread, not pageId:pageId.
+  assertEquals(out[0].senderId, CUSTOMER);
+  assertEquals(out[0].messageId, 'mid.story.echo');
+});
+
+Deno.test('an echo carrying an attachment we have no case for is kept', () => {
+  // Real rows: 2026-09-01 10:38 / 16:06 and 2026-09-02 15:30 UTC.
+  // describeAttachments has no `unsupported_type` case, so it returns null.
+  const out = normalizeMetaEvents(
+    entry([{
+      sender: { id: PAGE },
+      recipient: { id: CUSTOMER },
+      timestamp: 1788185629044,
+      message: {
+        mid: 'mid.unsupported',
+        is_echo: true,
+        attachments: [{ type: 'unsupported_type' }],
+      },
+    }]),
+    'instagram',
+  );
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].text, '[Sent an attachment (unsupported_type)]');
+  assertEquals(out[0].isEcho, true);
+});
+
+Deno.test('an echo with nothing at all still records that something was sent', () => {
+  const out = normalizeMetaEvents(
+    entry([{
+      sender: { id: PAGE },
+      recipient: { id: CUSTOMER },
+      timestamp: 1788185629044,
+      message: { mid: 'mid.empty', is_echo: true },
+    }]),
+    'instagram',
+  );
+
+  assertEquals(out[0].text, '[Sent a message with no readable content]');
+});
+
+Deno.test('a readable echo is untouched — the placeholder is a fallback, not a rewrite', () => {
+  const out = normalizeMetaEvents(entry([echo('Te llamo en 5 minutos')]), 'instagram');
+  assertEquals(out[0].text, 'Te llamo en 5 minutos');
+});
+
+Deno.test('an INBOUND message with nothing readable is still dropped, deliberately', () => {
+  // Scoping guard. Manufacturing text here would burn an OpenAI call, a
+  // reply-cap slot and a free-grant message answering nothing — the trap
+  // already recorded for Instagram's empty phone-card template. Three of the
+  // four story replies dropped since 09-03 were inbound, not echoes; whether
+  // THOSE deserve a reply is a product decision, not this fix.
+  const out = normalizeMetaEvents(
+    entry([{
+      sender: { id: CUSTOMER },
+      recipient: { id: PAGE },
+      timestamp: 1788492000000,
+      message: {
+        mid: 'mid.story.inbound',
+        reply_to: { story: { id: '18108989594162204' } },
+      },
+    }]),
+    'instagram',
+  );
+
+  assertEquals(out.length, 1);
+  assertEquals(out[0].isEcho, false);
+  assertEquals(out[0].text, null); // the caller's guard at :351 still discards it
+});

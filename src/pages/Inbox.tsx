@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -107,7 +108,7 @@ function replyWindowClosed(messages: Message[]): boolean {
 
 /** A stored reply Meta refused to deliver. */
 function failedToSend(message: Message): boolean {
-  return message.metadata?.sent_via_graph_api === false;
+  return message.metadata?.sent_via_graph_api === false || message.metadata?.delivery === 'failed';
 }
 
 /** Meta's error text is accurate but tells nobody what to do about it. */
@@ -173,6 +174,8 @@ async function callInboxReply(accessToken: string, conversationId: string, messa
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Inbox() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedConversationId = searchParams.get('conversation');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -223,6 +226,28 @@ export default function Inbox() {
     if (!err && data) setConversations(data as Conversation[]);
     setLoadingConvs(false);
   }, []);
+
+  useEffect(() => {
+    if (!linkedConversationId || !supabase) return;
+    let cancelled = false;
+    supabase.from('wpm_conversations')
+      .select('id, client_id, channel_type, bot_profile_id, external_user_id, external_user_name, status, last_message_at, created_at, metadata')
+      .eq('id', linkedConversationId).maybeSingle()
+      .then(({ data, error: linkError }) => {
+        if (cancelled) return;
+        if (linkError || !data) {
+          setSelectedId(null);
+          setError('This conversation is unavailable or you do not have access.');
+          return;
+        }
+        const linked = data as Conversation;
+        setConversations(prev => prev.some(c => c.id === linked.id) ? prev : [linked, ...prev]);
+        setSelectedId(linked.id);
+        setShowDetail(true);
+        setFilter('all');
+      });
+    return () => { cancelled = true; };
+  }, [linkedConversationId, loadingConvs]);
 
   // ── Agent names (for the per-conversation badge) ───────────────────────────
   const [agentNames, setAgentNames] = useState<Record<string, string>>({});
@@ -296,6 +321,14 @@ export default function Inbox() {
           });
         },
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'wpm_messages', filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          const msg = payload.new as Message;
+          setMessages(prev => prev.map(existing => existing.id === msg.id ? msg : existing));
+        },
+      )
       .subscribe();
     realtimeRef.current = ch;
     const db = supabase;
@@ -309,6 +342,7 @@ export default function Inbox() {
 
   // ── Select conversation ────────────────────────────────────────────────────
   const handleSelect = (conv: Conversation) => {
+    setSearchParams({ conversation: conv.id });
     setSelectedId(conv.id);
     setReplyText('');
     setError(null);

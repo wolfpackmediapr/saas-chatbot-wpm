@@ -1,4 +1,5 @@
 interface SupabaseLike {
+  rpc(fn: string, args: Record<string, unknown>): any;
   from(table: string): any;
 }
 
@@ -329,10 +330,27 @@ function extractQualificationData(text: string): Record<string, unknown> {
   return data;
 }
 
+/** Only the customer's words establish commitment; a bare assent needs a
+ * preceding, concrete invitation. The assistant's new reply is never evidence. */
+export function hasThreadCommitment(inboundText: string, previousAssistantText?: string): boolean {
+  const text = inboundText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\b(no|not|don't|dont|never|cancel|cancelar|cancela|quizas|maybe)\b/.test(text)) return false;
+  if (/\b(?:i (?:want|would like|am ready) to|let'?s|please)\s+(?:book|schedule|reserve|arrange)\b/.test(text)
+    || /\b(?:quiero|quisiera|deseo|podemos|vamos a)\s+(?:reservar|agendar|coordinar|programar)\b/.test(text)) return true;
+  const assent = /^(?:yes|yeah|yep|sure|absolutely|sounds good|let'?s do it|si|claro|dale|de acuerdo|perfecto)(?:[!,.\s]|$)/.test(text);
+  const previous = (previousAssistantText ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const invitation = /(?:would you like|shall we|do you want|want to|te gustaria|quieres|deseas|coordinamos|agendamos)/.test(previous);
+  const action = /\b(book|schedule|reserve|meeting|call|appointment|reservar|agendar|coordinar|reunion|llamada|cita)\b/.test(previous);
+  return assent && invitation && action;
+}
+
 export function extractLeadFromConversationText(args: {
   inboundText: string;
   assistantText?: string;
   sourceChannel: string | null;
+  /** Provider-scoped identity from the authenticated webhook, never message text. */
+  threadIdentity?: { externalUserId: string; displayName?: string | null };
+  previousAssistantText?: string;
 }): ExtractedLead {
   // Who the lead IS can only come from what the customer wrote. Scanning our
   // own reply for their identity is how a lead was stored as "Discovery Call":
@@ -364,14 +382,25 @@ export function extractLeadFromConversationText(args: {
   const handedOverDetails = Boolean((fullName && hasContact) || (email && phone));
 
   const hasCommercialIntent = Boolean(serviceInterest || intent || handedOverDetails);
+  const threadQualified = Boolean(
+    args.threadIdentity?.externalUserId &&
+    ['instagram', 'facebook', 'test'].includes(args.sourceChannel ?? '') &&
+    hasThreadCommitment(args.inboundText, args.previousAssistantText),
+  );
+  if (threadQualified) {
+    qualificationData.contact_method = 'conversation';
+    qualificationData.external_user_id = args.threadIdentity!.externalUserId;
+    qualificationData.external_user_name = args.threadIdentity!.displayName ?? null;
+    qualificationData.qualification_basis = 'explicit_thread_commitment';
+  }
 
   return {
-    isQualified: hasContact && hasCommercialIntent,
+    isQualified: (hasContact && hasCommercialIntent) || threadQualified,
     fullName,
     email,
     phone,
     serviceInterest,
-    intent,
+    intent: intent ?? (threadQualified ? 'booking_request' : null),
     qualificationData,
     sourceChannel: args.sourceChannel,
   };
@@ -455,11 +484,18 @@ export async function persistQualifiedLeadAndQueueActions(args: {
     };
   }
 
-  const { data: lead, error: leadError } = await args.supabase
-    .from('wpm_leads')
-    .insert(buildLeadUpsertPayload(args))
-    .select('id')
-    .single();
+  const { data: lead, error: leadError } = await args.supabase.rpc('capture_wpm_lead', {
+    p_client_id: args.clientId,
+    p_conversation_id: args.conversationId,
+    p_lead: buildLeadUpsertPayload(args),
+  });
+  if (leadError?.message?.includes('LEAD_MONTHLY_LIMIT') || leadError?.message?.includes('LEAD_TRIAL_EXHAUSTED')) {
+    console.warn('[leads] Capture allowance exhausted for client', args.clientId, leadError.message);
+    return { ok: true, leadId: null, queuedToolExecutionIds: [], skipped: true, error: null };
+  }
+  if (lead && lead.created === false) {
+    return { ok: true, leadId: lead.id, queuedToolExecutionIds: [], skipped: true, error: null };
+  }
 
   if (leadError || !lead) {
     return {

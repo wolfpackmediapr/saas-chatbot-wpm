@@ -34,6 +34,7 @@ const plans: Plan[] = [
       { text: '1 connected channel', included: true },
       { text: '1 AI bot', included: true },
       { text: '500 conversations/mo', included: true },
+      { text: '50 captured leads/mo', included: true },
       { text: 'Standard support', included: true },
       { text: 'Human handoff inbox', included: true },
       { text: 'White-label', included: false },

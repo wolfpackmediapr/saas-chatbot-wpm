@@ -31,6 +31,7 @@ const tiers: Tier[] = [
       "1 connected channel (Instagram or Facebook)",
       "1 AI bot with your brand voice & knowledge",
       "500 conversations per month",
+      "50 captured leads per month",
       "Human handoff inbox included",
       "Basic automations & email support",
       "Launch Checklist & Test Agent",

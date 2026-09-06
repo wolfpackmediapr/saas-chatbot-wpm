@@ -1,5 +1,5 @@
 import { buildWpmAssistantMessages, flattenMarkdownLinks, HUMAN_REPLY_PREFIX, stripHumanReplyMarker, type WpmBotContext, type WpmChatMessage } from './wpm_prompt.ts';
-import { matchEmergencyKeyword, stripHandoffSignal } from './wpm_handoff.ts';
+import { stripHandoffSignal } from './wpm_handoff.ts';
 
 interface SupabaseLike {
   from(table: string): any;
@@ -63,6 +63,7 @@ interface MessageRow {
   content: string;
   created_at?: string;
   provider_message_id?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 function firstOrValue<T>(value: T | T[] | null | undefined): T | null {
@@ -90,6 +91,8 @@ const WPM_CONTEXT_WINDOW = 12;
  */
 function toChatMessage(message: MessageRow): WpmChatMessage | null {
   if (!message.content?.trim()) return null;
+  // A rejected send was never part of the customer's conversation.
+  if (message.metadata?.sent_via_graph_api === false || message.metadata?.delivery === 'failed') return null;
   if (message.role === 'user') return { role: 'user', content: message.content };
   if (message.role === 'assistant') return { role: 'assistant', content: message.content };
   if (message.role === 'human') {
@@ -171,7 +174,7 @@ export async function loadWpmBotContext(
 
   const { data: messagesData, error: messagesError } = await supabase
     .from('wpm_messages')
-    .select('role, content, created_at, provider_message_id')
+    .select('role, content, created_at, provider_message_id, metadata')
     .eq('conversation_id', conversation.id)
     .order('created_at', { ascending: false })
     .limit(WPM_CONTEXT_FETCH_ROWS);
@@ -368,18 +371,10 @@ export async function generateAndStoreAssistantReply(args: {
   const content = flattenMarkdownLinks(stripHumanReplyMarker(unstripped));
   if (!content) return { ok: false, error: 'OpenAI returned an empty assistant response' };
 
-  // Deterministic escalation runs regardless of what the model decided: an
-  // emergency keyword must never depend on the model following instructions.
-  const keywordHit = matchEmergencyKeyword(
-    args.inboundMessage,
-    loaded.context.instructions?.emergency_keywords,
-  );
-  const handoffRequested = sentinelRequested || keywordHit !== null;
-  const handoffReason = keywordHit
-    ? `Emergency keyword: "${keywordHit}"`
-    : sentinelRequested
-      ? 'AI escalated per the escalation policy'
-      : null;
+  // Deterministic keyword and explicit-human matching is owned by the webhook
+  // before this AI call. This path reports only the model's policy judgment.
+  const handoffRequested = sentinelRequested;
+  const handoffReason = sentinelRequested ? 'AI escalated per the escalation policy' : null;
 
   const outboundPayload = buildOutboundAssistantMessageInsertPayload({
     conversationId: loaded.conversation.id,

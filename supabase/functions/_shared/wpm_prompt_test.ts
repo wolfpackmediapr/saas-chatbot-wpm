@@ -485,3 +485,27 @@ Deno.test('a business with no website gets no website sentence', () => {
   assertEquals(prompt.includes("You may also share this business's own website"), false);
   assertStringIncludes(prompt, 'you may send that same one again');
 });
+
+// ── Rule 6 must not fire on an opener ───────────────────────────────────────
+// Live 2026-09-06 02:46:58 and again at 02:48:30, to a real prospect:
+//   "Hey so question about your agents or bots"
+//   -> "That's a great question — I'll make sure someone from our team
+//       follows up with that specific detail."
+// Twice, identically. The message ANNOUNCES a question without asking one, so
+// there is no specific to answer and rule 6 fired — technically obeying itself.
+// No Knowledge Base entry can fix this: you cannot write a source that answers
+// "I have a question." It is the same shape as the 2026-08-22 finding that
+// shared reels drew the canned line, which rule 9 carved out; this is the same
+// carve-out for openers.
+Deno.test('rule 6 carves out a question that is announced but not asked', () => {
+  const prompt = buildWpmSystemPrompt(context);
+
+  // The fallback line still exists and is still mandated — this is not a
+  // loosening of "do not guess".
+  assertStringIncludes(prompt, "That's a great question");
+
+  // ...but an opener is explicitly excluded from it.
+  assertStringIncludes(prompt, 'ANNOUNCES a question without actually asking one');
+  assertStringIncludes(prompt, 'invite the specific question');
+  assertStringIncludes(prompt, 'Never answer an opener with the fallback line');
+});

@@ -11,6 +11,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { createOpenAIChatClient, generateAndStoreAssistantReply } from '../_shared/wpm_ai.ts';
+import { beginInboundTurn } from '../_shared/wpm_inbound_start.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { describeAttachments } from '../_shared/wpm_meta_attachments.ts';
@@ -20,7 +21,7 @@ import {
   describeBlock,
   noticeForBlock,
 } from '../_shared/wpm_usage.ts';
-import { closeHandoff, decideHandoffAction, openHandoff } from '../_shared/wpm_handoff.ts';
+import { closeHandoff, decideHandoffAction, openHandoff, resolveDeterministicHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { describeSendFailure, extractSentMessageId, fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
 import { normalizeMetaEvents } from '../_shared/wpm_meta_normalize.ts';
@@ -591,7 +592,9 @@ Deno.serve(async (request: Request) => {
       }
 
       // ── Store inbound message ────────────────────────────────────────
+      const inboundStoredAt = new Date().toISOString();
       await supabase.from('wpm_messages').insert({
+        created_at: inboundStoredAt,
         conversation_id: conversationId,
         client_id: channel.client_id,
         direction: 'inbound',
@@ -640,10 +643,57 @@ Deno.serve(async (request: Request) => {
         continue;
       }
 
+      // Persist escalation before allowance, API-key, AI, or delivery failures
+      // can stop this turn. Manual takeovers have already been respected above.
+      const escalate = async (reason: string, priority: 'urgent' | 'normal') => {
+        const { opened } = await openHandoff(supabase, {
+          clientId: channel.client_id,
+          conversationId,
+          reason,
+          priority,
+          source: 'auto',
+          metadata: { platform: event.platform, triggered_by_message_id: event.messageId ?? null },
+        });
+
+        // Only mail on a genuinely new handoff — an escalated conversation keeps
+        // being answered, so it can re-trigger on every message.
+        if (opened) {
+          console.log(`[meta-direct] Handoff opened for ${conversationId}: ${reason}`);
+          const mail = await sendEscalationEmail(supabase, {
+            clientId: channel.client_id,
+            botProfileId: botProfileId ?? null,
+            reason,
+            priority,
+            channelLabel: event.platform === 'instagram' ? 'Instagram' : 'Facebook Messenger',
+            customerName: externalUserName ?? null,
+            lastMessage: event.text,
+          });
+          if (!mail.sent) console.warn(`[meta-direct] Escalation email not sent: ${mail.reason}`);
+        }
+      };
+      let emergencyKeywords: string[] = [];
+      if (botProfileId) {
+        const { data: escalationConfig, error: configError } = await supabase
+          .from('wpm_bot_instructions').select('emergency_keywords')
+          .eq('bot_profile_id', botProfileId).eq('is_active', true)
+          .order('version', { ascending: false }).limit(1).maybeSingle();
+        if (configError) console.warn('[meta-direct] Escalation config unavailable:', configError.message);
+        emergencyKeywords = escalationConfig?.emergency_keywords ?? [];
+      }
+      const deterministicHandoff = resolveDeterministicHandoff(event.text, emergencyKeywords);
+
       // ── Usage caps: pause AI when the account allowance or this single
       // conversation's reply cap runs out. Either way the conversation stays in
-      // the Inbox so a human can still reply.
-      const allowance = await checkConversationAllowance(supabase, channel.client_id, conversationId);
+      // the Inbox so a human can still reply. beginInboundTurn makes the
+      // persistence-before-allowance contract executable and regression-tested.
+      const allowance = await beginInboundTurn({
+        persistDeterministicHandoff: async () => {
+          if (deterministicHandoff) {
+            await escalate(deterministicHandoff.reason, deterministicHandoff.priority);
+          }
+        },
+        checkAllowance: () => checkConversationAllowance(supabase, channel.client_id, conversationId),
+      });
       if (!allowance.allowed) {
         const notice = noticeForBlock(allowance.reason);
         const noticeKey = allowance.reason === 'conversation_cap'
@@ -779,37 +829,10 @@ Deno.serve(async (request: Request) => {
         if (deliveryError) console.warn(`[meta-direct] Delivery status not recorded: ${deliveryError.message}`);
       }
 
-      // ── Escalate to a human ──────────────────────────────────────────
-      // After the reply goes out, so the customer gets the acknowledgement the
-      // AI just promised them and only then does the thread move to a human.
+      // A model-only escalation is also recorded. Existing deterministic
+      // handoffs are deduplicated by openHandoff.
       if (aiResult.handoffRequested) {
-        const priority = aiResult.handoffReason?.startsWith('Emergency keyword') ? 'urgent' : 'normal';
-        const reason = aiResult.handoffReason ?? 'Escalation requested';
-
-        const { opened } = await openHandoff(supabase, {
-          clientId: channel.client_id,
-          conversationId,
-          reason,
-          priority,
-          source: 'auto',
-          metadata: { platform: event.platform, triggered_by_message_id: event.messageId ?? null },
-        });
-
-        // Only mail on a genuinely new handoff — an escalated conversation keeps
-        // being answered, so it can re-trigger on every message.
-        if (opened) {
-          console.log(`[meta-direct] Handoff opened for ${conversationId}: ${reason}`);
-          const mail = await sendEscalationEmail(supabase, {
-            clientId: channel.client_id,
-            botProfileId: botProfileId ?? null,
-            reason,
-            priority,
-            channelLabel: event.platform === 'instagram' ? 'Instagram' : 'Facebook Messenger',
-            customerName: externalUserName ?? null,
-            lastMessage: event.text,
-          });
-          if (!mail.sent) console.warn(`[meta-direct] Escalation email not sent: ${mail.reason}`);
-        }
+        await escalate(aiResult.handoffReason ?? 'Escalation requested', 'normal');
       }
 
       // Update webhook event status ('failed' — 'send_failed' violates the
@@ -828,19 +851,32 @@ Deno.serve(async (request: Request) => {
 
       // ── Lead extraction ──────────────────────────────────────────────
       try {
+        // Read the previous delivered assistant turn, excluding this turn's
+        // reply. "Yes" qualifies only in response to an actual invitation.
+        const { data: priorReply, error: priorReplyError } = await supabase
+          .from('wpm_messages').select('role, content')
+          .eq('conversation_id', conversationId).lt('created_at', inboundStoredAt)
+          .or('metadata->>delivery.is.null,metadata->>delivery.neq.failed')
+          .or('metadata->>sent_via_graph_api.is.null,metadata->>sent_via_graph_api.neq.false')
+          .in('role', ['user', 'assistant', 'human'])
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (priorReplyError) console.warn('[meta-direct] Lead context lookup failed:', priorReplyError.message);
         const lead = extractLeadFromConversationText({
           inboundText: event.text,
           assistantText: replyText,
           sourceChannel: event.platform,
+          threadIdentity: { externalUserId: event.senderId, displayName: externalUserName },
+          previousAssistantText: priorReply?.role === 'assistant' || priorReply?.role === 'human' ? priorReply.content : undefined,
         });
 
         if (lead.isQualified) {
-          await persistQualifiedLeadAndQueueActions({
+          const capture = await persistQualifiedLeadAndQueueActions({
             supabase,
             clientId: channel.client_id,
             conversationId,
             lead,
           });
+          if (!capture.ok) console.warn('[meta-direct] Lead persistence failed:', capture.error);
         }
       } catch (err) {
         console.error('[meta-direct] Lead extraction error:', err);

@@ -76,7 +76,8 @@ export default function TrialBar() {
         {expired ? (
           <>
             <strong>Your 7-day free trial has ended</strong> — your agent has stopped
-            replying. Messages still arrive in your Inbox.
+            replying and new leads are no longer captured. Messages still arrive in
+            your Inbox.
           </>
         ) : (
           <>

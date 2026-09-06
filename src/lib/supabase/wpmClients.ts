@@ -486,34 +486,13 @@ export async function upsertBotInstructions(botProfileId: string, updates: {
   if (!user) throw new Error('Not authenticated');
 
   const existing = await getBotInstructions(botProfileId);
-  const payload = {
-    bot_profile_id: botProfileId,
-    owner_user_id: user.id,
-    system_prompt: updates.system_prompt || '',
-    business_summary: updates.business_summary || null,
-    faq_instructions: updates.faq_instructions || null,
-    lead_qualification_instructions: updates.lead_qualification_instructions || null,
-    handoff_rules: updates.handoff_rules || null,
-    never_say_rules: updates.never_say_rules || null,
-    primary_goal: updates.primary_goal || 'Book a meeting',
-    response_language: updates.response_language || 'English + Latin American Spanish',
-    emergency_keywords: updates.emergency_keywords ?? [],
-    lead_fields: updates.lead_fields ?? [],
-    is_active: true,
-    version: existing ? (existing.version || 1) + 1 : 1,
-  };
-  if (existing) {
-    const { error } = await (supabase as any)
-      .from('wpm_bot_instructions')
-      .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq('id', existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await (supabase as any)
-      .from('wpm_bot_instructions')
-      .insert(payload);
-    if (error) throw error;
-  }
+  const { error } = await (supabase as any).rpc('save_wpm_bot_instructions', {
+    p_bot_profile_id: botProfileId,
+    p_updates: updates,
+    p_expected_version: existing?.version ?? 0,
+  });
+  if (error) throw error;
+
 }
 
 function buildDefaultSystemPrompt(businessName?: string | null): string {
@@ -546,6 +525,7 @@ export async function ensureDefaultBotSetup(clientId: string, businessName?: str
     if (!instructions) {
       await upsertBotInstructions(botProfileId, {
         system_prompt: buildDefaultSystemPrompt(businessName ?? ''),
+        handoff_rules: 'When a customer asks for a person, or you cannot answer using the business information, escalate to the team. Never promise a response time.',
       });
     }
   } catch (err) {

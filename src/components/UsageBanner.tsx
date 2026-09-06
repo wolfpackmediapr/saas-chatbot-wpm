@@ -77,8 +77,8 @@ export default function UsageBanner() {
             <strong>Your agent has stopped replying.</strong> You've used all{' '}
             {limit.toLocaleString()} {unit}
             {onFreeGrant && ' — the free trial is one-time and does not reset'}. New
-            customer messages are still arriving in your Inbox, and they're getting a
-            note saying someone will follow up.
+            leads are no longer captured. Customer messages are still arriving in your
+            Inbox, and they're getting a note saying someone will follow up.
           </>
         ) : (
           <>
