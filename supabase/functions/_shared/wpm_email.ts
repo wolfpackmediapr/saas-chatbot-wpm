@@ -238,9 +238,26 @@ const BILLING_URL = 'https://ai.wolfpackmediapr.com/dashboard/settings?tab=billi
  * what does not. An email that describes a different product from the banner is
  * how a customer decides neither can be trusted.
  */
+/**
+ * Button teal, darkened from the #0e8f9e used elsewhere in this file.
+ *
+ * White on #0e8f9e measures 3.86:1, which fails WCAG AA — that needs 4.5:1 for
+ * 14px bold, since bold text only counts as "large" from 18.66px. #0b7a86 is
+ * 5.07:1 and is a shade most people cannot tell apart. This is the same
+ * white-on-primary problem recorded against the app's own primary colour; it
+ * matters more here because this is the button asking someone to start paying.
+ */
+const BUTTON_BG = '#0b7a86';
+
 function trialEmailHtml(args: {
   heading: string;
   lead: string;
+  /**
+   * What stops. Written per-template rather than shared: the warning needs a
+   * future tense ("when it ends...") or it contradicts the sentence above it,
+   * and the expired mail must not repeat a fact its own opening line just gave.
+   */
+  consequence: string;
   cta: string;
   closing?: string;
 }): string {
@@ -249,12 +266,12 @@ function trialEmailHtml(args: {
       <h2 style="margin:0 0 14px;font-size:19px">${args.heading}</h2>
       <p style="font-size:15px;line-height:1.6;margin:0 0 16px">${args.lead}</p>
       <p style="font-size:14px;line-height:1.6;color:#45585b;margin:0 0 20px">
-        Your agent stops replying and new leads are no longer captured.
+        ${args.consequence}
         Messages still arrive in your Inbox, and your agent setup, knowledge base
         and connected accounts are all kept exactly as they are.
       </p>
       <a href="${BILLING_URL}"
-         style="display:inline-block;background:#0e8f9e;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;font-weight:600">
+         style="display:inline-block;background:${BUTTON_BG};color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;font-weight:600">
         ${args.cta}
       </a>
       ${
@@ -294,6 +311,9 @@ export async function sendTrialExpiringSoonEmail(
     html: trialEmailHtml({
       heading: 'Your free trial ends tomorrow',
       lead,
+      // Future tense. "Your agent stops replying" here reads as though it
+      // already had, contradicting the line directly above it.
+      consequence: 'When it ends, your agent stops replying and new leads are no longer captured.',
       cta: 'Choose a plan',
       closing: 'If you have a question before deciding, just reply to this email.',
     }),
@@ -317,6 +337,9 @@ export async function sendTrialExpiredEmail(
     html: trialEmailHtml({
       heading: 'Your free trial has ended',
       lead,
+      // The opening line already said the agent has stopped. Saying it again
+      // here, in the present tense, told the reader the same fact twice.
+      consequence: 'New leads are no longer captured either.',
       cta: 'Choose a plan',
       closing: 'Nothing has been deleted. Everything picks up where it left off.',
     }),
