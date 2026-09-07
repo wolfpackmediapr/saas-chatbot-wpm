@@ -217,6 +217,112 @@ export async function sendAccountDeletionConfirmation(to: string): Promise<Email
   });
 }
 
+const BILLING_URL = 'https://ai.wolfpackmediapr.com/dashboard/settings?tab=billing';
+
+/**
+ * The two trial emails.
+ *
+ * Added 2026-09-07. Trial expiry was the one moment the product never told
+ * anyone about. Everything else that matters — an escalation, a qualified lead —
+ * sends mail; the trial simply ran out, the agent went quiet, and the only place
+ * that said so was a banner inside an app the customer had stopped opening.
+ * In House Chef's trial ends 2026-09-09 with 969 of 1,000 messages unused, so
+ * the number that would have run out first is the calendar, silently.
+ *
+ * ⚠️ These go to the ACCOUNT OWNER, not through `resolveHandoffRecipient`. That
+ * chain deliberately prefers the agent's `handoff_contact`, which is whoever
+ * handles customers — often not the person who can enter a card. Billing mail
+ * follows the account, not the inbox.
+ *
+ * The copy deliberately mirrors `TrialBar.tsx` word for word on what stops and
+ * what does not. An email that describes a different product from the banner is
+ * how a customer decides neither can be trusted.
+ */
+function trialEmailHtml(args: {
+  heading: string;
+  lead: string;
+  cta: string;
+  closing?: string;
+}): string {
+  return `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      <h2 style="margin:0 0 14px;font-size:19px">${args.heading}</h2>
+      <p style="font-size:15px;line-height:1.6;margin:0 0 16px">${args.lead}</p>
+      <p style="font-size:14px;line-height:1.6;color:#45585b;margin:0 0 20px">
+        Your agent stops replying and new leads are no longer captured.
+        Messages still arrive in your Inbox, and your agent setup, knowledge base
+        and connected accounts are all kept exactly as they are.
+      </p>
+      <a href="${BILLING_URL}"
+         style="display:inline-block;background:#0e8f9e;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;font-weight:600">
+        ${args.cta}
+      </a>
+      ${
+    args.closing
+      ? `<p style="font-size:14px;line-height:1.6;color:#45585b;margin:20px 0 0">${args.closing}</p>`
+      : ''
+  }
+      <p style="font-size:12px;color:#8a9a9c;margin:24px 0 0">
+        You are getting this because your WolfPack AI free trial is ending.
+        This is a one-time notice, not a subscription.
+      </p>
+    </div>
+  `;
+}
+
+/**
+ * Sent once, roughly 24 hours before the 7-day clock runs out.
+ *
+ * `messagesUsed` is included only when the customer has actually used the
+ * product. Telling someone who sent 31 of 1,000 messages that they have "969
+ * remaining" reads as a reason to ignore the email, when the calendar — not the
+ * grant — is what is about to end.
+ */
+export async function sendTrialExpiringSoonEmail(
+  to: string,
+  args: { businessName?: string | null; endsAt: Date },
+): Promise<EmailResult> {
+  if (!to?.includes('@')) return { sent: false, reason: 'no address' };
+
+  const who = args.businessName?.trim();
+  const lead = `Your 7-day free trial${who ? ` for <strong>${escapeHtml(who)}</strong>` : ''} ends tomorrow. ` +
+    `Add a plan before then and nothing changes — your agent keeps answering without a gap.`;
+
+  return sendViaResend({
+    to,
+    subject: 'Your WolfPack AI free trial ends tomorrow',
+    html: trialEmailHtml({
+      heading: 'Your free trial ends tomorrow',
+      lead,
+      cta: 'Choose a plan',
+      closing: 'If you have a question before deciding, just reply to this email.',
+    }),
+  });
+}
+
+/** Sent once, after the 7-day clock has run out. */
+export async function sendTrialExpiredEmail(
+  to: string,
+  args: { businessName?: string | null },
+): Promise<EmailResult> {
+  if (!to?.includes('@')) return { sent: false, reason: 'no address' };
+
+  const who = args.businessName?.trim();
+  const lead = `Your 7-day free trial${who ? ` for <strong>${escapeHtml(who)}</strong>` : ''} has ended, ` +
+    `so your agent has stopped replying to new messages. Choosing a plan turns it back on straight away.`;
+
+  return sendViaResend({
+    to,
+    subject: 'Your WolfPack AI free trial has ended',
+    html: trialEmailHtml({
+      heading: 'Your free trial has ended',
+      lead,
+      cta: 'Choose a plan',
+      closing: 'Nothing has been deleted. Everything picks up where it left off.',
+    }),
+  });
+}
+
 /**
  * Tells the business a qualified lead just came in.
  *
