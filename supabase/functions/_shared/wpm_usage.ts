@@ -51,6 +51,22 @@ interface SupabaseLike {
  * consume a paid allowance — it does not create a conversation. That already
  * matches the policy and is why `get_wpm_usage` was not changed for it.
  *
+ * ⚠️ Amended 2026-09-07, and read this before "simplifying" either count:
+ * BOTH meters now ignore a conversation the customer has never spoken in.
+ * Publimedia shared one Instagram post with 69 accounts; every send echoed back,
+ * each echo opened a conversation, and the month went from 8 conversations to 77
+ * without a single customer writing a word. On Free that blast would have been
+ * 69% of the monthly allowance; on the grant, 69 of 1,000 messages. No model call
+ * was made and no token was spent, so there was nothing to price.
+ *
+ * This does NOT reverse the decision above. A human reply inside a thread a
+ * customer started still counts, exactly as before — what stopped counting is a
+ * thread the customer never joined. The rule is self-correcting: when a recipient
+ * finally answers, that thread becomes billable and its earlier outbound messages
+ * count from then on. See the migration
+ * `bill_only_conversations_the_customer_joined` for the full reasoning, and
+ * `scripts/tests/instruction-history.mjs` for the regression that pins it.
+ *
  * The trap is for whoever implements overage. The pricing page advertises
  * "fair overages apply after limit" and nothing charges them yet; the moment
  * something does, billing per message would start charging paying customers
