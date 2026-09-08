@@ -237,5 +237,59 @@ assert.equal((await due()).filter(r=>r.user_id===alice).length,0,'an admin has n
 assert.equal((await db.query("select has_function_privilege('authenticated','public.wpm_trial_notifications_due()','execute') allowed")).rows[0].allowed,false);
 console.log('PASS: trial notices are due once per cycle, dedupe by unique key, and never reach paid or admin accounts');
 
+// ── The grant half, and the priority between the two halves ─────────────────
+await db.exec(migration('grant_exhaustion_notices'));
+await db.query('update subscriptions set plan=$1 where user_id=$2',['free',carol]);
+// Put her clock back in the middle of the trial so the CALENDAR is not a factor
+// and the grant is the only thing that can fire.
+await db.query("update wpm_messages set created_at=now()-interval '2 days' where direction='inbound' and client_id=$1",[cc]);
+assert.equal((await due()).length,0,'mid-trial with a nearly-empty grant owes nothing');
+
+// Fill the billable conversation to 90% of the 1,000-message grant. Messages
+// must live in a conversation the customer joined, or the 09-07 billing rule
+// correctly refuses to count them -- which is itself worth pinning.
+const bulk=async(n)=>{
+ for(let i=0;i<n;i++) await db.query("insert into wpm_messages(conversation_id,client_id,direction) values($1,$2,'outbound')",[real,cc]);
+};
+// Top up to an exact figure rather than adding a hardcoded count: earlier tests
+// in this file already put billable messages on this account, and hardcoding the
+// delta silently drifts the moment one of them changes.
+const lifetime=async()=>(await usage(carol)).messages_lifetime;
+const topUpTo=async(target)=>{ const n=target-await lifetime(); assert.ok(n>=0,'already past target'); await bulk(n); };
+await topUpTo(900);
+d=await due();
+assert.equal(d.length,1);
+assert.equal(d[0].kind,'grant_low','90% of the grant with days left is grant_low, not expiring_soon');
+assert.equal(d[0].messages_used,900);
+assert.equal(d[0].messages_limit,1000);
+
+await db.query('insert into wpm_trial_notifications(user_id,kind,trial_ends_at,email) values($1,$2,$3,$4)',
+ [carol,'grant_low',d[0].trial_ends_at,d[0].email]);
+assert.equal((await due()).length,0,'a recorded grant_low is not due again');
+
+// Spend the rest of the grant.
+await topUpTo(1000);
+d=await due();
+assert.equal(d.length,1);
+assert.equal(d[0].kind,'grant_exhausted');
+assert.equal(d[0].messages_used,1000);
+
+// PRIORITY: grant exhaustion outranks the calendar WARNING. With the allowance
+// already spent the agent has stopped, so "your trial ends tomorrow" would
+// describe a future that has already arrived.
+await db.query("update wpm_messages set created_at=now()-interval '6 days 6 hours' where direction='inbound' and client_id=$1",[cc]);
+d=await due();
+assert.equal(d[0].kind,'grant_exhausted','grant exhaustion must outrank the 24h calendar warning');
+
+// PRIORITY: an expired calendar outranks everything -- the trial really is over.
+await db.query("update wpm_messages set created_at=now()-interval '8 days' where direction='inbound' and client_id=$1",[cc]);
+d=await due();
+assert.equal(d[0].kind,'expired','an expired calendar outranks a spent grant');
+
+// And a paid account is still never owed any of the four.
+await db.query('update subscriptions set plan=$1 where user_id=$2',['growth',carol]);
+assert.equal((await due()).length,0,'a paying customer is owed no trial notice of any kind');
+console.log('PASS: grant_low at 90%, grant_exhausted at 100%, and priority expired > grant_exhausted > expiring_soon');
+
 await db.close();
 console.log('PASS: instruction history, rollback, ownership isolation, anonymous denial, stale revision, all five tier limits');

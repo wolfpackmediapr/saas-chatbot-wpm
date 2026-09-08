@@ -73,6 +73,8 @@ const soonRow: DueTrialNotification = {
   kind: 'expiring_soon',
   trial_ends_at: '2026-09-09T17:39:39.000Z',
   business_name: 'In House Chef',
+  messages_used: 31,
+  messages_limit: 1000,
 };
 
 const expiredRow: DueTrialNotification = { ...soonRow, kind: 'expired' };
@@ -91,6 +93,8 @@ Deno.test('sends the expiring-soon notice and records it', async () => {
     supabase,
     sendExpiringSoon: sender({ sent: true }, seen),
     sendExpired: sender({ sent: false, reason: 'wrong template' }),
+    sendGrantLow: sender({ sent: false, reason: 'wrong template' }),
+    sendGrantExhausted: sender({ sent: false, reason: 'wrong template' }),
   });
 
   assertEquals(result.sent, 1);
@@ -107,6 +111,8 @@ Deno.test('routes an expired trial to the expired template', async () => {
     supabase,
     sendExpiringSoon: sender({ sent: false, reason: 'wrong template' }),
     sendExpired: sender({ sent: true }, seen),
+    sendGrantLow: sender({ sent: false, reason: 'wrong template' }),
+    sendGrantExhausted: sender({ sent: false, reason: 'wrong template' }),
   });
 
   assertEquals(result.sent, 1);
@@ -124,6 +130,8 @@ Deno.test('claims BEFORE sending, so a crash cannot re-send forever', async () =
       return Promise.resolve({ sent: true });
     },
     sendExpired: sender({ sent: false }),
+    sendGrantLow: sender({ sent: false }),
+    sendGrantExhausted: sender({ sent: false }),
   });
   assertEquals(ledgerAtSendTime, 1, 'the notice must be recorded before the email goes out');
 });
@@ -138,6 +146,8 @@ Deno.test('a notice already in the ledger is skipped, not re-sent', async () => 
     supabase,
     sendExpiringSoon: sender({ sent: true }, seen),
     sendExpired: sender({ sent: true }),
+    sendGrantLow: sender({ sent: true }),
+    sendGrantExhausted: sender({ sent: true }),
   });
 
   assertEquals(result.skipped, 1);
@@ -151,6 +161,8 @@ Deno.test('a failed send RELEASES the claim so the next sweep retries', async ()
     supabase,
     sendExpiringSoon: sender({ sent: false, reason: 'Resend 429' }),
     sendExpired: sender({ sent: true }),
+    sendGrantLow: sender({ sent: true }),
+    sendGrantExhausted: sender({ sent: true }),
   });
 
   assertEquals(result.failed, 1);
@@ -166,6 +178,8 @@ Deno.test('a due-lookup failure is reported, not thrown', async () => {
     supabase,
     sendExpiringSoon: sender({ sent: true }),
     sendExpired: sender({ sent: true }),
+    sendGrantLow: sender({ sent: true }),
+    sendGrantExhausted: sender({ sent: true }),
   });
 
   assertEquals(result.ok, false);
@@ -180,8 +194,74 @@ Deno.test('a claim failure does not send the email', async () => {
     supabase,
     sendExpiringSoon: sender({ sent: true }, seen),
     sendExpired: sender({ sent: true }),
+    sendGrantLow: sender({ sent: true }),
+    sendGrantExhausted: sender({ sent: true }),
   });
 
   assertEquals(result.failed, 1);
   assertEquals(seen.length, 0, 'an unclaimed notice must never be emailed');
+});
+
+// ── The grant half ──────────────────────────────────────────────────────────
+
+const grantLowRow: DueTrialNotification = {
+  ...soonRow,
+  kind: 'grant_low',
+  messages_used: 900,
+  messages_limit: 1000,
+};
+
+const grantExhaustedRow: DueTrialNotification = {
+  ...soonRow,
+  kind: 'grant_exhausted',
+  messages_used: 1000,
+  messages_limit: 1000,
+};
+
+Deno.test('routes each kind to its own template, and passes the message counts', async () => {
+  for (
+    const [row, key] of [
+      [grantLowRow, 'grantLow'],
+      [grantExhaustedRow, 'grantExhausted'],
+    ] as const
+  ) {
+    const seen: unknown[] = [];
+    const wrong = sender({ sent: false, reason: 'wrong template' });
+    const supabase = makeSupabase({ due: [row] });
+    const result = await sendDueTrialNotifications({
+      supabase,
+      sendExpiringSoon: wrong,
+      sendExpired: wrong,
+      sendGrantLow: key === 'grantLow' ? sender({ sent: true }, seen) : wrong,
+      sendGrantExhausted: key === 'grantExhausted' ? sender({ sent: true }, seen) : wrong,
+    });
+
+    assertEquals(result.sent, 1, `${row.kind} must reach its own template`);
+    assertEquals(seen.length, 1);
+    // The grant templates print these numbers; a wrong or missing count is the
+    // one way they can ship looking fine and read as nonsense.
+    assertEquals((seen[0] as { messagesUsed: number }).messagesUsed, row.messages_used);
+    assertEquals((seen[0] as { messagesLimit: number }).messagesLimit, row.messages_limit);
+  }
+});
+
+Deno.test('an unknown kind releases its claim instead of silently burning it', async () => {
+  // If the SQL grows a fifth notice before this code knows about it, the claim
+  // must come back so the notice is still due once the deploy catches up.
+  const supabase = makeSupabase({
+    due: [{ ...soonRow, kind: 'some_future_kind' as DueTrialNotification['kind'] }],
+  });
+  const never = sender({ sent: true });
+  const result = await sendDueTrialNotifications({
+    supabase,
+    sendExpiringSoon: never,
+    sendExpired: never,
+    sendGrantLow: never,
+    sendGrantExhausted: never,
+  });
+
+  assertEquals(result.failed, 1);
+  assertEquals(result.sent, 0);
+  assertEquals(supabase.deleted.length, 1, 'the claim must be released, not kept');
+  assertEquals(result.results[0].reason, 'unknown kind');
 });

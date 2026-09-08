@@ -1,7 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { processPendingWebhookToolExecutions } from '../_shared/wpm_actions.ts';
 import { sendDueTrialNotifications } from '../_shared/wpm_trial_notifications.ts';
-import { sendTrialExpiredEmail, sendTrialExpiringSoonEmail } from '../_shared/wpm_email.ts';
+import {
+  sendTrialExpiredEmail,
+  sendTrialExpiringSoonEmail,
+  sendTrialGrantExhaustedEmail,
+  sendTrialGrantLowEmail,
+} from '../_shared/wpm_email.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -110,18 +115,36 @@ Deno.serve(async (req) => {
   // Preview short-circuits everything. It sends the two templates and returns;
   // it must never claim a notice or drain a queue.
   if (body.previewTo) {
+    const name = 'Your Business';
     const soon = await sendTrialExpiringSoonEmail(body.previewTo, {
-      businessName: 'Your Business',
+      businessName: name,
       endsAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
-    const expired = await sendTrialExpiredEmail(body.previewTo, { businessName: 'Your Business' });
+    const expired = await sendTrialExpiredEmail(body.previewTo, { businessName: name });
+    // Realistic numbers: 90% is the grant_low threshold, and exhausted is the
+    // full grant. Sending 0/0 here would hide a formatting bug in the one place
+    // these templates differ from the calendar pair.
+    const grantLow = await sendTrialGrantLowEmail(body.previewTo, {
+      businessName: name,
+      messagesUsed: 900,
+      messagesLimit: 1000,
+    });
+    const grantExhausted = await sendTrialGrantExhaustedEmail(body.previewTo, {
+      businessName: name,
+      messagesUsed: 1000,
+      messagesLimit: 1000,
+    });
+    const all = [soon, expired, grantLow, grantExhausted];
+    const ok = all.every((r) => r.sent);
     return jsonResponse({
-      ok: soon.sent && expired.sent,
+      ok,
       preview: true,
       to: body.previewTo,
       expiringSoon: soon,
       expired,
-    }, soon.sent && expired.sent ? 200 : 207);
+      grantLow,
+      grantExhausted,
+    }, ok ? 200 : 207);
   }
 
   const response: Record<string, unknown> = { ok: true };
@@ -150,6 +173,8 @@ Deno.serve(async (req) => {
       supabase: admin.supabase,
       sendExpiringSoon: sendTrialExpiringSoonEmail,
       sendExpired: sendTrialExpiredEmail,
+      sendGrantLow: sendTrialGrantLowEmail,
+      sendGrantExhausted: sendTrialGrantExhaustedEmail,
     });
     response.trialNotifications = trial;
     if (!trial.ok) response.ok = false;

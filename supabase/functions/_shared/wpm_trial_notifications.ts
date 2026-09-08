@@ -32,12 +32,20 @@ interface SupabaseLike {
   rpc(fn: string, args?: Record<string, unknown>): any;
 }
 
+export type TrialNoticeKind =
+  | 'expiring_soon'
+  | 'expired'
+  | 'grant_low'
+  | 'grant_exhausted';
+
 export interface DueTrialNotification {
   user_id: string;
   email: string;
-  kind: 'expiring_soon' | 'expired';
+  kind: TrialNoticeKind;
   trial_ends_at: string;
   business_name: string | null;
+  messages_used: number;
+  messages_limit: number;
 }
 
 export interface TrialNotificationResult {
@@ -55,15 +63,49 @@ export interface TrialNotificationResult {
   }>;
 }
 
+/**
+ * One shape for all four templates. Each uses only the fields it needs — the
+ * calendar pair reads `endsAt`, the grant pair reads the message counts — but a
+ * single signature keeps the routing below a lookup rather than a branch per
+ * kind, so adding a fifth notice does not touch this function's logic.
+ */
 type Sender = (
   to: string,
-  args: { businessName?: string | null; endsAt: Date },
+  args: {
+    businessName?: string | null;
+    endsAt: Date;
+    messagesUsed: number;
+    messagesLimit: number;
+  },
 ) => Promise<{ sent: boolean; reason?: string }>;
+
+/**
+ * Give a claimed notice back so the next sweep can retry it. Best-effort: a
+ * failure here is logged, never thrown, because the caller is already handling
+ * one failure and must keep processing the rest of the batch.
+ */
+async function releaseClaim(
+  supabase: SupabaseLike,
+  row: { user_id: string; kind: string; trial_ends_at: string },
+): Promise<void> {
+  try {
+    await supabase
+      .from('wpm_trial_notifications')
+      .delete()
+      .eq('user_id', row.user_id)
+      .eq('kind', row.kind)
+      .eq('trial_ends_at', row.trial_ends_at);
+  } catch (err) {
+    console.error(`[trial-notify] could not release claim for ${row.user_id} ${row.kind}:`, err);
+  }
+}
 
 export async function sendDueTrialNotifications(args: {
   supabase: SupabaseLike;
   sendExpiringSoon: Sender;
   sendExpired: Sender;
+  sendGrantLow: Sender;
+  sendGrantExhausted: Sender;
   /** Cap per sweep so one bad batch cannot run away. */
   limit?: number;
 }): Promise<TrialNotificationResult> {
@@ -135,10 +177,29 @@ export async function sendDueTrialNotifications(args: {
     }
 
     // ── 2. Send ─────────────────────────────────────────────────────────────
-    const send = row.kind === 'expired' ? args.sendExpired : args.sendExpiringSoon;
+    const senders: Record<TrialNoticeKind, Sender> = {
+      expired: args.sendExpired,
+      expiring_soon: args.sendExpiringSoon,
+      grant_low: args.sendGrantLow,
+      grant_exhausted: args.sendGrantExhausted,
+    };
+    const send = senders[row.kind];
+    if (!send) {
+      // An unknown kind means the SQL grew a notice this code does not handle.
+      // Release the claim rather than swallowing it, so it is still due once the
+      // deploy catches up.
+      await releaseClaim(args.supabase, row);
+      result.failed += 1;
+      result.results.push({ userId: row.user_id, kind: row.kind, status: 'failed', reason: 'unknown kind' });
+      console.error(`[trial-notify] no sender for kind "${row.kind}" — claim released`);
+      continue;
+    }
+
     const outcome = await send(row.email, {
       businessName: row.business_name,
       endsAt: new Date(row.trial_ends_at),
+      messagesUsed: row.messages_used,
+      messagesLimit: row.messages_limit,
     });
 
     if (outcome.sent) {
@@ -151,16 +212,7 @@ export async function sendDueTrialNotifications(args: {
     // ── 3. Release ──────────────────────────────────────────────────────────
     // The claim is the only thing standing between this customer and never
     // hearing from us, so it must not outlive a failed send.
-    try {
-      await args.supabase
-        .from('wpm_trial_notifications')
-        .delete()
-        .eq('user_id', row.user_id)
-        .eq('kind', row.kind)
-        .eq('trial_ends_at', row.trial_ends_at);
-    } catch (err) {
-      console.error(`[trial-notify] could not release claim for ${row.user_id} ${row.kind}:`, err);
-    }
+    await releaseClaim(args.supabase, row);
 
     result.failed += 1;
     result.results.push({
