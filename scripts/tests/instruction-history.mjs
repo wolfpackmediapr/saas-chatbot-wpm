@@ -134,5 +134,108 @@ assert.deepEqual((await db.query('select * from get_plan_limits($1)',[bob])).row
 await db.query('insert into app_admins values($1)',[alice]);
 assert.deepEqual((await db.query('select * from get_plan_limits($1)',[alice])).rows[0],{max_channels:null,max_bots:null});
 console.log('PASS: Agency test account retains 10 bots; super admin retains unlimited bot/channel permissions');
+// An outbound blast is not 69 conversations. A conversation counts against an
+// allowance only once the customer has spoken in it; until then it is broadcast.
+// Regression for 2026-09-07, when one shared Instagram post to 69 accounts took
+// the month from 8 conversations to 77 with nobody having written a word.
+await db.exec(migration('bill_only_conversations_the_customer_joined'));
+assert.equal((await db.query("select has_function_privilege('anon','public.get_wpm_usage(uuid)','execute') allowed")).rows[0].allowed,false);
+
+const carol='00000000-0000-0000-0000-000000000003';
+const cc='10000000-0000-0000-0000-000000000009';
+await db.query('insert into wpm_clients values($1,$2)',[cc,carol]);
+await db.query('insert into subscriptions values($1,$2,$3)',[carol,'free','active']);
+const conv=async(id,directions)=>{
+ await db.query('insert into wpm_conversations(id,client_id) values($1,$2)',[id,cc]);
+ for(const d of directions) await db.query('insert into wpm_messages(conversation_id,client_id,direction) values($1,$2,$3)',[id,cc,d]);
+};
+const blast1='40000000-0000-0000-0000-000000000001';
+const blast2='40000000-0000-0000-0000-000000000002';
+const real  ='40000000-0000-0000-0000-000000000003';
+await conv(blast1,['outbound']);          // echo of a broadcast, never answered
+await conv(blast2,['outbound']);          // ditto
+
+// A pure broadcast: two threads exist, nobody has replied to either. This is the
+// exact 2026-09-07 shape, and it must cost nothing on any meter.
+const usage=async(u)=>(await db.query('select * from get_wpm_usage($1)',[u])).rows[0];
+let r=await usage(carol);
+assert.equal(r.conversations_used,0,'a thread nobody joined is not a conversation');
+assert.equal(r.messages_lifetime,0,'broadcast echoes do not burn the free grant');
+assert.equal(r.messages_out,2,'descriptive stats still show the blast happened');
+assert.equal(r.free_trial_started_at,null,'outbound-only traffic must never start the 7-day clock');
+
+await conv(real,['outbound','inbound']);  // this recipient actually replied
+r=await usage(carol);
+assert.equal(r.conversations_used,1,'only the conversation the customer joined is billable');
+assert.equal(r.messages_lifetime,2,'and only its messages count -- both directions');
+assert.equal(r.messages_out,3);
+assert.equal(r.messages_in,1);
+
+// Self-correcting: the moment a recipient answers, that thread becomes billable
+// and its earlier outbound message counts too. Nothing is forgiven by hand.
+await db.query("insert into wpm_messages(conversation_id,client_id,direction) values($1,$2,'inbound')",[blast1,cc]);
+r=await usage(carol);
+assert.equal(r.conversations_used,2);
+assert.equal(r.messages_lifetime,4);
+assert.notEqual(r.free_trial_started_at,null,'a real inbound message does start the trial clock');
+
+// The paid meter is gated on the same definition.
+await db.query('update subscriptions set plan=$1 where user_id=$2',['starter',carol]);
+r=await usage(carol);
+assert.equal(r.conversations_used,2);
+assert.equal(r.max_conversations,500);
+assert.equal(r.within_allowance,true);
+console.log('PASS: outbound-only threads are not billable, descriptive counts unchanged, billing self-corrects on reply');
+
+// Trial expiry notices. The unique key is the only thing preventing a duplicate
+// email, so it is pinned here against a real Postgres engine rather than a stub.
+// The stub wpm_clients above carries only what earlier tests needed; the notice
+// query reads the business name off it, as production does.
+await db.exec(`
+create table auth.users(id uuid primary key, email text, deleted_at timestamptz);
+alter table wpm_clients add column if not exists name text;
+alter table wpm_clients add column if not exists created_at timestamptz default now();
+`);
+await db.query('insert into auth.users(id,email) values($1,$2),($3,$4)',[carol,'carol@example.test',bob,'bob@example.test']);
+await db.exec(migration('trial_expiry_notifications').replace(/select cron\.schedule\([\s\S]*?\);\s*$/,''));
+
+// Carol is on the free grant with the clock started; her trial has 7 days to run
+// from that first inbound message, so nothing is due yet.
+await db.query('update subscriptions set plan=$1 where user_id=$2',['free',carol]);
+const due=async()=>(await db.query('select * from wpm_trial_notifications_due() order by user_id')).rows;
+assert.equal((await due()).length,0,'a trial with days left owes nobody an email');
+
+// Move her first inbound message back so the clock ends in under 24 hours.
+await db.query("update wpm_messages set created_at=now()-interval '6 days 6 hours' where direction='inbound' and client_id=$1",[cc]);
+let d=await due();
+assert.equal(d.length,1);
+assert.equal(d[0].kind,'expiring_soon');
+assert.equal(d[0].email,'carol@example.test');
+
+// Recording the notice removes it from the due list -- this is the dedupe.
+await db.query('insert into wpm_trial_notifications(user_id,kind,trial_ends_at,email) values($1,$2,$3,$4)',
+ [carol,'expiring_soon',d[0].trial_ends_at,d[0].email]);
+assert.equal((await due()).length,0,'a recorded notice is never due again');
+await assert.rejects(
+ db.query('insert into wpm_trial_notifications(user_id,kind,trial_ends_at,email) values($1,$2,$3,$4)',
+  [carol,'expiring_soon',d[0].trial_ends_at,d[0].email]),
+ /duplicate key/,'the unique key must make a second send impossible');
+
+// Past the end of the 7 days it becomes the expired notice, which is a separate
+// kind and therefore separately due even though the warning already went out.
+await db.query("update wpm_messages set created_at=now()-interval '8 days' where direction='inbound' and client_id=$1",[cc]);
+d=await due();
+assert.equal(d.length,1);
+assert.equal(d[0].kind,'expired');
+
+// A paid account is never owed a trial email, whatever its dates say.
+await db.query('update subscriptions set plan=$1 where user_id=$2',['growth',carol]);
+assert.equal((await due()).length,0,'a paying customer must never be told their trial ended');
+// Nor is a super admin: alice was made an app_admin above.
+await db.query('update subscriptions set plan=$1 where user_id=$2',['free',alice]);
+assert.equal((await due()).filter(r=>r.user_id===alice).length,0,'an admin has no trial to expire');
+assert.equal((await db.query("select has_function_privilege('authenticated','public.wpm_trial_notifications_due()','execute') allowed")).rows[0].allowed,false);
+console.log('PASS: trial notices are due once per cycle, dedupe by unique key, and never reach paid or admin accounts');
+
 await db.close();
 console.log('PASS: instruction history, rollback, ownership isolation, anonymous denial, stale revision, all five tier limits');
