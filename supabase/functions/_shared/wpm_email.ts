@@ -347,6 +347,83 @@ export async function sendTrialExpiredEmail(
 }
 
 /**
+ * The other way a trial ends.
+ *
+ * Added 2026-09-07. The plan is "1,000 messages OR 7 days, whichever comes
+ * first", and until now only the calendar half said anything. Someone who burns
+ * the grant on day three has their agent go quiet with four days still on the
+ * clock and is told nothing at all.
+ *
+ * ⚠️ These must NOT say "your trial has ended". It has not — the message
+ * allowance has. Telling someone with four days left that their trial is over is
+ * false, and it invites the reply "no it isn't". The distinction is the whole
+ * reason these are separate templates rather than a reworded expiry notice.
+ */
+function grantLine(used: number, limit: number): string {
+  return `You have used <strong>${used.toLocaleString()}</strong> of your ` +
+    `<strong>${limit.toLocaleString()}</strong> free messages.`;
+}
+
+/**
+ * Sent once, when the grant is nearly gone but the calendar has not run out.
+ *
+ * Fires at 90%, which on the standard grant leaves 100 messages of runway —
+ * enough for the agent to keep working through a decision rather than stopping
+ * mid-conversation the moment the mail lands.
+ */
+export async function sendTrialGrantLowEmail(
+  to: string,
+  args: { businessName?: string | null; messagesUsed: number; messagesLimit: number },
+): Promise<EmailResult> {
+  if (!to?.includes('@')) return { sent: false, reason: 'no address' };
+
+  const who = args.businessName?.trim();
+  const remaining = Math.max(args.messagesLimit - args.messagesUsed, 0);
+  const lead = `${grantLine(args.messagesUsed, args.messagesLimit)} ` +
+    `That leaves about <strong>${remaining.toLocaleString()}</strong> before your agent` +
+    `${who ? ` for ${escapeHtml(who)}` : ''} stops replying — and your free days have not run out, ` +
+    `so this is the allowance rather than the clock.`;
+
+  return sendViaResend({
+    to,
+    subject: 'You are almost out of free messages',
+    html: trialEmailHtml({
+      heading: 'You are almost out of free messages',
+      lead,
+      consequence: 'When they run out, your agent stops replying and new leads are no longer captured.',
+      cta: 'Choose a plan',
+      closing: 'Adding a plan now means your agent never pauses.',
+    }),
+  });
+}
+
+/** Sent once, when the grant is spent while calendar days remain. */
+export async function sendTrialGrantExhaustedEmail(
+  to: string,
+  args: { businessName?: string | null; messagesUsed: number; messagesLimit: number },
+): Promise<EmailResult> {
+  if (!to?.includes('@')) return { sent: false, reason: 'no address' };
+
+  const who = args.businessName?.trim();
+  const lead = `${grantLine(args.messagesUsed, args.messagesLimit)} ` +
+    `Your agent${who ? ` for <strong>${escapeHtml(who)}</strong>` : ''} has stopped replying to new messages. ` +
+    `Your free days have not run out — it is the message allowance that has, and choosing a plan ` +
+    `turns the agent back on straight away.`;
+
+  return sendViaResend({
+    to,
+    subject: 'You have used all your free messages',
+    html: trialEmailHtml({
+      heading: 'You have used all your free messages',
+      lead,
+      consequence: 'New leads are no longer captured either.',
+      cta: 'Choose a plan',
+      closing: 'Nothing has been deleted. Everything picks up where it left off.',
+    }),
+  });
+}
+
+/**
  * Tells the business a qualified lead just came in.
  *
  * Deliberately NOT an integration you have to switch on. Before this existed,
