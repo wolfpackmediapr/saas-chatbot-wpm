@@ -29,6 +29,44 @@ export interface EmailResult {
 
 const DASHBOARD_URL = 'https://ai.wolfpackmediapr.com/dashboard/inbox';
 
+/**
+ * The brand mark at the top of every email we send.
+ *
+ * Added 2026-09-07. Deliverability was checked before adding it, because a logo
+ * is exactly the kind of change that can quietly cost inbox placement:
+ *
+ *  - Filters do not penalise the *presence* of an image. What they penalise is
+ *    an image-ONLY email with little text, a poor text-to-image ratio, images
+ *    served from a domain unrelated to the sender, and tracking pixels. These
+ *    messages are overwhelmingly text, carry one small logo, and track nothing.
+ *  - It is served from `ai.wolfpackmediapr.com` — the same registrable domain as
+ *    `alerts@wolfpackmediapr.com`. A logo hotlinked from an unrelated host is
+ *    the case that actually looks bad to a filter.
+ *  - Inbox placement is driven by authentication and reputation, and both are
+ *    already correct: SPF, DKIM on both sending paths, DMARC present.
+ *
+ * ⚠️ **The asset must be live BEFORE this function is deployed.** It ships in
+ * `public/` and only reaches the CDN when Netlify builds `main`. Deploy the edge
+ * function first and every email renders a broken-image icon, which is worse
+ * than no logo at all. Verify with `curl -I` before deploying.
+ *
+ * ⚠️ **It is flattened onto WHITE on purpose.** The source
+ * `WolfPack_Media_AI_logo_only_icon.png` is a black mark on a fully transparent
+ * background, which disappears completely in a dark-mode client — where these
+ * are actually read. The white chip plus `border-radius` reads as deliberate in
+ * both themes, and needs no `prefers-color-scheme` support, which email clients
+ * honour inconsistently.
+ *
+ * `alt` text matters more than usual: many clients block remote images by
+ * default, so the first thing a reader sees may be this word.
+ */
+const LOGO_URL = 'https://ai.wolfpackmediapr.com/email-logo.png';
+
+const logoHeader = `
+  <img src="${LOGO_URL}" width="48" height="48" alt="WolfPack AI"
+       style="display:block;border:0;outline:none;text-decoration:none;width:48px;height:48px;border-radius:10px;background:#ffffff;margin:0 0 18px">
+`;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -143,6 +181,7 @@ export async function sendEscalationEmail(
 
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      ${logoHeader}
       <p style="font-size:15px;margin:0 0 16px">
         ${escapeHtml(who)} asked for a person on <strong>${escapeHtml(args.channelLabel)}</strong>.
       </p>
@@ -192,6 +231,7 @@ export async function sendAccountDeletionConfirmation(to: string): Promise<Email
 
   const html = `
     <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:520px">
+      ${logoHeader}
       <h2 style="margin:0 0 12px;font-size:18px">Your account has been deleted</h2>
       <p style="margin:0 0 12px;font-size:14px;line-height:1.6">
         Your WolfPack Media Chat account for <strong>${escapeHtml(to)}</strong> has been
@@ -263,6 +303,7 @@ function trialEmailHtml(args: {
 }): string {
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      ${logoHeader}
       <h2 style="margin:0 0 14px;font-size:19px">${args.heading}</h2>
       <p style="font-size:15px;line-height:1.6;margin:0 0 16px">${args.lead}</p>
       <p style="font-size:14px;line-height:1.6;color:#45585b;margin:0 0 20px">
@@ -481,6 +522,7 @@ export async function sendQualifiedLeadEmail(
 
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      ${logoHeader}
       <p style="font-size:15px;margin:0 0 16px">
         Your AI agent just qualified a new lead on <strong>${escapeHtml(args.channelLabel)}</strong>.
       </p>
