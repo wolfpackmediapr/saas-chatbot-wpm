@@ -157,6 +157,18 @@ export default function Automations() {
       [def.id]: { ...current, enabled: newEnabled },
     }));
 
+    // Turning a webhook on is also the only way to REVEAL its URL field, so this
+    // flip cannot be refused — but it must not ACTIVATE the integration either.
+    // An active webhook with no URL makes the processor park every qualified lead
+    // on "No webhook URL configured" while the card still reads ACTIVE. The Save
+    // button is already guarded against exactly that; writing here walks around
+    // that guard. So expand the card locally and leave the activating to Save,
+    // which writes is_active together with the URL. Turning OFF still writes.
+    if (newEnabled && def.type === 'webhook' && !current.configValue.trim()) {
+      setError(null);
+      return;
+    }
+
     if (!client) {
       setError('No client profile found. Please complete Business Profile first.');
       return;
@@ -319,6 +331,10 @@ export default function Automations() {
         {AUTOMATION_DEFS.map((def) => {
           const state = getState(def.id);
           const isSaving = savingId === def.id;
+          // Switched on but unconfigured: the integration delivers nothing, so it
+          // must not wear the same badge as one that does.
+          const needsUrl =
+            def.type === 'webhook' && state.enabled && !state.configValue.trim();
 
           return (
             <div key={def.id} className="bg-secondary/30 border border-secondary rounded-2xl p-6 flex flex-col gap-4">
@@ -327,7 +343,11 @@ export default function Automations() {
                   <div className="font-semibold text-lg mb-1 flex items-center gap-2">
                     {def.name}
                     {state.enabled && (
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-primary/20 text-primary">ACTIVE</span>
+                      needsUrl ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">NEEDS URL</span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-primary/20 text-primary">ACTIVE</span>
+                      )
                     )}
                   </div>
                   <p className="text-sm text-secondary-foreground mb-3">{def.description}</p>
@@ -413,10 +433,21 @@ export default function Automations() {
                 </button>
               </div>
 
-              {def.type === 'webhook' && state.enabled && state.configValue && (
-                <div className="text-[11px] text-secondary-foreground/70 pl-1">
-                  This URL will be called by the WPM Actions Processor when a qualified lead is detected.
-                </div>
+              {def.type === 'webhook' && state.enabled && (
+                needsUrl ? (
+                  <div className="flex items-start gap-2 text-[11px] rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-yellow-400">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Add your webhook URL above and press Save to switch this on. Qualified leads
+                      are still captured either way — you will find them on your Leads page — but
+                      nothing is sent to your tools until a URL is saved.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-secondary-foreground/70 pl-1">
+                    This URL will be called by the WPM Actions Processor when a qualified lead is detected.
+                  </div>
+                )
               )}
             </div>
           );
