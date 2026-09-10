@@ -14,7 +14,7 @@ import { useState } from 'react';
  * Every handle and message in the drawn fallback below is invented.
  */
 
-const SCREENSHOT_SRC: string | null = '/hero-inbox.png';
+const SCREENSHOT_SRC: string | null = '/hero-inbox.webp';
 
 const CONVERSATIONS = [
   { handle: '@marisol.eventos', when: '2m', preview: 'Perfecto, ese es mi correo…', active: true },
