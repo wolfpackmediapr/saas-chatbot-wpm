@@ -38,8 +38,8 @@ export default function Landing() {
   const features = [
     {
       icon: MessageCircle,
-      title: "24/7 Intelligent Replies",
-      desc: "AI responds instantly to DMs on Instagram & Facebook using your exact brand voice and knowledge."
+      title: "24/7 Replies, in Both Languages",
+      desc: "Your agent answers Instagram and Facebook DMs instantly, in your brand voice — and in English or Spanish, matching whichever the customer writes in."
     },
     {
       icon: Target,
@@ -47,9 +47,13 @@ export default function Landing() {
       desc: "Automatically captures name, contact info, intent, and service interest. Only serious leads reach your team."
     },
     {
+      // CRM handoff deliberately not claimed here: the CRM card writes
+      // metadata.config, the dashboard reads metadata.crm_url and the processor
+      // reads metadata.webhook_url — three different keys, so it cannot deliver.
+      // Zapier / Make / n8n webhooks and the Resend email both work today.
       icon: Zap,
-      title: "Powerful Automations",
-      desc: "Trigger Zapier, Resend emails, webhooks, or CRM handoffs the moment a qualified lead is captured."
+      title: "Leads Where You Work",
+      desc: "The moment a lead is qualified it goes straight out to Zapier, Make, n8n or any webhook you use — and lands in your team's inbox by email."
     },
     {
       icon: Play,
@@ -57,9 +61,10 @@ export default function Landing() {
       desc: "Simulate real conversations and test your automations before connecting live channels."
     },
     {
+      // "Search, filter" removed: the Leads page has neither.
       icon: BarChart3,
-      title: "Full Lead Database & History",
-      desc: "Every conversation and qualified lead is saved with context. Search, filter, and follow up easily."
+      title: "Every Conversation, Kept",
+      desc: "Each thread and captured lead is saved with the context around it, so you can open any conversation and pick it up knowing exactly what was already said."
     },
     {
       icon: Shield,
@@ -99,11 +104,20 @@ export default function Landing() {
   const faqs = [
     {
       q: "How accurate is the AI?",
-      a: "Very accurate when you provide good knowledge and instructions. The Test Agent lets you iterate quickly until replies match your voice and policies."
+      a: "It answers from the knowledge you give it — your services, prices, policies — and it is built to say a team member will follow up rather than invent an answer it doesn't have. The Test Agent lets you rehearse real conversations and adjust the wording before a single customer sees it."
     },
     {
-      q: "What happens if I exceed my plan messages?",
-      a: "You'll be notified and charged a fair per-message overage rate (clearly shown on the Pricing page). No surprise bills."
+      q: "Does it reply in Spanish?",
+      a: "Yes. Your agent answers in whichever language the customer writes in, English or Spanish, using your business's own wording in both. You don't configure anything per conversation."
+    },
+    {
+      // Rewritten 2026-09-09. This previously promised "you'll be notified and
+      // charged a fair per-message overage rate (clearly shown on the Pricing
+      // page)". Overage billing is not implemented, the rate was on no page, and
+      // what actually happens is the opposite: the agent pauses and nobody is
+      // charged. Say what the product does.
+      q: "What happens if I hit my plan's limit?",
+      a: "Nothing is charged automatically — there are no surprise bills and no overage rate. When you reach your plan's conversation limit your agent pauses instead of quietly running up a charge, and your dashboard shows where you stand all month long. Upgrade whenever you're ready; every conversation and captured lead stays exactly where it is."
     },
     {
       q: "Can I cancel anytime?",
@@ -253,15 +267,21 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* TRUST / SOCIAL PROOF */}
+      {/* WHO IT IS FOR.
+          These are target industries, not a customer list. The row previously
+          sat unlabelled at 70% opacity exactly where a logo wall goes, which
+          read as "these businesses use us". Labelled, it says the true thing. */}
       <section className="border-y border-secondary bg-secondary/30 py-8">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex flex-wrap justify-center items-center gap-x-12 gap-y-6 opacity-70 text-sm tracking-widest">
-            <div>PR AGENCIES</div>
-            <div>HEALTHCARE & DENTAL</div>
+        <div className="max-w-6xl mx-auto px-5 sm:px-6">
+          <div className="text-center text-[11px] tracking-[2px] text-secondary-foreground mb-5">
+            BUILT FOR BUSINESSES THAT LIVE IN THEIR DMs
+          </div>
+          <div className="flex flex-wrap justify-center items-center gap-x-8 sm:gap-x-12 gap-y-4 opacity-70 text-xs sm:text-sm tracking-widest">
+            <div>AGENCIES</div>
+            <div>HEALTHCARE &amp; DENTAL</div>
             <div>HOSPITALITY</div>
             <div>PROFESSIONAL SERVICES</div>
-            <div>ECOMMERCE BRANDS</div>
+            <div>ECOMMERCE</div>
           </div>
         </div>
       </section>

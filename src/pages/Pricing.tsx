@@ -39,7 +39,7 @@ const tiers: Tier[] = [
     ],
     cta: "Start your free 7-day trial",
     ctaLink: "/signup",
-    overage: "Fair overages apply after limit"
+    overage: "No overage charges — your agent pauses at the limit"
   },
   {
     name: "Growth",
@@ -60,7 +60,7 @@ const tiers: Tier[] = [
     ],
     cta: "Start your free 7-day trial",
     ctaLink: "/signup",
-    overage: "Fair overages apply after limit"
+    overage: "No overage charges — your agent pauses at the limit"
   },
   {
     name: "Pro",
@@ -82,7 +82,7 @@ const tiers: Tier[] = [
     ],
     cta: "Start your free 7-day trial",
     ctaLink: "/signup",
-    overage: "Fair overages apply after limit"
+    overage: "No overage charges — your agent pauses at the limit"
   },
   {
     name: "Agency",
@@ -260,9 +260,10 @@ export default function Pricing() {
 
         {/* Cost & Value Note */}
         <div className="max-w-2xl mx-auto mt-12 text-center text-sm text-secondary-foreground">
-          Prices are designed to scale sustainably with your conversation volume. 
-          Overages are transparent and charged only when you go over. 
-          We monitor average usage and will suggest the right plan as you grow.
+          Prices scale with your conversation volume, and there are no overage charges:
+          when you reach your plan's limit your agent pauses rather than running up a bill,
+          and your dashboard shows where you stand all month. Upgrade when you're ready —
+          your conversations and captured leads stay exactly where they are.
         </div>
 
         <div className="text-center mt-8">
