@@ -3,13 +3,16 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import SignupForm, { SignupFormData } from '../components/auth/SignupForm';
 import { signUp } from '../lib/supabase/auth';
+import { useTranslation } from 'react-i18next';
 import LegalFooter from '../components/LegalFooter';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 
 export default function Signup() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
+  const { t } = useTranslation('auth');
 
   const handleSignup = async (data: SignupFormData) => {
     setIsLoading(true);
@@ -32,7 +35,7 @@ export default function Signup() {
         });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign up');
+      setError(err instanceof Error ? err.message : t('signup.failed'));
     } finally {
       setIsLoading(false);
     }
@@ -40,7 +43,8 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-accent/20 flex flex-col">
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex justify-end p-4"><LanguageSwitcher /></div>
+      <div className="flex-1 flex items-center justify-center p-4 pt-0">
         <div className="w-full max-w-md">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -56,7 +60,7 @@ export default function Signup() {
               <span className="text-lg md:text-xl font-semibold">WolfPack Media AI</span>
             </div>
 
-            <h1 className="text-xl md:text-2xl font-bold mb-2">Create your account</h1>
+            <h1 className="text-xl md:text-2xl font-bold mb-2">{t('signup.title')}</h1>
             <p className="text-sm md:text-base text-secondary-foreground">
               Start your journey with WolfPack Media AI
             </p>
@@ -74,17 +78,17 @@ export default function Signup() {
               </div>
             )}
 
-            <GoogleSignInButton label="Sign up with Google" onError={(m) => setError(m || null)} withDivider />
+            <GoogleSignInButton label={t('signup.google')} onError={(m) => setError(m || null)} withDivider />
 
             <SignupForm onSubmit={handleSignup} isLoading={isLoading} />
 
             <p className="mt-6 text-center text-xs md:text-sm text-secondary-foreground">
-              Already have an account?{' '}
+              {t('signup.haveAccount')}{' '}
               <Link
                 to="/login"
                 className="text-primary hover:text-primary-hover transition-colors touch-manipulation"
               >
-                Sign in
+                {t('form.signIn')}
               </Link>
             </p>
           </motion.div>
