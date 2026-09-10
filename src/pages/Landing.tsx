@@ -1,23 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
- 
-  MessageCircle, 
-  Zap, 
-  Play, 
-  CheckCircle2, 
-  ArrowRight, 
-  Shield, 
+import {
+
+  MessageCircle,
+  Zap,
+  Play,
+  CheckCircle2,
+  ArrowRight,
+  Shield,
   Target,
-  BarChart3
+  BarChart3,
+  Menu,
+  X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import LegalFooter from '../components/LegalFooter';
+import ProductMockup from '../components/marketing/ProductMockup';
 
 export default function Landing() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Redirect logged-in users to the dashboard
   useEffect(() => {
@@ -132,62 +136,120 @@ export default function Landing() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-sm">
+          {/* Desktop nav. Below md the trial CTA alone is wider than a phone,
+              so the three links move into the menu instead of overflowing. */}
+          <div className="hidden md:flex items-center gap-4 text-sm">
             <Link to="/pricing" className="text-secondary-foreground hover:text-foreground transition-colors px-3 py-1.5">
               Pricing
             </Link>
-            <Link 
-              to="/login" 
+            <Link
+              to="/login"
               className="px-4 py-1.5 rounded-lg hover:bg-secondary text-secondary-foreground hover:text-foreground transition-colors"
             >
               Log in
             </Link>
-            <Link 
-              to="/signup" 
-              className="px-5 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition-colors flex items-center gap-2"
+            <Link
+              to="/signup"
+              className="px-5 py-1.5 bg-primary hover:bg-primary/90 text-background rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              Start your free 7-day trial
+              Start free trial
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            className="md:hidden p-2 -mr-2 rounded-lg text-secondary-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
+
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-secondary bg-background/95 backdrop-blur-md">
+            <div className="px-6 py-4 flex flex-col gap-2 text-sm">
+              <Link
+                to="/pricing"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-2 text-secondary-foreground hover:text-foreground transition-colors"
+              >
+                Pricing
+              </Link>
+              <Link
+                to="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-2 text-secondary-foreground hover:text-foreground transition-colors"
+              >
+                Log in
+              </Link>
+              <Link
+                to="/signup"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mt-1 px-5 py-2.5 bg-primary hover:bg-primary/90 text-background rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                Start your free 7-day trial
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* HERO */}
-      <section className="pt-24 pb-20 px-6">
-        <div className="max-w-5xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary/60 border border-secondary mb-6 text-sm">
-            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+      <section className="relative overflow-hidden px-5 sm:px-6 pt-24 sm:pt-28 pb-16 sm:pb-20">
+        <div className="relative mx-auto max-w-5xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-secondary bg-secondary/60 px-3.5 py-1.5 text-xs sm:text-sm mb-6 sm:mb-8">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             Instagram &amp; Facebook · AI powered
           </div>
 
-          <h1 className="text-6xl md:text-7xl font-bold tracking-tighter leading-[0.95] mb-6">
-            AI That Answers<br />Your DMs.<br />
-            <span className="bg-gradient-to-r from-primary via-cyan-400 to-primary bg-clip-text text-transparent">Qualifies Leads.<br />Books Calls.</span>
+          {/*
+            No hard <br /> in the headline. The old markup pinned three line
+            breaks that only work at English word lengths — Spanish runs 15-25%
+            longer and would have broken the hero the moment it was translated.
+            Balanced wrapping inside a max-width does the same job in any
+            language.
+          */}
+          <h1 className="mx-auto max-w-4xl text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.08] text-balance">
+            <span className="bg-gradient-to-b from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent">
+              AI that answers your DMs,{' '}
+            </span>
+            <span className="bg-gradient-to-r from-primary via-cyan-400 to-primary bg-clip-text text-transparent">
+              qualifies leads and books calls
+            </span>
           </h1>
 
-          <p className="max-w-2xl mx-auto text-xl md:text-2xl text-secondary-foreground mb-10">
-            Deploy your own AI DM Agent in under 15 minutes.<br />
-            Never miss another lead in Instagram or Facebook DMs again.
+          <p className="mx-auto mt-5 sm:mt-6 max-w-xl text-base sm:text-lg lg:text-xl text-secondary-foreground text-balance">
+            Your own AI agent, answering Instagram and Facebook messages around the clock —
+            in English and Spanish, in your brand's voice.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              to="/signup" 
-              className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground text-lg font-semibold rounded-2xl transition-all shadow-lg shadow-primary/20"
+          <div className="mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+            <Link
+              to="/signup"
+              className="inline-flex items-center justify-center gap-2.5 rounded-2xl bg-primary px-7 py-3.5 text-base sm:text-lg font-semibold text-background shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
             >
               Start your free 7-day trial
               <ArrowRight className="h-5 w-5" />
             </Link>
-            <button 
+            <button
               onClick={scrollToPricing}
-              className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-secondary hover:bg-secondary/80 text-foreground text-lg font-medium rounded-2xl border border-secondary transition-all"
+              className="inline-flex items-center justify-center gap-2.5 rounded-2xl border border-secondary bg-secondary px-7 py-3.5 text-base sm:text-lg font-medium text-foreground transition-all hover:bg-secondary/80"
             >
               See pricing
             </button>
           </div>
 
-          <p className="text-sm text-secondary-foreground mt-4">No credit card required • 7-day free trial • Cancel anytime</p>
+          <p className="mt-4 text-xs sm:text-sm text-secondary-foreground">
+            No credit card required • 7-day free trial • Cancel anytime
+          </p>
+        </div>
+
+        <div className="mt-14 sm:mt-20">
+          <ProductMockup />
         </div>
       </section>
 
