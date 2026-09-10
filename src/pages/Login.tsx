@@ -3,8 +3,10 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import LoginForm, { LoginFormData } from '../components/auth/LoginForm';
 import { signIn } from '../lib/supabase/auth';
+import { useTranslation } from 'react-i18next';
 import LegalFooter from '../components/LegalFooter';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 export default function Login() {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -12,6 +14,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const message = location.state?.message;
+  const { t } = useTranslation('auth');
 
   const handleLogin = async (data: LoginFormData) => {
     setIsLoading(true);
@@ -22,11 +25,11 @@ export default function Login() {
       if (response.user) {
         navigate('/dashboard');
       } else {
-        setError('Login failed. Please try again.');
+        setError(t('login.failed'));
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+      setError(err instanceof Error ? err.message : t('login.failed'));
     } finally {
       setIsLoading(false);
     }
@@ -34,7 +37,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-accent/20 flex flex-col">
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex justify-end p-4"><LanguageSwitcher /></div>
+      <div className="flex-1 flex items-center justify-center p-4 pt-0">
         <div className="w-full max-w-md">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -50,9 +54,9 @@ export default function Login() {
               <span className="text-lg md:text-xl font-semibold">WolfPack Media AI</span>
             </div>
 
-            <h1 className="text-xl md:text-2xl font-bold mb-2">Welcome back</h1>
+            <h1 className="text-xl md:text-2xl font-bold mb-2">{t('login.title')}</h1>
             <p className="text-sm md:text-base text-secondary-foreground">
-              Sign in to your account to continue
+              {t('login.sub')}
             </p>
           </motion.div>
 
@@ -74,17 +78,17 @@ export default function Login() {
               </div>
             )}
 
-            <GoogleSignInButton label="Continue with Google" onError={(m) => setError(m || null)} withDivider />
+            <GoogleSignInButton label={t('login.google')} onError={(m) => setError(m || null)} withDivider />
 
             <LoginForm onSubmit={handleLogin} isLoading={isLoading} />
 
             <p className="mt-6 text-center text-xs md:text-sm text-secondary-foreground">
-              Don't have an account?{' '}
+              {t('login.noAccount')}{' '}
               <Link
                 to="/signup"
                 className="text-primary hover:text-primary-hover transition-colors touch-manipulation"
               >
-                Sign up
+                {t('login.signUp')}
               </Link>
             </p>
           </motion.div>

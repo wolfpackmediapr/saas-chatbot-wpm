@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { Mail, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -15,6 +16,7 @@ export interface LoginFormData {
 }
 
 export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
+  const { t } = useTranslation('auth');
   const [formData, setFormData] = React.useState<LoginFormData>({
     email: '',
     password: '',
@@ -36,7 +38,7 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="email" className="block text-sm font-medium mb-1.5">
-          Email Address
+          {t('form.emailLabel')}
         </label>
         <div className="relative">
           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-secondary-foreground" />
@@ -52,7 +54,7 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
               "focus:outline-none focus:ring-2 focus:ring-primary/50",
               "placeholder:text-secondary-foreground"
             )}
-            placeholder="you@example.com"
+            placeholder={t('form.emailPlaceholder')}
           />
         </div>
       </div>
@@ -60,13 +62,13 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label htmlFor="password" className="block text-sm font-medium">
-            Password
+            {t('form.passwordLabel')}
           </label>
           <Link
             to="/forgot-password"
             className="text-sm text-primary hover:text-primary-hover transition-colors"
           >
-            Forgot password?
+            {t('form.forgot')}
           </Link>
         </div>
         <PasswordInput
@@ -76,7 +78,7 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
           onChange={handleChange}
           required
           autoComplete="current-password"
-          placeholder="Your password"
+          placeholder={t('form.passwordPlaceholder')}
         />
       </div>
 
@@ -90,10 +92,10 @@ export default function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
         )}
       >
         {isLoading ? (
-          <>Processing...</>
+          <>{t('form.processing')}</>
         ) : (
           <>
-            Sign In
+            {t('form.signIn')}
             <ArrowRight className="h-4 w-4" />
           </>
         )}

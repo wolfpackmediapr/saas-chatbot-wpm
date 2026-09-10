@@ -1,120 +1,44 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import LegalFooter from '../components/LegalFooter';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 type BillingPeriod = 'monthly' | 'yearly';
 
-interface Tier {
+/**
+ * Prices and plan identity live in code; every word lives in the resource files.
+ * Plan NAMES are deliberately not translated — they are product names and they
+ * are what appears on the customer's invoice.
+ */
+interface TierPricing {
+  id: 'starter' | 'growth' | 'pro' | 'agency';
   name: string;
   monthlyPrice: number;
   yearlyPrice: number;
   popular?: boolean;
-  description: string;
-  messages: string;
-  aiBenefit: string;
-  features: string[];
-  cta: string;
   ctaLink: string;
-  overage: string;
+  sales?: boolean;
 }
 
-const tiers: Tier[] = [
-  {
-    name: "Starter",
-    monthlyPrice: 29,
-    yearlyPrice: 290,
-    description: "Perfect for small businesses getting started with AI-powered DMs.",
-    messages: "1 channel • 500 conversations/mo",
-    aiBenefit: "Reliable AI replies for everyday conversations",
-    features: [
-      "1 connected channel (Instagram or Facebook)",
-      "1 AI bot with your brand voice & knowledge",
-      "500 conversations per month",
-      "50 captured leads per month",
-      "Human handoff inbox included",
-      "Basic automations & email support",
-      "Launch Checklist & Test Agent",
-      "Free trial: 1,000 messages or 7 days, whichever comes first"
-    ],
-    cta: "Start your free 7-day trial",
-    ctaLink: "/signup",
-    overage: "No overage charges — your agent pauses at the limit"
-  },
-  {
-    name: "Growth",
-    monthlyPrice: 79,
-    yearlyPrice: 790,
-    description: "For growing businesses handling real DM volume.",
-    messages: "3 channels • 2,500 conversations/mo",
-    aiBenefit: "Advanced replies and lead qualification",
-    features: [
-      "3 connected channels",
-      "2 AI bots",
-      "2,500 conversations per month",
-      "Human handoff inbox",
-      "Priority support",
-      "Full automations (Zapier, webhooks, Resend)",
-      "Advanced lead capture",
-      "Unlimited history & Test Agent"
-    ],
-    cta: "Start your free 7-day trial",
-    ctaLink: "/signup",
-    overage: "No overage charges — your agent pauses at the limit"
-  },
-  {
-    name: "Pro",
-    monthlyPrice: 199,
-    yearlyPrice: 1990,
-    popular: true,
-    description: "The sweet spot for serious operators. Most popular plan.",
-    messages: "10 channels • 10,000 conversations/mo",
-    aiBenefit: "Priority AI performance for higher-volume teams",
-    features: [
-      "10 connected channels",
-      "3 AI bots",
-      "10,000 conversations per month",
-      "Human handoff inbox",
-      "Priority support (same-day)",
-      "Lead capture & full automations",
-      "White-label ready",
-      "Unlimited history & Launch Checklist"
-    ],
-    cta: "Start your free 7-day trial",
-    ctaLink: "/signup",
-    overage: "No overage charges — your agent pauses at the limit"
-  },
-  {
-    name: "Agency",
-    monthlyPrice: 499,
-    yearlyPrice: 4990,
-    description: "For agencies and high-volume businesses with multiple brands.",
-    messages: "Unlimited channels & conversations",
-    aiBenefit: "High-volume AI operations with dedicated support",
-    features: [
-      "Unlimited connected channels",
-      "10 AI bots",
-      "Unlimited conversations",
-      "Dedicated support & onboarding",
-      "Lead capture & automations",
-      "Full white-label",
-      "API access & custom integrations",
-      "Multi-brand / multi-location ready"
-    ],
-    cta: "Contact sales",
-    ctaLink: "/signup",
-    overage: "Volume pricing available"
-  }
+const TIER_PRICING: TierPricing[] = [
+  { id: 'starter', name: 'Starter', monthlyPrice: 29, yearlyPrice: 290, ctaLink: '/signup' },
+  { id: 'growth', name: 'Growth', monthlyPrice: 79, yearlyPrice: 790, ctaLink: '/signup' },
+  { id: 'pro', name: 'Pro', monthlyPrice: 199, yearlyPrice: 1990, popular: true, ctaLink: '/signup' },
+  { id: 'agency', name: 'Agency', monthlyPrice: 499, yearlyPrice: 4990, ctaLink: '/signup', sales: true },
 ];
 
 export default function Pricing() {
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
+  const { t } = useTranslation(['pricing', 'common']);
+  const tList = <T,>(key: string): T[] => t(key, { returnObjects: true }) as T[];
 
-  const getPrice = (tier: Tier) => {
+  const getPrice = (tier: TierPricing) => {
     return period === 'monthly' ? tier.monthlyPrice : tier.yearlyPrice;
   };
 
-  const getSavings = (tier: Tier) => {
+  const getSavings = (tier: TierPricing) => {
     if (period === 'monthly') return null;
     const monthlyTotal = tier.monthlyPrice * 12;
     const savings = Math.round( ((monthlyTotal - tier.yearlyPrice) / monthlyTotal ) * 100 );
@@ -133,12 +57,13 @@ export default function Pricing() {
               className="h-10 w-10 rounded-xl bg-white object-contain p-0.5 shadow-sm"
             />
             <div>
-              <div className="font-semibold text-lg">WolfPack AI</div>
-              <div className="text-[10px] text-secondary-foreground -mt-1">DM Agent</div>
+              <div className="font-semibold text-lg">{t('common:brand')}</div>
+              <div className="text-[10px] text-secondary-foreground -mt-1">{t('common:brandSub')}</div>
             </div>
           </Link>
 
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-3 sm:gap-4 text-sm">
+            <LanguageSwitcher />
             <Link to="/" className="text-secondary-foreground hover:text-foreground transition-colors px-3 py-1.5">
               Home
             </Link>
@@ -146,7 +71,7 @@ export default function Pricing() {
               to="/login" 
               className="px-4 py-1.5 rounded-lg hover:bg-secondary text-secondary-foreground hover:text-foreground transition-colors"
             >
-              Log in
+              {t('common:nav.login')}
             </Link>
             <Link 
               to="/signup" 
@@ -163,7 +88,7 @@ export default function Pricing() {
           <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-secondary/60 border border-secondary text-xs tracking-[1px] mb-4">
             TRANSPARENT & FAIR
           </div>
-          <h1 className="text-5xl md:text-6xl font-bold tracking-tighter mb-4">Pricing that scales with you</h1>
+          <h1 className="text-5xl md:text-6xl font-bold tracking-tighter mb-4">{t('pricing:title')}</h1>
           <p className="text-xl text-secondary-foreground max-w-lg mx-auto">
             Real costs. Real margins. No hidden fees. Choose the plan that matches your DM volume.
           </p>
@@ -176,21 +101,21 @@ export default function Pricing() {
               onClick={() => setPeriod('monthly')}
               className={`px-6 py-2 rounded-xl text-sm font-medium transition-all ${period === 'monthly' ? 'bg-background shadow text-foreground' : 'text-secondary-foreground hover:text-foreground'}`}
             >
-              Monthly
+              {t('pricing:monthly')}
             </button>
             <button
               onClick={() => setPeriod('yearly')}
               className={`px-6 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${period === 'yearly' ? 'bg-background shadow text-foreground' : 'text-secondary-foreground hover:text-foreground'}`}
             >
-              Yearly
-              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">SAVE 15%</span>
+              {t('pricing:yearly')}
+              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">{t('pricing:save')}</span>
             </button>
           </div>
         </div>
 
         {/* Pricing Cards */}
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {tiers.map((tier, index) => {
+          {TIER_PRICING.map((tier, index) => {
             const price = getPrice(tier);
             const savings = getSavings(tier);
             return (
@@ -208,11 +133,11 @@ export default function Pricing() {
 
                 <div className="mb-8">
                   <div className="font-semibold text-xl tracking-tight">{tier.name}</div>
-                  <div className="mt-1 text-secondary-foreground text-sm h-10">{tier.description}</div>
+                  <div className="mt-1 text-secondary-foreground text-sm h-10">{t(`pricing:tiers.${tier.id}.description`)}</div>
 
                   <div className="mt-6 flex items-baseline gap-1">
                     <span className="text-6xl font-bold tracking-[-2.5px]">${price}</span>
-                    <span className="text-secondary-foreground ml-1">/mo</span>
+                    <span className="text-secondary-foreground ml-1">{t('pricing:perMonth')}</span>
                   </div>
 
                   {period === 'yearly' && savings && (
@@ -221,18 +146,18 @@ export default function Pricing() {
                     </div>
                   )}
                   {period === 'monthly' && (
-                    <div className="text-xs text-secondary-foreground mt-1">Billed monthly</div>
+                    <div className="text-xs text-secondary-foreground mt-1">{t('pricing:billedMonthly')}</div>
                   )}
                 </div>
 
                 <div className="space-y-2 mb-6">
                   <div className="text-xs uppercase tracking-widest text-primary/80 font-medium mb-1">Included</div>
-                  <div className="font-medium text-lg">{tier.messages}</div>
-                  <div className="text-secondary-foreground">{tier.aiBenefit}</div>
+                  <div className="font-medium text-lg">{t(`pricing:tiers.${tier.id}.messages`)}</div>
+                  <div className="text-secondary-foreground">{t(`pricing:tiers.${tier.id}.aiBenefit`)}</div>
                 </div>
 
                 <ul className="space-y-[13px] text-[15px] mb-8 flex-1">
-                  {tier.features.map((feature, fIndex) => (
+                  {tList<string>(`pricing:tiers.${tier.id}.features`).map((feature, fIndex) => (
                     <li key={fIndex} className="flex gap-3 leading-tight">
                       <CheckCircle2 className="h-4 w-4 text-primary mt-1 flex-shrink-0" />
                       <span>{feature}</span>
@@ -247,10 +172,10 @@ export default function Pricing() {
                       ? 'bg-primary hover:bg-primary/90 text-primary-foreground' 
                       : 'border border-secondary hover:bg-secondary/60'}`}
                   >
-                    {tier.cta} <ArrowRight className="inline h-4 w-4 ml-1" />
+                    {tier.sales ? t('pricing:ctaSales') : t('pricing:ctaTrial')} <ArrowRight className="inline h-4 w-4 ml-1" />
                   </Link>
                   <div className="text-center text-xs text-secondary-foreground mt-3">
-                    Free trial: 1,000 messages or 7 days, whichever comes first • {tier.overage}
+                    {t('pricing:trialLine')} • {tier.sales ? t('pricing:volumePricing') : t('pricing:noOverage')}
                   </div>
                 </div>
               </div>
@@ -260,15 +185,12 @@ export default function Pricing() {
 
         {/* Cost & Value Note */}
         <div className="max-w-2xl mx-auto mt-12 text-center text-sm text-secondary-foreground">
-          Prices scale with your conversation volume, and there are no overage charges:
-          when you reach your plan's limit your agent pauses rather than running up a bill,
-          and your dashboard shows where you stand all month. Upgrade when you're ready —
-          your conversations and captured leads stay exactly where they are.
+          {t('pricing:note')}
         </div>
 
         <div className="text-center mt-8">
           <Link to="/" className="text-sm text-secondary-foreground hover:text-primary underline underline-offset-4">
-            ← Back to homepage
+            {t('pricing:backHome')}
           </Link>
         </div>
       </div>

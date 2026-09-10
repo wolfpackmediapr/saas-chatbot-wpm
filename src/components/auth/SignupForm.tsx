@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { Mail, User, ArrowRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -15,6 +16,7 @@ export interface SignupFormData {
 }
 
 export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
+  const { t } = useTranslation('auth');
   const [formData, setFormData] = React.useState<SignupFormData>({
     name: '',
     email: '',
@@ -37,7 +39,7 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="name" className="block text-sm font-medium mb-1.5">
-          Full Name
+          {t('form.nameLabel')}
         </label>
         <div className="relative">
           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-secondary-foreground" />
@@ -53,14 +55,14 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
               "focus:outline-none focus:ring-2 focus:ring-primary/50",
               "placeholder:text-secondary-foreground"
             )}
-            placeholder="John Doe"
+            placeholder={t('form.namePlaceholder')}
           />
         </div>
       </div>
 
       <div>
         <label htmlFor="email" className="block text-sm font-medium mb-1.5">
-          Email Address
+          {t('form.emailLabel')}
         </label>
         <div className="relative">
           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-secondary-foreground" />
@@ -76,14 +78,14 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
               "focus:outline-none focus:ring-2 focus:ring-primary/50",
               "placeholder:text-secondary-foreground"
             )}
-            placeholder="you@example.com"
+            placeholder={t('form.emailPlaceholder')}
           />
         </div>
       </div>
 
       <div>
         <label htmlFor="password" className="block text-sm font-medium mb-1.5">
-          Password
+          {t('form.passwordLabel')}
         </label>
         <PasswordInput
           id="password"
@@ -93,7 +95,7 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
           required
           minLength={8}
           autoComplete="new-password"
-          placeholder="At least 8 characters"
+          placeholder={t('form.newPasswordPlaceholder')}
         />
       </div>
 
@@ -107,10 +109,10 @@ export default function SignupForm({ onSubmit, isLoading }: SignupFormProps) {
         )}
       >
         {isLoading ? (
-          <>Processing...</>
+          <>{t('form.processing')}</>
         ) : (
           <>
-            Create Account
+            {t('form.createAccount')}
             <ArrowRight className="h-4 w-4" />
           </>
         )}
