@@ -539,3 +539,138 @@ export async function sendQualifiedLeadEmail(
 
   return sendViaResend({ to, subject: `New lead: ${who}`, html });
 }
+
+/**
+ * The owner alerts for a reply the agent did NOT send.
+ *
+ * Added 2026-09-15. A blocked reply sends the customer nothing (see
+ * `_shared/wpm_blocked_alerts.ts` for why), so the owner is the only person who
+ * can act — and until now nobody told them. Four kinds, because the true thing
+ * to say differs: a trial ended, a free grant ran out, a paid plan hit its
+ * monthly cap (and resets), or one conversation hit its 24-hour reply cap on an
+ * otherwise active business (who must not be asked to pay).
+ *
+ * Every one states plainly that the customer received no reply, and none of
+ * them promises the customer anything. The customer-facing "shortly" is the
+ * exact sentence this replaces.
+ */
+export type BlockedAlertKind = 'trial_expired' | 'grant_exhausted' | 'plan_limit' | 'conversation_cap';
+
+export interface BlockedAlertEmail {
+  kind: BlockedAlertKind;
+  businessName: string | null;
+  customerName: string | null;
+  channelLabel: string;
+  lastMessage: string | null;
+  conversationId: string;
+  /** The reply cap that fired — only meaningful for `conversation_cap`. */
+  replyLimit: number | null;
+  /** 1-based position within the period's cap, shown in the footer. */
+  alertNumber: number;
+  alertLimit: number;
+}
+
+function conversationUrl(conversationId: string): string {
+  return `https://ai.wolfpackmediapr.com/dashboard/inbox?conversation=${encodeURIComponent(conversationId)}`;
+}
+
+/** Pure, so the copy is testable without a network call. */
+export function buildBlockedAlertEmail(email: BlockedAlertEmail): { subject: string; html: string } {
+  const who = email.customerName?.trim() || 'A customer';
+  const business = email.businessName?.trim() || null;
+  const channel = escapeHtml(email.channelLabel);
+  const whoHtml = `<strong>${escapeHtml(who)}</strong>`;
+  const businessHtml = business ? ` <strong>${escapeHtml(business)}</strong>` : ' your business';
+  const unanswered = 'your agent did not answer, and they have not been sent any reply.';
+  const inbox = conversationUrl(email.conversationId);
+  const replyYourself = `Reply to them yourself in the ${channel} app, or choose a plan and your agent ` +
+    `answers new messages straight away.`;
+
+  let subject: string;
+  let heading: string;
+  let lead: string;
+  let next: string;
+  let cta: { label: string; url: string };
+  let secondary: { label: string; url: string } | null = { label: 'Open the conversation', url: inbox };
+  let period: string;
+
+  switch (email.kind) {
+    case 'trial_expired':
+      subject = `${who} is waiting for a reply — your free trial has ended`;
+      heading = 'A customer is waiting for a reply';
+      lead = `${whoHtml} messaged${businessHtml} on ${channel}. Your free trial has ended, so ${unanswered}`;
+      next = replyYourself;
+      cta = { label: 'Choose a plan', url: BILLING_URL };
+      period = 'after your free trial ends';
+      break;
+    case 'grant_exhausted':
+      subject = `${who} is waiting for a reply — your free messages are used up`;
+      heading = 'A customer is waiting for a reply';
+      lead = `${whoHtml} messaged${businessHtml} on ${channel}. You have used all of your free messages, so ${unanswered}`;
+      next = replyYourself;
+      cta = { label: 'Choose a plan', url: BILLING_URL };
+      period = 'after your free messages run out';
+      break;
+    case 'plan_limit':
+      subject = `${who} is waiting for a reply — your monthly limit is reached`;
+      heading = 'A customer is waiting for a reply';
+      lead = `${whoHtml} messaged${businessHtml} on ${channel}. Your plan's monthly conversation limit ` +
+        `has been reached, so ${unanswered}`;
+      next = `Your agent turns back on when the new month starts. To answer customers before then, reply ` +
+        `in the ${channel} app or move to a larger plan.`;
+      cta = { label: 'See plans', url: BILLING_URL };
+      period = 'each month once the limit is reached';
+      break;
+    case 'conversation_cap': {
+      const replies = email.replyLimit ? `${email.replyLimit} replies` : 'the most replies it can';
+      subject = `${who} needs a person on ${email.channelLabel}`;
+      heading = 'A conversation needs a person';
+      lead = `${whoHtml} has kept a long conversation going with${businessHtml} on ${channel}. Your agent ` +
+        `has already sent ${replies} in it within 24 hours, which is its limit for one conversation, so ${unanswered}`;
+      next = 'Reply to them yourself. Your agent picks this conversation back up on its own once the ' +
+        '24-hour window clears.';
+      cta = { label: 'Open the conversation', url: inbox };
+      secondary = null;
+      period = 'each day';
+      break;
+    }
+  }
+
+  const quote = email.lastMessage?.trim()
+    ? `<blockquote style="margin:0 0 18px;padding:12px 14px;background:#f2f6f6;border-left:3px solid ${BUTTON_BG};font-size:14px">
+         ${escapeHtml(email.lastMessage.trim().slice(0, 400))}
+       </blockquote>`
+    : '';
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;color:#10191b">
+      ${logoHeader}
+      <h2 style="margin:0 0 14px;font-size:19px">${heading}</h2>
+      <p style="font-size:15px;line-height:1.6;margin:0 0 16px">${lead}</p>
+      ${quote}
+      <p style="font-size:14px;line-height:1.6;color:#45585b;margin:0 0 20px">${next}</p>
+      <a href="${cta.url}"
+         style="display:inline-block;background:${BUTTON_BG};color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;font-weight:600">
+        ${cta.label}
+      </a>
+      ${
+    secondary
+      ? `<p style="font-size:14px;margin:16px 0 0"><a href="${secondary.url}" style="color:${BUTTON_BG}">${secondary.label}</a></p>`
+      : ''
+  }
+      <p style="font-size:12px;color:#8a9a9c;margin:24px 0 0">
+        This is alert ${email.alertNumber} of ${email.alertLimit}. We email you about the first
+        ${email.alertLimit} conversations ${period}, so a busy page cannot flood your inbox. Later messages
+        still arrive in your Inbox; we just stop emailing about them.
+      </p>
+    </div>
+  `;
+
+  return { subject, html };
+}
+
+export async function sendBlockedMessageAlertEmail(to: string, email: BlockedAlertEmail): Promise<EmailResult> {
+  if (!to?.includes('@')) return { sent: false, reason: 'no address' };
+  const { subject, html } = buildBlockedAlertEmail(email);
+  return sendViaResend({ to, subject, html });
+}

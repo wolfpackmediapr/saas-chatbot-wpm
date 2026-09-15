@@ -15,12 +15,8 @@ import { beginInboundTurn } from '../_shared/wpm_inbound_start.ts';
 import { loadBotProfilesForChannel, pickActiveBotProfileId, type ChannelMatch } from '../_shared/wpm_bridge.ts';
 import { extractLeadFromConversationText, persistQualifiedLeadAndQueueActions } from '../_shared/wpm_leads.ts';
 import { describeAttachments } from '../_shared/wpm_meta_attachments.ts';
-import {
-  checkConversationAllowance,
-  conversationCapWindowStart,
-  describeBlock,
-  noticeForBlock,
-} from '../_shared/wpm_usage.ts';
+import { checkConversationAllowance, describeBlock } from '../_shared/wpm_usage.ts';
+import { alertOwnerOfBlockedMessage } from '../_shared/wpm_blocked_alerts.ts';
 import { closeHandoff, decideHandoffAction, openHandoff, resolveDeterministicHandoff } from '../_shared/wpm_handoff.ts';
 import { sendEscalationEmail } from '../_shared/wpm_email.ts';
 import { describeSendFailure, extractSentMessageId, fetchMetaUserProfile, GRAPH_API_BASE } from '../_shared/wpm_meta_api.ts';
@@ -695,39 +691,26 @@ Deno.serve(async (request: Request) => {
         checkAllowance: () => checkConversationAllowance(supabase, channel.client_id, conversationId),
       });
       if (!allowance.allowed) {
-        const notice = noticeForBlock(allowance.reason);
-        const noticeKey = allowance.reason === 'conversation_cap'
-          ? 'conversation_cap_notice'
-          : 'usage_cap_notice';
         console.warn(`[meta-direct] ${allowance.reason} reached (${allowance.used}/${allowance.max}) for client ${channel.client_id} — AI reply skipped`);
 
-        // Tell the customer once so they aren't ignored. For the reply cap that
-        // means once per window, not once per conversation: the cap now recurs
-        // each window, and a once-ever notice would leave the customer in
-        // total silence every window after the first.
-        let noticeQuery = supabase
-          .from('wpm_messages')
-          .select('id')
-          .eq('conversation_id', conversationId)
-          .eq('metadata->>generated_by', noticeKey);
-        if (allowance.reason === 'conversation_cap') {
-          noticeQuery = noticeQuery.gt('created_at', conversationCapWindowStart());
-        }
-        const { data: priorNotice } = await noticeQuery.limit(1).maybeSingle();
-
-        if (!priorNotice && pageAccessToken) {
-          const noticeSend = await sendGraphApiReply(event.senderId, notice, pageAccessToken);
-          if (noticeSend.ok) {
-            await supabase.from('wpm_messages').insert({
-              conversation_id: conversationId,
-              client_id: channel.client_id,
-              direction: 'outbound',
-              role: 'assistant',
-              content: notice,
-              metadata: { generated_by: noticeKey },
-            });
-          }
-        }
+        // The customer is sent NOTHING — no canned notice, no Graph send, no
+        // stored row. Their message is already in the Inbox. The OWNER is told
+        // instead, for the first 3 conversations per period. See
+        // _shared/wpm_blocked_alerts.ts for why the customer notice was removed.
+        const ownerAlert = await alertOwnerOfBlockedMessage({
+          supabase,
+          allowance,
+          clientId: channel.client_id,
+          conversationId,
+          botProfileId: botProfileId ?? null,
+          customerName: externalUserName,
+          channelLabel: event.platform === 'instagram' ? 'Instagram' : 'Facebook Messenger',
+          lastMessage: event.text,
+        });
+        console.log(
+          `[meta-direct] Owner alert for blocked reply: ${ownerAlert.status}` +
+            `${ownerAlert.kind ? ` ${ownerAlert.kind}` : ''}${ownerAlert.reason ? ` (${ownerAlert.reason})` : ''}`,
+        );
 
         if (event.messageId) {
           await supabase
