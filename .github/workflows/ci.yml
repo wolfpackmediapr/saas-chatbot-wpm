@@ -46,6 +46,9 @@ jobs:
       # them — it is `tsc -p tsconfig.app.json`, i.e. src/ only. This job is
       # the other half of the codebase.
       - run: deno test --allow-all supabase/functions
+      # The Knowledge Base page mirrors what the agent reads; this fails when the
+      # mirror drifts from wpm_ai.ts / wpm_prompt.ts.
+      - run: deno test --allow-all scripts/tests/knowledge_usage_test.ts
 
   database-regressions:
     name: database ownership and tier limits

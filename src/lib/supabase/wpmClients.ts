@@ -58,6 +58,8 @@ export interface KnowledgeSource {
   content_text?: string | null;
   status: 'draft' | 'processing' | 'ready' | 'failed' | 'archived';
   metadata?: Record<string, any>;
+  /** Bumped by a trigger on every update. The agent reads the newest first. */
+  updated_at?: string;
 }
 
 export interface WpmClientChannel {
@@ -542,13 +544,18 @@ export const UI_TYPE_TO_SCHEMA: Record<string, string> = {
   other: 'manual',
 };
 
+const KNOWLEDGE_COLUMNS =
+  'id, client_id, bot_profile_id, source_type, title, source_url, content_text, status, metadata, updated_at';
+
 export async function listKnowledgeSources(clientId: string): Promise<KnowledgeSource[]> {
   if (!supabase) return [];
   const { data, error } = await (supabase as any)
     .from('wpm_knowledge_sources')
-    .select('id, client_id, bot_profile_id, source_type, title, source_url, content_text, status, metadata')
+    .select(KNOWLEDGE_COLUMNS)
     .eq('client_id', clientId)
-    .order('created_at', { ascending: false });
+    // Newest UPDATED first — the order the agent reads in (wpm_ai.ts). This was
+    // created_at, which only matched the agent while nothing was ever edited.
+    .order('updated_at', { ascending: false });
   if (error) return [];
   return (data || []) as KnowledgeSource[];
 }
@@ -594,7 +601,61 @@ export async function createKnowledgeSource(clientId: string, source: {
       status: 'ready',
       metadata,
     })
-    .select('id, client_id, bot_profile_id, source_type, title, source_url, content_text, status, metadata')
+    .select(KNOWLEDGE_COLUMNS)
+    .single();
+
+  if (error) throw error;
+  return data as KnowledgeSource;
+}
+
+/**
+ * Edit a knowledge source's words, keeping which agent uses it.
+ *
+ * Added 2026-09-15 — the Knowledge Base had no way to edit at all, so the only
+ * fix for a typo was delete and re-add, which also reset the source to "every
+ * agent". Deliberately does NOT touch `bot_profile_id`: scope has its own
+ * control (`setKnowledgeSourceAgent`), and an edit that quietly widened a
+ * Skywake-only source to every agent would put one business's material into
+ * another business's prompt.
+ *
+ * Existing metadata keys are merged, not replaced. The updated_at trigger makes
+ * the edited source the most recently updated, which is also what the agent
+ * reads first.
+ */
+export async function updateKnowledgeSource(id: string, source: {
+  title: string;
+  content_text: string;
+  ui_type?: string;
+  source_url?: string | null;
+  tags?: string;
+}): Promise<KnowledgeSource> {
+  if (!supabase) throw new Error('Service is not configured. Please contact support.');
+
+  const { data: current, error: readError } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .select('metadata')
+    .eq('id', id)
+    .single();
+  if (readError) throw readError;
+
+  const uiType = source.ui_type || current?.metadata?.ui_type || 'other';
+  const metadata: Record<string, unknown> = {
+    ...(current?.metadata ?? {}),
+    ui_type: uiType,
+    tags: (source.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean),
+  };
+
+  const { data, error } = await (supabase as any)
+    .from('wpm_knowledge_sources')
+    .update({
+      title: source.title,
+      content_text: source.content_text,
+      source_url: source.source_url || null,
+      source_type: UI_TYPE_TO_SCHEMA[uiType] ?? 'manual',
+      metadata,
+    })
+    .eq('id', id)
+    .select(KNOWLEDGE_COLUMNS)
     .single();
 
   if (error) throw error;
