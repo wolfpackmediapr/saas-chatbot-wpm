@@ -96,8 +96,16 @@ export interface ConversationAllowance {
   allowed: boolean;
   used: number | null;
   max: number | null;
-  /** Set only when `allowed` is false — decides which notice to send. */
+  /** Set only when `allowed` is false — decides which owner alert to send. */
   reason?: AllowanceBlockReason;
+  /**
+   * Which meter blocked the account: the one-time free grant, or a paid plan's
+   * monthly cap. Both arrive as `account_allowance`, but the owner must be told
+   * different things — a grant never resets, a plan resets next month.
+   */
+  meter?: 'free_grant' | 'plan';
+  /** When the free trial ends or ended. Keys the trial alert's cap window. */
+  trialEndsAt?: string | null;
 }
 
 /**
@@ -153,6 +161,7 @@ export async function checkConversationAllowance(
       messages_lifetime: number;
       free_messages_limit: number | null;
       free_trial_expired: boolean;
+      free_trial_ends_at?: string | null;
       within_allowance: boolean;
     };
 
@@ -173,36 +182,33 @@ export async function checkConversationAllowance(
       ? 'trial_expired'
       : 'account_allowance';
 
-    return { allowed: false, used, max, reason };
+    return {
+      allowed: false,
+      used,
+      max,
+      reason,
+      meter: onFreeGrant ? 'free_grant' : 'plan',
+      trialEndsAt: row.free_trial_ends_at ?? null,
+    };
   } catch {
     return { allowed: true, used: null, max: null };
   }
 }
 
 /**
- * Customer-facing notice when the business's plan cap pauses the bot.
+ * There is deliberately NO customer-facing notice for a blocked reply.
  *
- * Deliberately does not say "temporarily". The free grant is a lifetime count
- * that never resets, so for a free account that has spent it this state is
- * permanent until the business subscribes — telling the customer to wait for
- * something that is not coming is worse than saying nothing. What is actually
- * true, and all the customer needs, is that a person will pick this up.
+ * Until 2026-09-15 a block sent the customer "I'm handing this to a member of
+ * our team — they'll get back to you shortly." It opened no handoff and emailed
+ * nobody, so the promise was kept by no one. In production it reached two of In
+ * House Chef's customers after his trial ended, one of whom had already waited
+ * thirteen days for a call. It also contradicted the expiry email, which tells
+ * the owner the agent "has stopped replying", and it was hardcoded English.
+ *
+ * Decided by Wilf on 2026-09-15: a blocked reply sends the customer nothing and
+ * the OWNER is told instead — see `_shared/wpm_blocked_alerts.ts`. Silence also
+ * spends nothing: no Graph send, no stored row, no echo webhook coming back.
  */
-export const USAGE_CAP_NOTICE =
-  "Thanks for your message! I'm handing this to a member of our team — they'll get back to you shortly.";
-
-/**
- * Customer-facing notice when a single conversation has run long. Worded as a
- * handoff rather than an outage, because from the customer's side that is
- * exactly what it is — the thread continues, just with a person.
- */
-export const CONVERSATION_CAP_NOTICE =
-  "Thanks for all the detail! I'm bringing someone from our team into this conversation so they can help you properly from here.";
-
-/** The right notice for a blocked reply. */
-export function noticeForBlock(reason: AllowanceBlockReason | undefined): string {
-  return reason === 'conversation_cap' ? CONVERSATION_CAP_NOTICE : USAGE_CAP_NOTICE;
-}
 
 /**
  * Operator-facing description of why a reply was blocked, written to

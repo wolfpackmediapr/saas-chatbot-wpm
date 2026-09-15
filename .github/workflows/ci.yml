@@ -57,3 +57,4 @@ jobs:
           node-version: '22'
       - run: npm ci --prefix scripts/tests
       - run: node scripts/tests/instruction-history.mjs
+      - run: node scripts/tests/blocked-message-alerts.mjs

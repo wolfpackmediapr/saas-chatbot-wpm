@@ -4,9 +4,6 @@ import {
   CONVERSATION_CAP_WINDOW_HOURS,
   describeBlock,
   MAX_REPLIES_PER_CONVERSATION,
-  noticeForBlock,
-  CONVERSATION_CAP_NOTICE,
-  USAGE_CAP_NOTICE,
 } from './wpm_usage.ts';
 
 /**
@@ -172,12 +169,6 @@ Deno.test('lookup failures fail open', async () => {
   assertEquals((await checkConversationAllowance(noOwner, 'client-1', 'conv-1')).allowed, true);
 });
 
-Deno.test('each block reason gets its own customer-facing notice', () => {
-  assertEquals(noticeForBlock('conversation_cap'), CONVERSATION_CAP_NOTICE);
-  assertEquals(noticeForBlock('account_allowance'), USAGE_CAP_NOTICE);
-  assertEquals(noticeForBlock(undefined), USAGE_CAP_NOTICE);
-});
-
 // Regression guard for the 2026-08-20 production incident. The reply cap
 // counted outbound messages for ALL TIME, which made it permanent: an IG/FB DM
 // thread is one continuous thread per person for life, so a live thread sat at
@@ -273,8 +264,46 @@ Deno.test('an expired trial is not reported as a spent message allowance', () =>
   assertStringIncludes(described, 'NOT the limit that fired');
 });
 
-Deno.test('an expired trial still gets the permanent-sounding customer notice', () => {
-  // Same wording as a spent grant, and correct for the same reason: neither
-  // resets, so promising the customer it is temporary would be a lie.
-  assertEquals(noticeForBlock('trial_expired'), USAGE_CAP_NOTICE);
+// ── Which meter blocked, so the owner alert tells the true thing ──────────────
+// There is no customer notice any more (2026-09-15); the owner is emailed, and a
+// spent free grant, a paid plan over its cap and an expired trial each get their
+// own email. These pin the fields that choose between them.
+
+Deno.test('a spent free grant is reported as the free-grant meter', async () => {
+  const supabase = makeSupabase({
+    outboundCount: 0,
+    ownerUserId: 'user-1',
+    usageRow: { ...freeWithinGrant, messages_lifetime: 1000, within_allowance: false },
+  });
+  const allowance = await checkConversationAllowance(supabase, 'client-1', 'conv-1');
+  assertEquals(allowance.reason, 'account_allowance');
+  assertEquals(allowance.meter, 'free_grant');
+});
+
+Deno.test('a paid plan over its monthly cap is reported as the plan meter', async () => {
+  const supabase = makeSupabase({
+    outboundCount: 0,
+    ownerUserId: 'user-1',
+    usageRow: {
+      ...freeWithinGrant,
+      free_messages_limit: null,
+      conversations_used: 500,
+      max_conversations: 500,
+      within_allowance: false,
+    },
+  });
+  const allowance = await checkConversationAllowance(supabase, 'client-1', 'conv-1');
+  assertEquals(allowance.reason, 'account_allowance');
+  assertEquals(allowance.meter, 'plan');
+});
+
+Deno.test('an expired trial carries its end date for the alert window', async () => {
+  const supabase = makeSupabase({
+    outboundCount: 0,
+    ownerUserId: 'user-1',
+    usageRow: { ...freeTrialExpired, free_trial_ends_at: '2026-09-09T17:39:39.564Z' },
+  });
+  const allowance = await checkConversationAllowance(supabase, 'client-1', 'conv-1');
+  assertEquals(allowance.reason, 'trial_expired');
+  assertEquals(allowance.trialEndsAt, '2026-09-09T17:39:39.564Z');
 });

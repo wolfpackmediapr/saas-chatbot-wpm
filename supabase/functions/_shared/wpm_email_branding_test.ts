@@ -14,9 +14,10 @@ import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/st
 const source = await Deno.readTextFile(new URL('./wpm_email.ts', import.meta.url));
 
 Deno.test('every email template carries the brand header', () => {
-  // One per template: escalation, the trial shell, qualified lead, deletion.
+  // One per template: escalation, the trial shell, qualified lead, deletion,
+  // and the blocked-reply owner alerts (added 2026-09-15).
   const uses = source.match(/\$\{logoHeader\}/g) ?? [];
-  assertEquals(uses.length, 4, 'all four templates must include the logo header');
+  assertEquals(uses.length, 5, 'all five templates must include the logo header');
 });
 
 Deno.test('the logo is served from the sending domain over HTTPS', () => {
