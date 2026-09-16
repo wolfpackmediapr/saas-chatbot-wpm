@@ -649,115 +649,6 @@ export default function AgentSetup() {
         )}
       </div>
 
-      {/* Move an agent between accounts — Agency only */}
-      {canTransfer && (
-        <div className="mb-8 rounded-xl border border-secondary bg-secondary/20 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Move an agent to another account</div>
-              <p className="text-xs text-secondary-foreground mt-1 max-w-2xl">
-                Export saves this agent's setup, instructions and its own knowledge to a file. Import
-                creates a new agent here from such a file. Channels, conversations and leads never move —
-                connect the new account's channels afterwards.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={handleExportAgent}
-                disabled={!botProfileId || transferBusy !== null}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary disabled:opacity-50"
-              >
-                <Download className="h-4 w-4" />
-                {transferBusy === 'export' ? 'Exporting…' : 'Export agent'}
-              </button>
-              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary cursor-pointer">
-                <Upload className="h-4 w-4" />
-                Import agent
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  disabled={transferBusy !== null}
-                  onChange={(e) => {
-                    handleChooseImportFile(e.target.files?.[0] ?? null);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-
-          {transferNote && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <span>{transferNote}</span>
-            </div>
-          )}
-
-          {pendingImport && (
-            <div className="mt-3 rounded-lg border border-primary/40 bg-background p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">Import this agent?</div>
-                  <p className="text-xs text-secondary-foreground mt-1">{describeTransfer(pendingImport)}</p>
-                  {pendingImport.exported_from && (
-                    <p className="text-xs text-secondary-foreground mt-1">
-                      Exported from <strong>{pendingImport.exported_from}</strong>
-                      {pendingImport.exported_at ? ` on ${new Date(pendingImport.exported_at).toLocaleDateString()}` : ''}.
-                    </p>
-                  )}
-                  {pendingImport.skipped_account_wide_sources > 0 && (
-                    <p className="text-xs text-amber-400 mt-1">
-                      {pendingImport.skipped_account_wide_sources} account-wide knowledge source
-                      {pendingImport.skipped_account_wide_sources === 1 ? '' : 's'} from the old account are not in this
-                      file — add them by hand if this agent needs them.
-                    </p>
-                  )}
-                  {pendingImport.business_profile && (
-                    <label className="mt-3 flex items-start gap-2 text-xs text-secondary-foreground">
-                      <input
-                        type="checkbox"
-                        checked={applyBusinessProfile}
-                        onChange={(e) => setApplyBusinessProfile(e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        Also fill <strong>empty</strong> Business Profile fields from the file
-                        {pendingImport.business_profile.name ? ` (${pendingImport.business_profile.name})` : ''}. Fields you
-                        have already filled are never overwritten.
-                      </span>
-                    </label>
-                  )}
-                </div>
-                <button
-                  onClick={() => setPendingImport(null)}
-                  className="p-1.5 text-secondary-foreground hover:text-foreground rounded-lg"
-                  aria-label="Cancel import"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={handleConfirmImport}
-                  disabled={transferBusy !== null}
-                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover disabled:opacity-50"
-                >
-                  {transferBusy === 'import' ? 'Importing…' : 'Create this agent'}
-                </button>
-                <button
-                  onClick={() => setPendingImport(null)}
-                  disabled={transferBusy !== null}
-                  className="px-4 py-1.5 rounded-lg border border-secondary text-sm text-secondary-foreground hover:bg-secondary disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Agent list */}
       {agents.length > 0 && (
         <AgentList
@@ -1019,6 +910,118 @@ export default function AgentSetup() {
         Stored in <code>wpm_bot_instructions</code> linked to your active bot profile.
         Injected into every AI response alongside your Knowledge Base.
       </div>
+
+      {/* Move an agent between accounts — Agency only. Kept at the end of the
+          page on purpose: it is a rare action, and it was sitting above the
+          agent list where it read as the first thing to do. */}
+      {canTransfer && (
+        <div className="mt-10 pt-8 border-t border-secondary rounded-xl p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Move an agent to another account</div>
+              <p className="text-xs text-secondary-foreground mt-1 max-w-2xl">
+                Export saves this agent's setup, instructions and its own knowledge to a file. Import
+                creates a new agent here from such a file. Channels, conversations and leads never move —
+                connect the new account's channels afterwards.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleExportAgent}
+                disabled={!botProfileId || transferBusy !== null}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                {transferBusy === 'export' ? 'Exporting…' : 'Export agent'}
+              </button>
+              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary cursor-pointer">
+                <Upload className="h-4 w-4" />
+                Import agent
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  disabled={transferBusy !== null}
+                  onChange={(e) => {
+                    handleChooseImportFile(e.target.files?.[0] ?? null);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {transferNote && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{transferNote}</span>
+            </div>
+          )}
+
+          {pendingImport && (
+            <div className="mt-3 rounded-lg border border-primary/40 bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Import this agent?</div>
+                  <p className="text-xs text-secondary-foreground mt-1">{describeTransfer(pendingImport)}</p>
+                  {pendingImport.exported_from && (
+                    <p className="text-xs text-secondary-foreground mt-1">
+                      Exported from <strong>{pendingImport.exported_from}</strong>
+                      {pendingImport.exported_at ? ` on ${new Date(pendingImport.exported_at).toLocaleDateString()}` : ''}.
+                    </p>
+                  )}
+                  {pendingImport.skipped_account_wide_sources > 0 && (
+                    <p className="text-xs text-amber-400 mt-1">
+                      {pendingImport.skipped_account_wide_sources} account-wide knowledge source
+                      {pendingImport.skipped_account_wide_sources === 1 ? '' : 's'} from the old account are not in this
+                      file — add them by hand if this agent needs them.
+                    </p>
+                  )}
+                  {pendingImport.business_profile && (
+                    <label className="mt-3 flex items-start gap-2 text-xs text-secondary-foreground">
+                      <input
+                        type="checkbox"
+                        checked={applyBusinessProfile}
+                        onChange={(e) => setApplyBusinessProfile(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Also fill <strong>empty</strong> Business Profile fields from the file
+                        {pendingImport.business_profile.name ? ` (${pendingImport.business_profile.name})` : ''}. Fields you
+                        have already filled are never overwritten.
+                      </span>
+                    </label>
+                  )}
+                </div>
+                <button
+                  onClick={() => setPendingImport(null)}
+                  className="p-1.5 text-secondary-foreground hover:text-foreground rounded-lg"
+                  aria-label="Cancel import"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={handleConfirmImport}
+                  disabled={transferBusy !== null}
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover disabled:opacity-50"
+                >
+                  {transferBusy === 'import' ? 'Importing…' : 'Create this agent'}
+                </button>
+                <button
+                  onClick={() => setPendingImport(null)}
+                  disabled={transferBusy !== null}
+                  className="px-4 py-1.5 rounded-lg border border-secondary text-sm text-secondary-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
