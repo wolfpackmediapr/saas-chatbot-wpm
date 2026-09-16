@@ -342,6 +342,33 @@ export async function getPlanLimits(): Promise<{ max_channels: number | null; ma
   return data[0] as { max_channels: number | null; max_bots: number | null };
 }
 
+/**
+ * The signed-in account's plan, for entitlement checks in the UI.
+ *
+ * `get_wpm_usage` deliberately does not carry the plan name — it reports
+ * allowances, and admin/agency accounts report null limits rather than a tier.
+ * Subscription.tsx reads this table directly for the billing page; this is the
+ * same read, shared, so a feature gate and the billing page can never disagree.
+ *
+ * Returns null when there is no row (a brand-new signup), which every caller
+ * must treat as "not entitled" rather than as an error.
+ */
+export async function getSubscriptionPlan(): Promise<{ plan: string; status: string } | null> {
+  if (!supabase) return null;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await (supabase as any)
+    .from('subscriptions')
+    .select('plan, status')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (error) {
+    console.error('[wpmClients] getSubscriptionPlan error', error);
+    return null;
+  }
+  return (data as { plan: string; status: string } | null) ?? null;
+}
+
 export interface UsageSummary {
   conversations_used: number;
   /** null = not metered by conversations (free accounts, agency, admins). */

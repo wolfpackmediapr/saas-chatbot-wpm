@@ -49,6 +49,8 @@ jobs:
       # The Knowledge Base page mirrors what the agent reads; this fails when the
       # mirror drifts from wpm_ai.ts / wpm_prompt.ts.
       - run: deno test --allow-all scripts/tests/knowledge_usage_test.ts
+      # The agent transfer file is the only portable copy of an agent's setup.
+      - run: deno test --allow-all scripts/tests/agent_transfer_test.ts
 
   database-regressions:
     name: database ownership and tier limits
