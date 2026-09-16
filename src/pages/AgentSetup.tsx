@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Bot, Save, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Plus, Crown, Trash2 } from 'lucide-react';
+import { Bot, Save, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Plus, Crown, Trash2, Download, Upload, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   getOwnedWpmClient,
@@ -10,10 +10,19 @@ import {
   getBotInstructions,
   upsertBotInstructions,
   getPlanLimits,
+  getSubscriptionPlan,
   listClientChannels,
   type WpmBotProfileRecord,
   type WpmClientChannel,
 } from '../lib/supabase/wpmClients';
+import { exportAgent, importAgent } from '../lib/supabase/agentTransferIo';
+import {
+  canTransferAgents,
+  describeTransfer,
+  parseAgentTransfer,
+  transferFileName,
+  type AgentTransferFile,
+} from '../lib/agentTransfer';
 import { BUSINESS_TEMPLATES } from '../lib/businessTemplates';
 import { findLinkConflicts } from '../lib/instructionLinkAudit';
 
@@ -302,6 +311,90 @@ export default function AgentSetup() {
   const [creating, setCreating] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
 
+  // ── Moving an agent between accounts (Agency) ────────────────────────────
+  const [subscription, setSubscription] = useState<{ plan: string; status: string } | null>(null);
+  const [transferBusy, setTransferBusy] = useState<'export' | 'import' | null>(null);
+  const [pendingImport, setPendingImport] = useState<AgentTransferFile | null>(null);
+  const [applyBusinessProfile, setApplyBusinessProfile] = useState(false);
+  const [transferNote, setTransferNote] = useState<string | null>(null);
+  const canTransfer = canTransferAgents(subscription?.plan, subscription?.status);
+
+  useEffect(() => {
+    getSubscriptionPlan().then(setSubscription).catch(() => {});
+  }, []);
+
+  const handleExportAgent = async () => {
+    const agent = agents.find((a) => a.id === botProfileId);
+    if (!clientId || !agent) return;
+    setTransferBusy('export');
+    setError(null);
+    setTransferNote(null);
+    try {
+      const file = await exportAgent(clientId, agent);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = transferFileName(agent.name);
+      link.click();
+      URL.revokeObjectURL(url);
+      setTransferNote(
+        `Exported ${describeTransfer(file)}.` +
+          (file.skipped_account_wide_sources
+            ? ` ${file.skipped_account_wide_sources} account-wide knowledge source${file.skipped_account_wide_sources === 1 ? '' : 's'} were NOT included — they belong to every agent on this account.`
+            : ''),
+      );
+    } catch (err) {
+      console.error('Export failed', err);
+      setError('Could not export this agent. Please try again.');
+    } finally {
+      setTransferBusy(null);
+    }
+  };
+
+  const handleChooseImportFile = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    setTransferNote(null);
+    const parsed = parseAgentTransfer(await file.text());
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    setApplyBusinessProfile(false);
+    setPendingImport(parsed.file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!clientId || !pendingImport) return;
+    setTransferBusy('import');
+    setError(null);
+    try {
+      const outcome = await importAgent(clientId, pendingImport, { applyBusinessProfile });
+      const profiles = await listBotProfiles(clientId);
+      setAgents(profiles);
+      const created = profiles.find((p) => p.id === outcome.botProfileId);
+      if (created) {
+        setBotProfileId(created.id);
+        await loadAgent(created);
+      }
+      setPendingImport(null);
+      setTransferNote(
+        `Imported “${pendingImport.agent.name}” with ${outcome.knowledgeImported} knowledge source${outcome.knowledgeImported === 1 ? '' : 's'}.` +
+          (outcome.knowledgeFailed ? ` ${outcome.knowledgeFailed} could not be saved — add those by hand.` : '') +
+          (outcome.businessProfileFieldsFilled.length
+            ? ` Filled empty Business Profile fields: ${outcome.businessProfileFieldsFilled.join(', ')}.`
+            : '') +
+          ' Connect its channels and set Agent Routing before it can answer.',
+      );
+    } catch (err) {
+      // The plan's bot-limit trigger raises its own sentence; show it as-is.
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg.includes('Bot limit') ? msg : 'Could not import that agent. Please try again.');
+    } finally {
+      setTransferBusy(null);
+    }
+  };
+
   // Load instructions for one agent into the form
   const loadAgent = async (profile: WpmBotProfileRecord) => {
     const instructions = await getBotInstructions(profile.id);
@@ -555,6 +648,115 @@ export default function AgentSetup() {
           </div>
         )}
       </div>
+
+      {/* Move an agent between accounts — Agency only */}
+      {canTransfer && (
+        <div className="mb-8 rounded-xl border border-secondary bg-secondary/20 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Move an agent to another account</div>
+              <p className="text-xs text-secondary-foreground mt-1 max-w-2xl">
+                Export saves this agent's setup, instructions and its own knowledge to a file. Import
+                creates a new agent here from such a file. Channels, conversations and leads never move —
+                connect the new account's channels afterwards.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleExportAgent}
+                disabled={!botProfileId || transferBusy !== null}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                {transferBusy === 'export' ? 'Exporting…' : 'Export agent'}
+              </button>
+              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-sm hover:bg-secondary cursor-pointer">
+                <Upload className="h-4 w-4" />
+                Import agent
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  disabled={transferBusy !== null}
+                  onChange={(e) => {
+                    handleChooseImportFile(e.target.files?.[0] ?? null);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {transferNote && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{transferNote}</span>
+            </div>
+          )}
+
+          {pendingImport && (
+            <div className="mt-3 rounded-lg border border-primary/40 bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Import this agent?</div>
+                  <p className="text-xs text-secondary-foreground mt-1">{describeTransfer(pendingImport)}</p>
+                  {pendingImport.exported_from && (
+                    <p className="text-xs text-secondary-foreground mt-1">
+                      Exported from <strong>{pendingImport.exported_from}</strong>
+                      {pendingImport.exported_at ? ` on ${new Date(pendingImport.exported_at).toLocaleDateString()}` : ''}.
+                    </p>
+                  )}
+                  {pendingImport.skipped_account_wide_sources > 0 && (
+                    <p className="text-xs text-amber-400 mt-1">
+                      {pendingImport.skipped_account_wide_sources} account-wide knowledge source
+                      {pendingImport.skipped_account_wide_sources === 1 ? '' : 's'} from the old account are not in this
+                      file — add them by hand if this agent needs them.
+                    </p>
+                  )}
+                  {pendingImport.business_profile && (
+                    <label className="mt-3 flex items-start gap-2 text-xs text-secondary-foreground">
+                      <input
+                        type="checkbox"
+                        checked={applyBusinessProfile}
+                        onChange={(e) => setApplyBusinessProfile(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Also fill <strong>empty</strong> Business Profile fields from the file
+                        {pendingImport.business_profile.name ? ` (${pendingImport.business_profile.name})` : ''}. Fields you
+                        have already filled are never overwritten.
+                      </span>
+                    </label>
+                  )}
+                </div>
+                <button
+                  onClick={() => setPendingImport(null)}
+                  className="p-1.5 text-secondary-foreground hover:text-foreground rounded-lg"
+                  aria-label="Cancel import"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={handleConfirmImport}
+                  disabled={transferBusy !== null}
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover disabled:opacity-50"
+                >
+                  {transferBusy === 'import' ? 'Importing…' : 'Create this agent'}
+                </button>
+                <button
+                  onClick={() => setPendingImport(null)}
+                  disabled={transferBusy !== null}
+                  className="px-4 py-1.5 rounded-lg border border-secondary text-sm text-secondary-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Agent list */}
       {agents.length > 0 && (
