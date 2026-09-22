@@ -844,12 +844,24 @@ Deno.serve(async (request: Request) => {
           .in('role', ['user', 'assistant', 'human'])
           .order('created_at', { ascending: false }).limit(1).maybeSingle();
         if (priorReplyError) console.warn('[meta-direct] Lead context lookup failed:', priorReplyError.message);
+
+        // The customer's own previous message, for the identity window only.
+        // A name and a phone number arrive in separate turns whenever the agent
+        // asks for the second one, and neither turn alone used to qualify.
+        const { data: priorInbound, error: priorInboundError } = await supabase
+          .from('wpm_messages').select('content')
+          .eq('conversation_id', conversationId).lt('created_at', inboundStoredAt)
+          .eq('role', 'user')
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (priorInboundError) console.warn('[meta-direct] Lead identity lookup failed:', priorInboundError.message);
+
         const lead = extractLeadFromConversationText({
           inboundText: event.text,
           assistantText: replyText,
           sourceChannel: event.platform,
           threadIdentity: { externalUserId: event.senderId, displayName: externalUserName },
           previousAssistantText: priorReply?.role === 'assistant' || priorReply?.role === 'human' ? priorReply.content : undefined,
+          previousInboundText: priorInbound?.content ?? undefined,
         });
 
         if (lead.isQualified) {

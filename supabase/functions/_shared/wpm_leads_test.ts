@@ -618,3 +618,96 @@ Deno.test('existing lead enrichment does not queue duplicate automation actions'
   assertEquals(result.skipped, true);
   assertEquals(result.queuedToolExecutionIds, []);
 });
+
+// ── Both halves of a real lead, from two real leads ───────────────────────────
+//
+// Two defects found on Skywake Aviation on 2026-09-22, hours apart, on the two
+// highest-intent conversations of the day. Neither was a vocabulary gap; both
+// were about WHERE in the message the extractor looked.
+
+Deno.test('the line nearest the contact details is the name, not the first one', () => {
+  // Delivered to the customer as "Subject: New lead: Comenzando Desde Cero".
+  // Her name is on the second line; the opening phrase is three ordinary
+  // Spanish words and passed every namely check.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Comenzando desde cero \nTanisha \n9393481802',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Tanisha');
+  assertEquals(lead.phone, '9393481802');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('a name given one turn earlier still qualifies the contact details', () => {
+  // He gave his name, the agent asked for a number, he gave the number, and the
+  // agent said "Ya tengo tu nombre y número". No lead row was ever written.
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Mi numero es el 787-245-7223',
+    previousInboundText:
+      'Mi nombre es Jesus Oquendo me interesa para mi hijo que tiene 15años ' +
+      'y me menciono que le interesaba la idea.',
+    assistantText: 'Perfecto, Jesús. Ya tengo tu nombre y número para que el equipo de Skywake pueda contactarte.',
+    sourceChannel: 'instagram',
+    threadIdentity: { externalUserId: 'provider-user-123' },
+  });
+
+  assertEquals(lead.fullName, 'Jesus Oquendo');
+  assertEquals(lead.phone, '787-245-7223');
+  assertEquals(lead.isQualified, true);
+});
+
+Deno.test('the identity window reads the customer only, and never their intent', () => {
+  // The lookback must not turn stale words into a qualification, and it must
+  // never read the agent's side — that is how "Discovery Call" became a lead.
+  const stale = extractLeadFromConversationText({
+    inboundText: 'Gracias',
+    previousInboundText: 'Quiero reservar una llamada',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(stale.isQualified, false, 'no contact anywhere means no lead');
+
+  const fromAgent = extractLeadFromConversationText({
+    inboundText: 'Mi numero es el 787-245-7223',
+    previousInboundText: 'Hola',
+    assistantText: 'Soy Jane Rivera, escríbeme a hello@wolfpackmediapr.com',
+    sourceChannel: 'instagram',
+  });
+  assertEquals(fromAgent.fullName, null, 'the agent is never the lead');
+  assertEquals(fromAgent.email, null);
+});
+
+Deno.test('this turn always outranks the lookback', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Mi nombre es Ana Torres, 787-555-0000',
+    previousInboundText: 'Mi nombre es Jesus Oquendo, 787-245-7223',
+    sourceChannel: 'instagram',
+  });
+
+  assertEquals(lead.fullName, 'Ana Torres');
+  assertEquals(lead.phone, '787-555-0000');
+});
+
+Deno.test('Spanish introductions are read, and accented names survive intact', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Mi nombre es José Martínez, mi correo es jose@example.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'José Martínez',
+  );
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'me llamo Tanisha y mi numero es 9393481802',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Tanisha',
+  );
+});
+
+Deno.test('"soy" is not an introduction — it would invent more names than it found', () => {
+  for (const inboundText of ['Soy de Bayamón, mi numero es 787-555-0000', 'Soy piloto privado 787-555-0000']) {
+    const name = extractLeadFromConversationText({ inboundText, sourceChannel: 'instagram' }).fullName;
+    assertEquals(name === 'De' || name === 'Piloto', false, `${inboundText} -> ${name}`);
+  }
+});

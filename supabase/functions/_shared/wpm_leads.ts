@@ -134,7 +134,16 @@ function nameFromDetailsBlock(text: string): string | null {
   // one line, and stripping the contact tokens out of it leaves the name.
   // Never past that point — trailing commentary is not a name, which is how
   // "Hola / correo@… / reservation" produced a lead called "Reservation".
-  for (const line of lines.slice(0, firstContact + 1)) {
+  //
+  // Scanned BACKWARDS from the contact line, because the line nearest the
+  // contact details is the one most likely to be the name. Taking the first
+  // namely-looking line instead is how a real lead was delivered to Skywake
+  // Aviation as "Comenzando Desde Cero" (2026-09-22): she wrote
+  // "Comenzando desde cero\nTanisha\n9393481802", and the opening phrase —
+  // three ordinary Spanish words, none of them fillers — won over her actual
+  // name on the very next line. Nothing in a word list would have caught that;
+  // the position is the signal.
+  for (const line of lines.slice(0, firstContact + 1).reverse()) {
     const remainder = line
       .replace(/https?:\/\/\S+/gi, ' ')
       .replace(/[\w.+-]+@[\w.-]+\.\w+/g, ' ')       // email
@@ -180,8 +189,19 @@ function stripMarkdownLinks(text: string): string {
  * capitalised words sitting next to an email address.
  */
 function extractName(text: string): string | null {
+  // Spanish belongs here as much as English: the agent answers in the
+  // customer's language, and in Puerto Rico most of these introductions arrive
+  // as "mi nombre es …" / "me llamo …". The same omission threw away a lead
+  // with a name, an email and a phone number in 2026-08-22's vocabulary bug,
+  // one function over.
+  //
+  // Bare "soy" is deliberately NOT here. "soy de Bayamón" and "soy piloto"
+  // are far commoner than "soy Jesús", and the words that follow are ordinary
+  // enough to pass the namely check — it would invent more names than it found.
+  // `\p{L}`, not `[a-z]`: an ASCII-only class truncates "José" to "Jos" and
+  // "Martín" to "Mart", which matters the moment Spanish introductions match.
   const introduced = text.match(
-    /(?:my name is|name is|i am|i'm)\s+([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})/i,
+    /(?:my name is|name is|i am|i'm|mi nombre es|mi nombre|me llamo)\s+(\p{L}[\p{L}'\-]+(?:\s+\p{L}[\p{L}'\-]+){0,3})/iu,
   );
   // "I'm interested in a chat bot" matches this pattern just as well as
   // "I'm Wilfre" does, and used to be stored as a lead named "Interested In".
@@ -351,6 +371,11 @@ export function extractLeadFromConversationText(args: {
   /** Provider-scoped identity from the authenticated webhook, never message text. */
   threadIdentity?: { externalUserId: string; displayName?: string | null };
   previousAssistantText?: string;
+  /**
+   * The customer's own immediately preceding inbound message, if there is one.
+   * Identity only — never intent. See the identity-window note below.
+   */
+  previousInboundText?: string;
 }): ExtractedLead {
   // Who the lead IS can only come from what the customer wrote. Scanning our
   // own reply for their identity is how a lead was stored as "Discovery Call":
@@ -361,9 +386,32 @@ export function extractLeadFromConversationText(args: {
   // service and the timing, so context still reads both sides.
   const identityText = stripMarkdownLinks(args.inboundText);
   const combinedText = `${args.inboundText}\n${args.assistantText ?? ''}`;
-  const email = clean(identityText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
-  const phone = clean(identityText.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
-  const fullName = extractName(identityText);
+
+  // ── The identity window spans the customer's ADJACENT turns ──────────────
+  //
+  // A person asked for their details supplies them the way people talk: name
+  // first, then the number when the agent asks for it. Extraction used to run
+  // on one turn in isolation, so neither turn ever held both halves and the
+  // lead was dropped outright. Live cost, 2026-09-22 14:35 on Skywake Aviation:
+  //
+  //   "Mi nombre es Jesus Oquendo me interesa para mi hijo…"   name, no contact
+  //   "Mi numero es el 787-245-7223"                           contact, no name
+  //   agent: "Perfecto, Jesús. Ya tengo tu nombre y número…"   it did not
+  //
+  // Exactly ONE turn back, and identity ONLY. One turn is the shape of the
+  // ask-and-answer pair; widening it would start pulling names out of unrelated
+  // earlier chat, and this thread is permanent on Instagram. Intent is
+  // deliberately left alone — it still reads this turn, so a stale "quiero
+  // reservar" from last month cannot qualify anybody.
+  //
+  // This turn always wins. The lookback fills a gap; it never overrides.
+  const priorIdentityText = stripMarkdownLinks(args.previousInboundText ?? '');
+  const matchEmail = (t: string) => clean(t.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]);
+  const matchPhone = (t: string) =>
+    clean(t.match(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/)?.[0]);
+  const email = matchEmail(identityText) ?? matchEmail(priorIdentityText);
+  const phone = matchPhone(identityText) ?? matchPhone(priorIdentityText);
+  const fullName = extractName(identityText) ?? extractName(priorIdentityText);
   const serviceInterest = extractServiceInterest(combinedText);
   const qualificationData = extractQualificationData(combinedText);
   const intent = extractIntent(combinedText, args.inboundText, serviceInterest, qualificationData);

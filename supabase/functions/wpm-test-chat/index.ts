@@ -326,6 +326,11 @@ Deno.serve(async (req: Request) => {
 
   // ── Lead extraction & persistence ─────────────────────────────────────────
   try {
+    // Mirrors the live path's identity window: the tester's own previous turn
+    // fills a name the current turn does not carry. Agent Test stops
+    // reproducing live behaviour the moment these two disagree.
+    const priorUserMsg = [...historyWithoutLastUser].reverse().find((m) => m.role === 'user');
+
     const lead = extractLeadFromConversationText({
       inboundText: lastUserMsg.content,
       assistantText: reply,
@@ -333,6 +338,7 @@ Deno.serve(async (req: Request) => {
       threadIdentity: { externalUserId: user.id },
       previousAssistantText: historyWithoutLastUser.at(-1)?.role === 'assistant'
         ? historyWithoutLastUser.at(-1)?.content : undefined,
+      previousInboundText: priorUserMsg?.content ?? undefined,
     });
 
     if (lead.isQualified && conversationId) {
