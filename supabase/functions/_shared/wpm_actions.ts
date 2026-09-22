@@ -384,7 +384,41 @@ export async function executeEmailToolExecution(args: {
   }
 
   const attempt = (row.attempt_count ?? 0) + 1;
-  const lead = (row.input_payload?.lead ?? {}) as Record<string, string | null>;
+
+  // ── Read the lead as it is NOW, not as it was when the row was queued ─────
+  //
+  // The trigger snapshots the lead into input_payload at INSERT time, and a
+  // lead is upserted as detail arrives: the customer gives a phone, the agent
+  // asks for a name, the name lands half a minute later. Delivering the
+  // snapshot is why three real alerts went out incomplete —
+  //
+  //   Gyriel   phone at 19:55:52, name + email 31s later  -> mailed as "7874557043"
+  //   Tanisha  phone, no email ever
+  //   GILSON   name + phone, email 51s later, intent 16s later
+  //
+  // — and it is why the queue now holds the first attempt back for a few
+  // minutes (see the notification trigger). The delay is only worth anything
+  // if the send reads the row again at the end of it.
+  //
+  // The snapshot stays as the fallback: a lead deleted between queue and send
+  // still produces the alert it was queued for rather than an empty one.
+  const snapshot = (row.input_payload?.lead ?? {}) as Record<string, string | null>;
+  const leadId = row.input_payload?.lead_id as string | undefined;
+  let lead = snapshot;
+
+  if (leadId) {
+    const { data: current, error: leadError } = await args.supabase
+      .from('wpm_leads')
+      .select('full_name, email, phone, intent, service_interest')
+      .eq('id', leadId)
+      .maybeSingle();
+    // Never fail the alert over this — a stale alert beats no alert.
+    if (leadError) {
+      console.warn(`[wpm-actions] Lead re-read failed for ${leadId}, sending the queued snapshot:`, leadError.message);
+    } else if (current) {
+      lead = current as Record<string, string | null>;
+    }
+  }
 
   const result = await send(args.supabase, {
     clientId: row.client_id,

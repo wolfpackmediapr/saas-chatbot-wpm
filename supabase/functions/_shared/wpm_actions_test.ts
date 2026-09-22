@@ -560,3 +560,73 @@ Deno.test('the batch router sends email rows by email and webhook rows by HTTP',
   assertEquals(posted.length, 1); // only the webhook row was POSTed
   assertEquals(emailsSent, 1);    // only the email row was mailed
 });
+
+// ── The alert carries the lead as it is at SEND time ─────────────────────────
+//
+// The trigger snapshots the lead when it fires, and the queue now holds the
+// first attempt back a few minutes so late detail can land. The delay is only
+// worth something if the send reads the row again at the end of it — otherwise
+// it posts the same incomplete alert, three minutes later.
+
+Deno.test('a lead that gained detail while queued is mailed with the detail', async () => {
+  // GILSON Borja, 2026-09-22: name + phone at 19:31:08, email 51s later.
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': {
+      ...emailExecution,
+      input_payload: {
+        ...emailExecution.input_payload,
+        lead: { full_name: 'GILSON Borja', email: null, phone: '5166369478', intent: null, service_interest: null },
+      },
+    },
+    'wpm_leads:byId': {
+      'lead-uuid': {
+        full_name: 'GILSON Borja',
+        email: 'Jasonbuestan@icloud.com',
+        phone: '5166369478',
+        intent: 'booking_request',
+        service_interest: null,
+      },
+    },
+  });
+  let received: Record<string, unknown> | null = null;
+
+  const result = await executeEmailToolExecution({
+    supabase,
+    toolExecutionId: 'email-execution-uuid',
+    now: () => 1000,
+    send: async (_s: unknown, args: Record<string, unknown>) => {
+      received = args;
+      return { sent: true };
+    },
+  });
+
+  assertEquals(result.status, 'success');
+  assertEquals(received!.fullName, 'GILSON Borja');
+  assertEquals(received!.email, 'Jasonbuestan@icloud.com', 'the address that arrived after queueing');
+  assertEquals(received!.intent, 'booking_request', 'the intent that arrived after queueing');
+});
+
+Deno.test('a lead that cannot be re-read still sends the queued snapshot', async () => {
+  // A stale alert beats no alert. The lead row is gone; the snapshot stands in.
+  const supabase = new SupabaseStub({
+    updates: [],
+    'wpm_tool_executions:single': emailExecution,
+    'wpm_leads:byId': {},
+  });
+  let received: Record<string, unknown> | null = null;
+
+  const result = await executeEmailToolExecution({
+    supabase,
+    toolExecutionId: 'email-execution-uuid',
+    now: () => 1000,
+    send: async (_s: unknown, args: Record<string, unknown>) => {
+      received = args;
+      return { sent: true };
+    },
+  });
+
+  assertEquals(result.status, 'success');
+  assertEquals(received!.fullName, 'Jane Rivera');
+  assertEquals(received!.email, 'jane@example.com');
+});
