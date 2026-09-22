@@ -20,6 +20,34 @@ export const GRAPH_API_VERSION = 'v26.0';
 
 export const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
+/**
+ * The webhook fields every connected Page is subscribed to.
+ *
+ * There are TWO subscriptions and they are not the same thing. The APP
+ * subscribes to topics and fields in the App Dashboard; each PAGE must then be
+ * subscribed separately via POST /{page-id}/subscribed_apps. Meta dispatches a
+ * field only when both agree, and a Page subscribed to fewer fields fails
+ * silently — there is no error, the events simply never arrive.
+ *
+ * `message_echoes` was missing here until 2026-09-22, and that is the whole
+ * reason Facebook echoes never worked while Instagram's did:
+ *
+ *   Instagram  an echo arrives inside `messages` with is_echo: true   ✅ subscribed
+ *   Messenger  an echo is its own field, `message_echoes`             ❌ was not
+ *
+ * Measured before the fix: 105 outbound Messenger messages sent by us since
+ * 2026-06-11 and **zero** echoes received, against 537 / 119 on Instagram. Our
+ * own sends echo back on a healthy subscription, so zero-from-105 was the
+ * tell. The consequence was that a human replying from the Page inbox existed
+ * nowhere — not in the Inbox, and not in the agent's context, so the agent kept
+ * answering as though its colleague had never spoken.
+ *
+ * ⚠️ Changing this constant only affects Pages subscribed AFTER the deploy.
+ * Every already-connected Page keeps its old field list until it is
+ * re-subscribed — run `meta-verify-webhooks` for each existing channel.
+ */
+export const PAGE_SUBSCRIBED_FIELDS = 'messages,messaging_postbacks,message_echoes';
+
 // ---------------------------------------------------------------------------
 // Sender display name lookup
 // ---------------------------------------------------------------------------
