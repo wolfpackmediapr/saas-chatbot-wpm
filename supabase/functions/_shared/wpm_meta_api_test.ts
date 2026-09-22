@@ -5,6 +5,7 @@ import {
   fetchMetaUserProfile,
   GRAPH_API_BASE,
   GRAPH_API_VERSION,
+  PAGE_SUBSCRIBED_FIELDS,
 } from './wpm_meta_api.ts';
 
 Deno.test('GRAPH_API_VERSION is a well-formed Graph API version', () => {
@@ -173,4 +174,34 @@ Deno.test('other Meta errors keep their own message', () => {
 
 Deno.test('a thrown network error is reported as-is', () => {
   assertEquals(describeSendFailure({ error: 'TypeError: network failure' }), 'TypeError: network failure');
+});
+
+// ── Page webhook subscription fields ─────────────────────────────────────────
+//
+// This is a structural guard, not a behaviour test. The defect it pins was an
+// ABSENT field: `message_echoes` was missing from the Page subscription from
+// the first commit until 2026-09-22, and nothing failed — Meta simply never
+// dispatched Messenger echoes. 105 outbound Messenger messages, zero echoes
+// back, for three and a half months. A missing field has no error to assert on,
+// so the only way to catch it is to assert it is present.
+
+Deno.test('the Page subscription includes message_echoes', () => {
+  // Without this, a human replying from the Page inbox reaches the platform
+  // nowhere: not the Inbox, not the agent's context.
+  assertEquals(PAGE_SUBSCRIBED_FIELDS.split(',').includes('message_echoes'), true);
+});
+
+Deno.test('the Page subscription still includes the fields the reply path needs', () => {
+  const fields = PAGE_SUBSCRIBED_FIELDS.split(',');
+  for (const required of ['messages', 'messaging_postbacks']) {
+    assertEquals(fields.includes(required), true, `${required} must stay subscribed`);
+  }
+});
+
+Deno.test('the subscribed-fields list is a clean comma list with no spaces', () => {
+  // It goes straight into a query string; a stray space silently subscribes to
+  // a field name that does not exist.
+  assertEquals(PAGE_SUBSCRIBED_FIELDS, PAGE_SUBSCRIBED_FIELDS.trim());
+  assertEquals(PAGE_SUBSCRIBED_FIELDS.includes(' '), false);
+  assertEquals(PAGE_SUBSCRIBED_FIELDS.includes(',,'), false);
 });

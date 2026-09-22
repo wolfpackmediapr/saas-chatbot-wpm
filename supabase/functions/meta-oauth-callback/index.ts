@@ -9,7 +9,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
-import { GRAPH_API_BASE } from "../_shared/wpm_meta_api.ts";
+import { GRAPH_API_BASE, PAGE_SUBSCRIBED_FIELDS } from "../_shared/wpm_meta_api.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -177,7 +177,7 @@ Deno.serve(async (request: Request) => {
       try {
         const subResp = await fetch(
           `${GRAPH_API_BASE}/${page.id}/subscribed_apps` +
-            `?subscribed_fields=messages,messaging_postbacks`,
+            `?subscribed_fields=${PAGE_SUBSCRIBED_FIELDS}`,
           { method: "POST", headers: { Authorization: `Bearer ${page.access_token}` } }
         );
         const subData = await subResp.json();
