@@ -262,3 +262,28 @@ Deno.test('an INBOUND message with nothing readable is still dropped, deliberate
   assertEquals(out[0].isEcho, false);
   assertEquals(out[0].text, null); // the caller's guard at :351 still discards it
 });
+
+Deno.test('a like is flagged as an acknowledgement; ordinary messages and echoes are not', () => {
+  const like: MetaMessageEvent = {
+    sender: { id: CUSTOMER },
+    recipient: { id: PAGE },
+    timestamp: 1790000000000,
+    message: {
+      mid: 'm_like',
+      attachments: [
+        { type: 'image', payload: { url: 'https://scontent.xx.fbcdn.net/like.png', sticker_id: 369239263222822 } },
+        { type: 'sticker', payload: { url: 'https://scontent.xx.fbcdn.net/like.png', sticker_id: 369239263222822 } },
+      ],
+    },
+  };
+  const [event] = normalizeMetaEvents(entry([like]), 'messenger');
+  assertEquals(event.acknowledgementOnly, true);
+  assertEquals(event.text, '[Sent a 👍]');
+
+  assertEquals(normalizeMetaEvents(entry([inbound('Gracias')]), 'messenger')[0].acknowledgementOnly, false);
+
+  // The business liking a customer's message is an echo: recorded by the echo
+  // path as the business's own turn, never as the customer's acknowledgement.
+  const echo: MetaMessageEvent = { ...like, sender: { id: PAGE }, recipient: { id: CUSTOMER }, message: { ...like.message!, is_echo: true } };
+  assertEquals(normalizeMetaEvents(entry([echo]), 'messenger')[0].acknowledgementOnly, false);
+});

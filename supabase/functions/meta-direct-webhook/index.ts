@@ -605,6 +605,28 @@ Deno.serve(async (request: Request) => {
         },
       });
 
+      // ── A like is recorded, never answered ───────────────────────────
+      // Stored above like any customer turn, so the Inbox and the agent's
+      // context both show it. Nothing after this point runs: no handoff
+      // decision, no allowance check, no AI call, no lead extraction. A 👍 at
+      // the end of a thread is the customer closing it; answering it is how a
+      // lead who had said goodbye got pitched a Discovery Flight (Skywake,
+      // 2026-09-25).
+      if (event.acknowledgementOnly) {
+        console.log(`[meta-direct] Like from ${event.senderId} in ${conversationId} — stored, not answered`);
+        if (event.messageId) {
+          await supabase
+            .from('wpm_webhook_events')
+            .update({
+              status: 'processed',
+              response_payload: { acknowledgement: true },
+              processed_at: new Date().toISOString(),
+            })
+            .eq('external_event_id', event.messageId);
+        }
+        continue;
+      }
+
       // ── Skip AI if a human has taken over this conversation ──────────
       // Unless the human has gone quiet: without this, one takeover silenced
       // the bot for that customer permanently and ghosted them.

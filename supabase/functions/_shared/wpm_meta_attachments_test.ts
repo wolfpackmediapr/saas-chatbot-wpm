@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { describeAttachments } from './wpm_meta_attachments.ts';
+import { describeAttachments, isAcknowledgementOnly } from './wpm_meta_attachments.ts';
 
 // Every fixture below is a real payload shape taken from wpm_webhook_events.
 
@@ -79,4 +79,36 @@ Deno.test('several shares in one delivery are all described', () => {
     ]),
     '[Shared an Instagram reel] first\n[Shared an Instagram reel] second',
   );
+});
+
+// Real payload: William Martinez's 👍 on Skywake's Messenger, 2026-09-25 14:46
+// (URL signature trimmed). Facebook sends the like as an IMAGE plus a duplicate
+// STICKER, both carrying the fixed like sticker id. It was stored as
+// "[Sent a photo]" and the agent pitched him a Discovery Flight.
+const MESSENGER_LIKE = [
+  { type: 'image', payload: { url: 'https://scontent.xx.fbcdn.net/v/t39.1997-6/39178562_1505197616293642_5411344281094848512_n.png', sticker_id: 369239263222822 } },
+  { type: 'sticker', payload: { url: 'https://scontent.xx.fbcdn.net/v/t39.1997-6/39178562_1505197616293642_5411344281094848512_n.png', sticker_id: 369239263222822 } },
+];
+
+Deno.test('a Messenger like is a 👍, not a photo — described once', () => {
+  assertEquals(describeAttachments(MESSENGER_LIKE), '[Sent a 👍]');
+  assertEquals(isAcknowledgementOnly(undefined, MESSENGER_LIKE), true);
+});
+
+Deno.test('the small and large like stickers and the Instagram heart are likes too', () => {
+  for (const sticker_id of [369239343222814, '369239383222810']) {
+    assertEquals(isAcknowledgementOnly(null, [{ type: 'image', payload: { url: 'x', sticker_id } }]), true);
+  }
+  assertEquals(isAcknowledgementOnly(null, [{ type: 'like_heart' }]), true);
+  assertEquals(describeAttachments([{ type: 'like_heart' }]), '[Sent a 👍]');
+});
+
+Deno.test('a real photo, another sticker, or a like WITH text is still answered', () => {
+  assertEquals(isAcknowledgementOnly(null, [{ type: 'image', payload: { url: 'https://example.com/photo.jpg' } }]), false);
+  assertEquals(describeAttachments([{ type: 'image', payload: { url: 'https://example.com/photo.jpg' } }]), '[Sent a photo]');
+  assertEquals(isAcknowledgementOnly(null, [{ type: 'image', payload: { url: 'x', sticker_id: 126361874215276 } }]), false);
+  assertEquals(isAcknowledgementOnly('¿Y cuánto cuesta?', MESSENGER_LIKE), false);
+  // A like next to a real photo is a photo: the photo still deserves an answer.
+  assertEquals(isAcknowledgementOnly(null, [...MESSENGER_LIKE, { type: 'image', payload: { url: 'https://example.com/p.jpg' } }]), false);
+  assertEquals(isAcknowledgementOnly(null, []), false);
 });
