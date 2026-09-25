@@ -183,6 +183,7 @@ export default function Inbox() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const sendInFlight = useRef(false);
   const [togglingHandoff, setTogglingHandoff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState(false); // mobile: show detail panel
@@ -412,6 +413,14 @@ export default function Inbox() {
   // ── Send human reply ───────────────────────────────────────────────────────
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedId || !supabase) return;
+    // One send at a time. The button is disabled while `sending`, but Enter
+    // is not, and the draft deliberately stays in the box until Meta confirms
+    // (~1.5s) — so a second Enter, or Enter then a tap on Send, delivered the
+    // same reply twice (Skywake → @fabiolugo6, 2026-09-25, two Send API ids
+    // 1.4s apart). A ref, not the `sending` state: state updates are async,
+    // so two events in the same tick would both still read `false`.
+    if (sendInFlight.current) return;
+    sendInFlight.current = true;
     setSending(true);
     setError(null);
     const text = replyText.trim();
@@ -442,11 +451,14 @@ export default function Inbox() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      sendInFlight.current = false;
       setSending(false);
     }
   };
 
   const handleReplyKeyDown = (e: React.KeyboardEvent) => {
+    // An Enter that confirms an autocorrect or IME composition is not a send.
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); }
   };
 

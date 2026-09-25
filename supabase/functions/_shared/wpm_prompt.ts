@@ -45,6 +45,38 @@ export interface WpmBotContext {
     title: string;
     content_text: string | null;
   }>;
+  /**
+   * What `wpm_leads` already holds for THIS conversation. The agent used to
+   * see only the last 12 turns, so in a long thread it could not know the
+   * customer had given their details, and even inside the window it re-asked
+   * whenever the topic changed. Optional: Agent Test has no conversation.
+   */
+  capturedLead?: {
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+    service_interest: string | null;
+  } | null;
+}
+
+/**
+ * Lists only the fields that are actually present. Returns null when nothing
+ * has been captured, so a conversation without a lead gets no section at all.
+ */
+export function buildCapturedDetailsText(lead: WpmBotContext['capturedLead']): string | null {
+  if (!lead) return null;
+  const lines = [
+    lead.full_name?.trim() ? `Name: ${lead.full_name.trim()}` : null,
+    lead.email?.trim() ? `Email: ${lead.email.trim()}` : null,
+    lead.phone?.trim() ? `Phone: ${lead.phone.trim()}` : null,
+    lead.service_interest?.trim() ? `Interested in: ${lead.service_interest.trim()}` : null,
+  ].filter(Boolean);
+  if (!lines.length) return null;
+  return (
+    'The team ALREADY HAS these details for this customer. Do not ask for any of them again (hard rule 13) — ' +
+    'use the name naturally, and if the customer asks, confirm the team has their information.\n' +
+    lines.join('\n')
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -60,20 +92,36 @@ function stringifyLeadFields(value: unknown): string {
   return String(value);
 }
 
+/**
+ * The language is a property of the CONVERSATION, not of the latest message.
+ *
+ * The rule used to say "detect the language the user wrote in", which the model
+ * applied to the newest turn alone. A turn with no language of its own — a name
+ * and phone number, an email, "Si", a photo — then carried no signal, so the
+ * business's own default (Skywake: "Default to Puerto Rican Spanish") won and
+ * an English conversation flipped to Spanish mid-thread (@fabiolugo6,
+ * 2026-09-25). The reverse happened too: a Spanish speaker's short English
+ * sign-off flipped the agent to English.
+ */
+const LANGUAGE_CONTINUITY =
+  'Decide the language from the WHOLE conversation, not from the latest message alone: keep replying in the language the customer has been writing in.\n' +
+  'A message with no language of its own does NOT change it — a name, a phone number, an email address, a date or time, "ok", "si", "yes", an emoji, a photo, a sticker, or a shared post.\n' +
+  'Switch language only when the customer writes a real sentence in the other language, or asks you to switch.\n' +
+  "Use a default language from the instructions above only while the conversation has no language yet.";
+
 function buildLanguageRule(responseLanguage: string): string | null {
   if (responseLanguage === 'English + Latin American Spanish') {
     return (
-      'Detect the language the user wrote in and respond ENTIRELY in that same language.\n' +
-      'If they write in Spanish, respond 100% in Spanish.\n' +
-      'If they write in English, respond 100% in English.\n' +
-      'NEVER mix languages in a single response.'
+      'Respond ENTIRELY in the language the customer is writing in — Spanish or English.\n' +
+      LANGUAGE_CONTINUITY +
+      '\nNEVER mix languages in a single response.'
     );
   }
   if (responseLanguage === 'Spanish only') {
     return 'Always respond in Spanish regardless of the language the user writes in.';
   }
   if (responseLanguage === 'Auto-detect') {
-    return "Detect the user's language from their message and respond in that same language.";
+    return "Respond in the customer's language.\n" + LANGUAGE_CONTINUITY;
   }
   return null; // English only — no special rule needed
 }
@@ -142,7 +190,8 @@ function buildGoalPlaybook(
     const fields = stringifyLeadFields(leadFields).trim();
     return (
       `Your primary goal is to collect ${fields || "the lead's name and email address"}.\n` +
-      'Do this naturally after establishing their interest. Never ask for all fields at once — work them into the conversation.'
+      'Do this naturally after establishing their interest. Never ask for all fields at once — work them into the conversation.\n' +
+      'Ask only for what is still missing. Once you have them, the goal is DONE for this customer — do not start collecting again (hard rule 13).'
     );
   }
   if (primaryGoal === 'Answer FAQs') {
@@ -269,6 +318,7 @@ function buildHardRules(
         websiteUrl?.trim() ? ` You may also share this business's own website, ${websiteUrl.trim()}, when it genuinely helps.` : ''
       } Otherwise do not share a link: never invent one, never treat a link the CUSTOMER pasted as this business's own, and never use a link from anywhere else. With no link to give, collect their name and email and tell them the team will follow up.`,
     '12. Write PLAIN TEXT only. Instagram and Messenger do not render markdown, so a customer sees the raw characters. Never use square-bracket links, bold or italic asterisks, backticks, or headings. To share a link, write the bare URL on its own — "Book here: https://example.com/x", never "[Book here](https://example.com/x)".',
+    '13. NEVER ask the customer again for a detail they have already given — their name, email, phone, what they are interested in, or their availability — whether it appears earlier in this conversation or under "Details Already Collected". This outranks every instruction to collect contact information. A new topic or a different service in the same conversation is NOT a new lead: the team already has their details. Once the details are in, stop collecting and simply confirm the team will follow up; you may still ask for a detail that is genuinely missing, once.',
   ];
 
   const parts: string[] = [...baseRules];
@@ -454,6 +504,9 @@ export function buildWpmSystemPrompt(context: WpmBotContext): string {
     instructions?.business_summary ? section('Business Context & Background', instructions.business_summary) : null,
     instructions?.faq_instructions ? section('FAQ / Operating Instructions', instructions.faq_instructions) : null,
     leadQualSection ? section('Lead Qualification', leadQualSection) : null,
+    // After every "collect" instruction, so the last word before the hard
+    // rules is what is already known rather than what to ask for.
+    section('Details Already Collected', buildCapturedDetailsText(context.capturedLead)),
     section('HARD RULES — Never Say or Do (Strictly Enforced)', hardRules),
     knowledgeSection ? section('Knowledge Base', knowledgeSection) : null,
   ];
