@@ -711,3 +711,46 @@ Deno.test('"soy" is not an introduction — it would invent more names than it f
     assertEquals(name === 'De' || name === 'Piloto', false, `${inboundText} -> ${name}`);
   }
 });
+
+// Regression guard, 2026-09-25 (@julio_casas7, Skywake): the lead was stored
+// and alerted as "Casas Rivera- PPL". The capitalised-run patterns used
+// `[A-Z]`, which does not match "Á", so "Julio Ángel" was invisible to them;
+// and a word could end on a hyphen, so "Rivera-" ran on into the acronym "PPL".
+Deno.test('an accented capital starts a name, and a trailing hyphen ends it', () => {
+  const lead = extractLeadFromConversationText({
+    inboundText: 'Julio Ángel Casas Rivera- PPL me faltan como 20 horas para terminar mi PPL y los exámenes',
+    previousInboundText: 'Vía mensaje WhatsApp 787-624-3887',
+    sourceChannel: 'instagram',
+    threadIdentity: { externalUserId: 'provider-user-123' },
+  });
+
+  assertEquals(lead.fullName, 'Julio Ángel Casas Rivera');
+  assertEquals(lead.phone, '787-624-3887');
+});
+
+Deno.test('names that open with an accented capital are found beside contact details', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Ángel Rodríguez angel@example.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Ángel Rodríguez',
+  );
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'mi correo es Óscar oscar@example.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Óscar',
+  );
+});
+
+Deno.test('a real hyphenated surname is kept whole', () => {
+  assertEquals(
+    extractLeadFromConversationText({
+      inboundText: 'Maria Pérez-Ortiz maria@example.com',
+      sourceChannel: 'instagram',
+    }).fullName,
+    'Maria Pérez-Ortiz',
+  );
+});
