@@ -102,8 +102,65 @@ Deno.test('buildWpmSystemPrompt includes the Business Profile fields the agent i
 Deno.test('buildWpmSystemPrompt turns the bilingual setting into a no-mixing language rule', () => {
   const prompt = buildWpmSystemPrompt(context);
 
-  assertStringIncludes(prompt, 'respond ENTIRELY in that same language');
+  assertStringIncludes(prompt, 'Respond ENTIRELY in the language the customer is writing in');
   assertStringIncludes(prompt, 'NEVER mix languages in a single response.');
+});
+
+// Regression guard, 2026-09-25 (@fabiolugo6, Skywake): an English conversation
+// flipped to Spanish when the customer sent only "Fabio Lugo / 787 709-8391",
+// because the rule judged the latest message alone and that message carried
+// no language. The language must belong to the conversation.
+Deno.test('the language rule follows the conversation, not a message with no language of its own', () => {
+  for (const response_language of ['English + Latin American Spanish', 'Auto-detect']) {
+    const prompt = buildWpmSystemPrompt({
+      ...context,
+      instructions: { ...context.instructions!, response_language },
+    });
+    assertStringIncludes(prompt, 'from the WHOLE conversation, not from the latest message alone');
+    assertStringIncludes(prompt, 'a name, a phone number, an email address');
+    assertStringIncludes(prompt, 'only while the conversation has no language yet');
+    assertEquals(prompt.includes('Detect the language the user wrote in'), false);
+  }
+});
+
+// Regression guard, 2026-09-25: Skywake's agent asked for contact details again
+// after the lead was captured in 5 of 8 converted threads — Fabio gave his email
+// at 16:45:57 and was asked for it at 16:48:03.
+Deno.test('hard rule 13 forbids asking again for a detail the customer already gave', () => {
+  const prompt = buildWpmSystemPrompt(context);
+  assertStringIncludes(prompt, '13. NEVER ask the customer again for a detail they have already given');
+  assertStringIncludes(prompt, 'A new topic or a different service in the same conversation is NOT a new lead');
+});
+
+Deno.test('captured lead details reach the prompt, and only the fields that exist', () => {
+  const prompt = buildWpmSystemPrompt({
+    ...context,
+    capturedLead: { full_name: 'Fabio Lugo', email: 'fabio@example.com', phone: '787 709-8391', service_interest: null },
+  });
+  assertStringIncludes(prompt, '## Details Already Collected');
+  assertStringIncludes(prompt, 'Name: Fabio Lugo');
+  assertStringIncludes(prompt, 'Email: fabio@example.com');
+  assertStringIncludes(prompt, 'Phone: 787 709-8391');
+  assertEquals(prompt.includes('Interested in:'), false);
+  // It must sit after every "collect" instruction and before the hard rules.
+  const at = prompt.indexOf('## Details Already Collected');
+  assertEquals(at > prompt.indexOf('## Lead Qualification'), true);
+  assertEquals(at < prompt.indexOf('## HARD RULES'), true);
+});
+
+Deno.test('no captured lead means no Details Already Collected section', () => {
+  for (const capturedLead of [undefined, null, { full_name: null, email: '  ', phone: null, service_interest: null }]) {
+    const prompt = buildWpmSystemPrompt({ ...context, capturedLead });
+    assertEquals(prompt.includes('## Details Already Collected'), false);
+  }
+});
+
+Deno.test('the lead-capture goal stops once the details are in', () => {
+  const prompt = buildWpmSystemPrompt({
+    ...context,
+    instructions: { ...context.instructions!, primary_goal: 'Collect contact info / lead capture' },
+  });
+  assertStringIncludes(prompt, 'Ask only for what is still missing');
 });
 
 Deno.test('buildWpmSystemPrompt offers the booking link when the goal needs one', () => {

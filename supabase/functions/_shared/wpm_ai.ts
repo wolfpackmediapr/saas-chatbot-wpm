@@ -172,6 +172,19 @@ export async function loadWpmBotContext(
 
   if (knowledgeError) return { ok: false, error: knowledgeError.message };
 
+  // What the team already has for this customer, so the agent stops asking for
+  // it again (hard rule 13). Best-effort: a failed read must never cost the
+  // customer their reply, but it must be loud.
+  const { data: leadData, error: leadError } = await supabase
+    .from('wpm_leads')
+    .select('full_name, email, phone, service_interest')
+    .eq('conversation_id', conversation.id)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (leadError) console.warn(`[wpm_ai] captured-lead lookup failed for ${conversation.id}: ${leadError.message}`);
+
   const { data: messagesData, error: messagesError } = await supabase
     .from('wpm_messages')
     .select('role, content, created_at, provider_message_id, metadata')
@@ -206,6 +219,7 @@ export async function loadWpmBotContext(
       botProfile,
       instructions: instructionsData as InstructionRow | null,
       knowledge: (knowledgeData ?? []) as KnowledgeRow[],
+      capturedLead: leadError ? null : (leadData as WpmBotContext['capturedLead']) ?? null,
     },
     recentMessages,
     conversation: {
