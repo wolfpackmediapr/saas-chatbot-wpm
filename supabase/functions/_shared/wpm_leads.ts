@@ -224,15 +224,21 @@ function extractName(text: string): string | null {
   const fromBlock = nameFromDetailsBlock(text);
   if (fromBlock) return fromBlock;
 
+  // Every capitalised-word pattern below starts at `\p{Lu}`, not `[A-Z]`, and
+  // a hyphen must be followed by a letter. `[A-Z]` does not match "Á", so
+  // "Julio Ángel Casas Rivera- PPL" hid its first two names from every
+  // pattern, and a word allowed to END on a hyphen ran "Rivera-" on into the
+  // acronym "PPL" — a real Skywake lead was alerted as "Casas Rivera- PPL"
+  // (2026-09-25). "Pérez-Ortiz" still matches as one word.
   // Bare answer: capitalised words immediately before or after an email.
   // The lookahead stops the greedy capture from swallowing the start of the
   // email itself: "Smithweson\nMindsethubpr@gmail.com" otherwise yields the
   // name "Williamson Smithweson Mindsethubp", with the stray "r@" left to match
   // the address.
   const beside = text.match(
-    /([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})(?![\w.+-]*@)\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
+    /(\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*(?:\s+\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*){1,3})(?![\w.+-]*@)\s*[,;]?\s*[\w.+-]+@[\w.-]+\.\w+/u,
   ) ?? text.match(
-    /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*([A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3})/u,
+    /[\w.+-]+@[\w.-]+\.\w+\s*[,;]?\s*(\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*(?:\s+\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*){1,3})/u,
   );
   if (beside && looksLikeName(beside[1])) return titleCase(nameFrom(beside[1]));
 
@@ -244,7 +250,7 @@ function extractName(text: string): string | null {
   // contact details is the signal, exactly as it is inside a details block.
   // The lookahead keeps the capture out of the address itself.
   const adjacent = text.match(
-    /([A-Z][\p{L}'\-]+)(?![\w.+-]*@)\s*[,;:]?\s*(?:[\w.+-]+@[\w.-]+\.\w+|\+?\d[\d().\-\s]{6,}\d)/u,
+    /(\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*)(?![\w.+-]*@)\s*[,;:]?\s*(?:[\w.+-]+@[\w.-]+\.\w+|\+?\d[\d().\-\s]{6,}\d)/u,
   );
   if (adjacent) {
     const parts = trimFiller(adjacent[1]);
@@ -252,7 +258,7 @@ function extractName(text: string): string | null {
   }
 
   // Otherwise the first run of capitalised words that reads like a full name.
-  for (const candidate of text.match(/[A-Z][\p{L}'\-]+(?:\s+[A-Z][\p{L}'\-]+){1,3}/gu) ?? []) {
+  for (const candidate of text.match(/\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*(?:\s+\p{Lu}[\p{L}']+(?:-\p{L}[\p{L}']*)*){1,3}/gu) ?? []) {
     if (looksLikeName(candidate)) return titleCase(nameFrom(candidate));
   }
 
