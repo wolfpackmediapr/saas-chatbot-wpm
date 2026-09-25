@@ -8,7 +8,7 @@
  * echo defect below shipped untested and sat open for six days.
  */
 
-import { describeAttachments } from './wpm_meta_attachments.ts';
+import { describeAttachments, isAcknowledgementOnly } from './wpm_meta_attachments.ts';
 
 /**
  * What to record for an echo we cannot read.
@@ -59,6 +59,7 @@ export interface MetaMessageEvent {
       payload?: {
         url?: string;
         title?: string;
+        sticker_id?: number | string;
         generic?: { elements?: unknown[] };
       };
     }>;
@@ -109,6 +110,12 @@ export interface NormalizedMetaPayload {
    * The caller is responsible for de-duplicating the former by message id.
    */
   isEcho: boolean;
+  /**
+   * The customer sent ONLY a like (👍 on Messenger, ❤ on Instagram). The
+   * caller stores it — it belongs in the Inbox and in the agent's context —
+   * and does not reply. See isAcknowledgementOnly.
+   */
+  acknowledgementOnly: boolean;
 }
 
 export function normalizeMetaEvents(
@@ -133,6 +140,7 @@ export function normalizeMetaEvents(
     let messageId: string | null = null;
     let rawEventType = 'unknown';
     let attachments: Array<{ type: string; url: string | null }> = [];
+    let acknowledgementOnly = false;
 
     if (event.message) {
       text = event.message.text ?? null;
@@ -142,6 +150,7 @@ export function normalizeMetaEvents(
         type: a.type ?? 'attachment',
         url: a.payload?.url ?? null,
       }));
+      acknowledgementOnly = !isEcho && isAcknowledgementOnly(event.message.text, event.message.attachments ?? []);
       // Attachment-only messages (images, audio, shares, story replies) must
       // still reach the pipeline so the conversation is logged and answered.
       if (!text && attachments.length > 0) {
@@ -170,6 +179,7 @@ export function normalizeMetaEvents(
       rawEventType,
       timestamp: event.timestamp ?? Date.now(),
       isEcho,
+      acknowledgementOnly,
     });
   }
 

@@ -23,12 +23,55 @@ const MAX_SHARED_CAPTION = 1200;
  * records it as `ignored` instead of paying for a completion that answers
  * nothing.
  */
+type MetaAttachment = {
+  type: string;
+  payload?: { url?: string; title?: string; sticker_id?: number | string; generic?: { elements?: unknown[] } };
+};
+
+/**
+ * Messenger's thumbs-up. Pressing the like button sends Facebook's fixed like
+ * sticker — small, medium and large are three ids — as an attachment of type
+ * `image` (plus a duplicate of type `sticker`). Read by type alone it is "a
+ * photo", and hard rule 9 tells the agent a shared photo is interest: a lead
+ * who had already said goodbye got a Discovery Flight pitch in reply to his 👍
+ * (Skywake, 2026-09-24 and 09-25, sticker 369239263222822 both times).
+ */
+export const LIKE_STICKER_IDS = new Set(['369239263222822', '369239343222814', '369239383222810']);
+
+/**
+ * A like: Messenger's like sticker, or Instagram's quick-like heart
+ * (`like_heart`, Meta's documented type — never yet observed on our pages).
+ */
+export function isLikeAttachment(attachment: MetaAttachment): boolean {
+  if (attachment.type === 'like_heart') return true;
+  const stickerId = attachment.payload?.sticker_id;
+  return stickerId !== undefined && stickerId !== null && LIKE_STICKER_IDS.has(String(stickerId));
+}
+
+/**
+ * True when a delivery is ONLY a like — an acknowledgement, not a message.
+ * The caller records it and does not answer: a thumbs-up at the end of a
+ * thread is the customer closing it, and any reply re-opens it.
+ */
+export function isAcknowledgementOnly(text: string | null | undefined, attachments: MetaAttachment[]): boolean {
+  if (text?.trim()) return false;
+  return attachments.length > 0 && attachments.every(isLikeAttachment);
+}
+
 export function describeAttachments(
-  attachments: Array<{ type: string; payload?: { url?: string; title?: string; generic?: { elements?: unknown[] } } }>,
+  attachments: MetaAttachment[],
 ): string | null {
   const parts: string[] = [];
+  let likeDescribed = false;
 
   for (const attachment of attachments) {
+    // Before the type switch: a like arrives typed as `image`.
+    if (isLikeAttachment(attachment)) {
+      if (!likeDescribed) parts.push('[Sent a 👍]'); // image + sticker are ONE like
+      likeDescribed = true;
+      continue;
+    }
+
     const title = attachment.payload?.title?.trim();
     const caption = title ? ` ${title.slice(0, MAX_SHARED_CAPTION)}` : '';
 
